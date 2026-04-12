@@ -6,19 +6,16 @@
 //   2) Score gap nodes using weighted spatial factors
 //   3) Run a simple probabilistic attention loop over scored gaps
 //
-// This keeps behavior emergent (scan/guard/re-check/peek) without hardcoding
-// per-map scripts.
+// Geometric scanning (ray casting, sector clustering) lives in `spatial`.
+// This module owns only the search state machine and scoring logic.
 // ─────────────────────────────────────────────────────────────────────────────
 
-use crate::core::world::ray::{cast_ray, wrap_angle};
+use crate::core::world::spatial::{self, SCAN_RANGE, SCAN_SECTORS};
+use crate::core::world::ray::wrap_angle;
 use crate::core::world::wall::Wall;
 use std::f32::consts::PI;
 
 const ARRIVE_RADIUS: f32 = 28.0;
-const SCAN_RANGE: f32 = 230.0;
-const SCAN_SECTORS: usize = 36;
-const GAP_OPEN_HIT: f32 = SCAN_RANGE * 0.70;
-const GAP_SIDE_BLOCK_HIT: f32 = SCAN_RANGE * 0.50;
 const ENV_REBUILD_DIST: f32 = 12.0;
 const LOOK_TURN_SPEED: f32 = 4.8;
 const BASE_ATTENTION_TIME: f32 = 0.95;
@@ -162,6 +159,40 @@ impl SearchPlanner {
         self.phase == Phase::Done
     }
 
+    pub fn phase_name(&self) -> &'static str {
+        match self.phase {
+            Phase::MovingToLastKnown => "MovingToLast",
+            Phase::Scanning => "Scanning",
+            Phase::HoldingGap => "HoldingGap",
+            Phase::ReturningToAnchor => "Returning",
+            Phase::Done => "Done",
+        }
+    }
+
+    pub fn spawn_anchor(&self) -> (f32, f32) {
+        self.spawn_anchor
+    }
+
+    /// Compute gap waypoint positions the same way `build_spatial_graph` does,
+    /// for use by the debug renderer (no state is mutated).
+    pub fn compute_gaps_debug(&self, pos: (f32, f32), walls: &[Wall]) -> Vec<(f32, f32)> {
+        let hits = spatial::sample_sector_hits(pos, walls);
+        let candidate = spatial::detect_gap_sectors(&hits);
+        let clusters = spatial::cluster_gap_sectors(&candidate);
+        clusters
+            .iter()
+            .map(|cluster| {
+                let center_idx = spatial::cluster_center_idx(cluster, &hits);
+                let center_angle = spatial::sector_center_angle(center_idx);
+                let dir = (center_angle.cos(), center_angle.sin());
+                let cluster_hit_avg =
+                    cluster.iter().map(|i| hits[*i]).sum::<f32>() / cluster.len() as f32;
+                let travel = (cluster_hit_avg * 0.58).clamp(44.0, SCAN_RANGE * 0.82);
+                (pos.0 + dir.0 * travel, pos.1 + dir.1 * travel)
+            })
+            .collect()
+    }
+
     pub fn update(
         &mut self,
         pos: (f32, f32),
@@ -188,7 +219,7 @@ impl SearchPlanner {
         }
 
         if self.calm_timer >= DONE_AFTER_CALM
-            && self.distance(pos, self.spawn_anchor) <= ARRIVE_RADIUS
+            && spatial::distance(pos, self.spawn_anchor) <= ARRIVE_RADIUS
             && self.phase != Phase::MovingToLastKnown
         {
             self.phase = Phase::Done;
@@ -210,7 +241,7 @@ impl SearchPlanner {
         };
 
         let smooth_look =
-            self.step_angle(self.approach_dir, decision.look_dir, LOOK_TURN_SPEED * dt);
+            spatial::step_angle(self.approach_dir, decision.look_dir, LOOK_TURN_SPEED * dt);
         self.approach_dir = smooth_look;
         SearchDecision {
             move_target: decision.move_target,
@@ -247,7 +278,7 @@ impl SearchPlanner {
         walls: &[Wall],
         dt: f32,
     ) -> SearchDecision {
-        let moved_from_env_anchor = self.distance(pos, self.env_anchor);
+        let moved_from_env_anchor = spatial::distance(pos, self.env_anchor);
         if !self.env_ready || moved_from_env_anchor > ENV_REBUILD_DIST {
             self.env_anchor = pos;
             self.env_ready = true;
@@ -260,7 +291,7 @@ impl SearchPlanner {
         let mut evals = self.score_gaps(&graph, pos, suspicion, last_known);
 
         if evals.is_empty() {
-            if self.distance(pos, self.spawn_anchor) > MAX_SPAWN_DRIFT * 0.7 {
+            if spatial::distance(pos, self.spawn_anchor) > MAX_SPAWN_DRIFT * 0.7 {
                 self.phase = Phase::ReturningToAnchor;
                 return self.tick_return_to_anchor(pos, last_known, suspicion, walls, dt);
             }
@@ -322,7 +353,7 @@ impl SearchPlanner {
 
         let threshold = self.move_threshold(suspicion);
         if current.score >= threshold {
-            let gap_dist = self.distance(pos, current.pos);
+            let gap_dist = spatial::distance(pos, current.pos);
             if gap_dist > ARRIVE_RADIUS {
                 self.phase = Phase::HoldingGap;
                 self.hold_timer = current.attention_time.max(HOLD_MIN_TIME);
@@ -335,7 +366,7 @@ impl SearchPlanner {
             self.hold_timer = current.attention_time.max(HOLD_MIN_TIME);
         }
 
-        if self.distance(pos, self.spawn_anchor) > MAX_SPAWN_DRIFT
+        if spatial::distance(pos, self.spawn_anchor) > MAX_SPAWN_DRIFT
             && current.score < RETURN_FOCUS_SCORE
         {
             self.phase = Phase::ReturningToAnchor;
@@ -365,7 +396,7 @@ impl SearchPlanner {
 
         let look = (current.pos.1 - pos.1).atan2(current.pos.0 - pos.0);
         let threshold = self.move_threshold(suspicion);
-        let dist = self.distance(pos, current.pos);
+        let dist = spatial::distance(pos, current.pos);
 
         if dist > ARRIVE_RADIUS && current.score >= threshold {
             return SearchDecision {
@@ -379,7 +410,7 @@ impl SearchPlanner {
             self.phase = Phase::Scanning;
         }
 
-        if self.distance(pos, self.spawn_anchor) > MAX_SPAWN_DRIFT
+        if spatial::distance(pos, self.spawn_anchor) > MAX_SPAWN_DRIFT
             && current.score < RETURN_FOCUS_SCORE
         {
             self.phase = Phase::ReturningToAnchor;
@@ -433,13 +464,13 @@ impl SearchPlanner {
     }
 
     fn build_spatial_graph(&self, pos: (f32, f32), walls: &[Wall]) -> SpatialGraph {
-        let hits = self.sample_sector_hits(pos, walls);
-        let candidate = self.detect_gap_sectors(&hits);
-        let clusters = self.cluster_gap_sectors(&candidate);
+        let hits = spatial::sample_sector_hits(pos, walls);
+        let candidate = spatial::detect_gap_sectors(&hits);
+        let clusters = spatial::cluster_gap_sectors(&candidate);
 
         let avg_hit = hits.iter().sum::<f32>() / SCAN_SECTORS as f32;
         let room_depth = self
-            .normalized(self.distance(pos, self.spawn_anchor), SCAN_RANGE * 1.4)
+            .normalized(spatial::distance(pos, self.spawn_anchor), SCAN_RANGE * 1.4)
             .mul_add(6.0, 0.0)
             .round() as u8;
         let room_danger = self.danger_history.iter().sum::<f32>() / SCAN_SECTORS as f32;
@@ -454,8 +485,8 @@ impl SearchPlanner {
         let mut gaps = Vec::with_capacity(clusters.len());
         let mut edges = Vec::with_capacity(clusters.len());
         for (id, cluster) in clusters.iter().enumerate() {
-            let center_idx = self.cluster_center_idx(cluster, &hits);
-            let center_angle = self.sector_center_angle(center_idx);
+            let center_idx = spatial::cluster_center_idx(cluster, &hits);
+            let center_angle = spatial::sector_center_angle(center_idx);
             let dir = (center_angle.cos(), center_angle.sin());
             let cluster_hit_avg =
                 cluster.iter().map(|i| hits[*i]).sum::<f32>() / cluster.len() as f32;
@@ -475,7 +506,7 @@ impl SearchPlanner {
                 id,
                 sector: center_idx,
                 pos: gap_pos,
-                distance_from_enemy: self.distance(pos, gap_pos),
+                distance_from_enemy: spatial::distance(pos, gap_pos),
                 connected_rooms_count: connected,
                 depth_to_other_rooms: depth,
                 choke_score: choke,
@@ -547,7 +578,7 @@ impl SearchPlanner {
                 + edge_connectivity_norm * 0.05
                 + room_bonus;
             let anchor_penalty = ANCHOR_LAMBDA
-                * self.normalized(self.distance(gap.pos, self.spawn_anchor), SCAN_RANGE * 1.7);
+                * self.normalized(spatial::distance(gap.pos, self.spawn_anchor), SCAN_RANGE * 1.7);
             let memory_boost = self.gap_memory_boost(gap, enemy_pos, last_known);
             let score = (base + memory_boost - anchor_penalty).max(0.0);
 
@@ -573,67 +604,6 @@ impl SearchPlanner {
         }
 
         out
-    }
-
-    fn sample_sector_hits(&self, pos: (f32, f32), walls: &[Wall]) -> [f32; SCAN_SECTORS] {
-        let mut hits = [0.0; SCAN_SECTORS];
-        for (i, slot) in hits.iter_mut().enumerate() {
-            let angle = self.sector_center_angle(i);
-            let dir = (angle.cos(), angle.sin());
-            *slot = cast_ray(pos, dir, SCAN_RANGE, walls);
-        }
-        hits
-    }
-
-    fn detect_gap_sectors(&self, hits: &[f32; SCAN_SECTORS]) -> [bool; SCAN_SECTORS] {
-        let mut candidate = [false; SCAN_SECTORS];
-        for i in 0..SCAN_SECTORS {
-            let l = hits[(i + SCAN_SECTORS - 1) % SCAN_SECTORS];
-            let c = hits[i];
-            let r = hits[(i + 1) % SCAN_SECTORS];
-            let side_blocked = l < GAP_SIDE_BLOCK_HIT || r < GAP_SIDE_BLOCK_HIT;
-            let sudden_open = c > l + 32.0 || c > r + 32.0;
-            candidate[i] = c >= GAP_OPEN_HIT && side_blocked && sudden_open;
-        }
-        candidate
-    }
-
-    fn cluster_gap_sectors(&self, candidate: &[bool; SCAN_SECTORS]) -> Vec<Vec<usize>> {
-        let mut clusters = Vec::new();
-        let mut i = 0;
-        while i < SCAN_SECTORS {
-            if !candidate[i] {
-                i += 1;
-                continue;
-            }
-            let mut cluster = Vec::new();
-            while i < SCAN_SECTORS && candidate[i] {
-                cluster.push(i);
-                i += 1;
-            }
-            clusters.push(cluster);
-        }
-
-        if clusters.len() >= 2 && candidate[0] && candidate[SCAN_SECTORS - 1] {
-            let mut tail = clusters.pop().unwrap_or_default();
-            let mut head = clusters.remove(0);
-            tail.append(&mut head);
-            clusters.insert(0, tail);
-        }
-
-        clusters
-    }
-
-    fn cluster_center_idx(&self, cluster: &[usize], hits: &[f32; SCAN_SECTORS]) -> usize {
-        let mut best = cluster[0];
-        let mut best_hit = hits[best];
-        for &idx in cluster.iter().skip(1) {
-            if hits[idx] > best_hit {
-                best = idx;
-                best_hit = hits[idx];
-            }
-        }
-        best
     }
 
     fn gap_memory_boost(
@@ -673,7 +643,7 @@ impl SearchPlanner {
 
         if suspicion > self.prev_suspicion + 0.012 {
             let dir = (last_known.1 - pos.1).atan2(last_known.0 - pos.0);
-            let center = self.angle_to_sector(dir);
+            let center = spatial::angle_to_sector(dir);
             let gain = 0.38 + suspicion.clamp(0.0, 1.0) * 0.35;
             self.register_threat(center, dir, gain);
             self.register_threat((center + 1) % SCAN_SECTORS, dir, gain * 0.42);
@@ -702,16 +672,7 @@ impl SearchPlanner {
         evals.iter().find(|e| e.gap_id == id)
     }
 
-    fn sector_center_angle(&self, idx: usize) -> f32 {
-        let span = (2.0 * PI) / SCAN_SECTORS as f32;
-        wrap_angle(-PI + span * (idx as f32 + 0.5))
-    }
-
-    fn angle_to_sector(&self, angle: f32) -> usize {
-        let t = ((wrap_angle(angle) + PI) / (2.0 * PI)).clamp(0.0, 1.0);
-        let idx = (t * SCAN_SECTORS as f32).floor() as usize;
-        idx.min(SCAN_SECTORS - 1)
-    }
+    // ── local math utilities ─────────────────────────────────────────────────
 
     fn normalized(&self, v: f32, max: f32) -> f32 {
         if max <= 0.0 {
@@ -730,18 +691,5 @@ impl SearchPlanner {
             0.25
         };
         (MOVE_SCORE_THRESHOLD - effort * 0.10).clamp(0.45, MOVE_SCORE_THRESHOLD)
-    }
-
-    fn distance(&self, a: (f32, f32), b: (f32, f32)) -> f32 {
-        (a.0 - b.0).hypot(a.1 - b.1)
-    }
-
-    fn step_angle(&self, from: f32, to: f32, max_step: f32) -> f32 {
-        let delta = wrap_angle(to - from);
-        if delta.abs() <= max_step {
-            wrap_angle(to)
-        } else {
-            wrap_angle(from + delta.signum() * max_step)
-        }
     }
 }

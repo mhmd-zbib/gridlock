@@ -3,6 +3,7 @@ use super::entity::enemy::Enemy;
 use super::entity::player::Player;
 use super::spawn::{SpawnQueue, SpawnRequest};
 use super::world::level::LevelData;
+use super::world::rooms::LevelRooms;
 use super::world::wall::{self, Wall};
 use crate::input::InputState;
 
@@ -14,6 +15,7 @@ pub struct Game {
     pub enemies: Vec<Enemy>,
     pub bullets: Vec<Bullet>,
     pub walls: Vec<Wall>,
+    pub rooms: LevelRooms,
     spawn_queue: SpawnQueue,
 }
 
@@ -24,11 +26,12 @@ impl Game {
             enemies: vec![Enemy::new(100.0, 100.0), Enemy::new(700.0, 500.0)],
             bullets: Vec::new(),
             walls: Vec::new(),
+            rooms: LevelRooms::default(),
             spawn_queue: SpawnQueue::default(),
         }
     }
 
-    pub fn load_level(&mut self, level: &LevelData) {
+    pub fn load_level(&mut self, level: &LevelData, level_width: f32, level_height: f32) {
         self.player = match level.player_spawn {
             Some(sp) => Player::new(sp.x, sp.y),
             None => Player::new(400.0, 300.0),
@@ -37,10 +40,17 @@ impl Game {
         self.walls = level.walls.clone();
         self.bullets = Vec::new();
         self.spawn_queue = SpawnQueue::default();
+        
+        // Compute rooms and gaps ONCE at level load (cached for debug rendering)
+        self.rooms = LevelRooms::compute(&self.walls, level_width, level_height);
+        
         println!(
-            "[game] level loaded  enemies={}  walls={}",
+            "[game] level loaded  enemies={}  walls={}  rooms={}  gaps={}  outside_cells={}",
             self.enemies.len(),
-            self.walls.len()
+            self.walls.len(),
+            self.rooms.rooms.len(),
+            self.rooms.gaps.len(),
+            self.rooms.outside_cells
         );
     }
 

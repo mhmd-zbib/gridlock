@@ -23,6 +23,7 @@ pub struct InputState {
     // Editor
     pub f1: bool,    // toggle editor mode
     pub f5: bool,    // save level
+    pub f8: bool,    // toggle debug overlay
     pub key_1: bool, // tool: player spawn
     pub key_2: bool, // tool: enemy
     pub key_3: bool, // tool: wall
@@ -90,6 +91,7 @@ impl InputHandler {
                 NamedKey::Enter => self.state.enter = pressed,
                 NamedKey::F1 => self.state.f1 = pressed,
                 NamedKey::F5 => self.state.f5 = pressed,
+                NamedKey::F8 => self.state.f8 = pressed,
                 other => {
                     let _ = other;
                     return;
