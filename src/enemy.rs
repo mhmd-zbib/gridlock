@@ -58,7 +58,7 @@ impl Enemy {
             self.alert_timer = ALERT_DURATION;
 
             // Face and move toward player.
-            self.sight.face(from, player_pos);
+            self.sight.face(from, player_pos, dt);
             self.base_dir = self.sight.direction;
 
             let dx = player_pos.0 - from.0;

@@ -30,7 +30,7 @@ impl Player {
         // Sight always points toward the mouse cursor.
         let from = (self.movement.x, self.movement.y);
         let to   = (input.mouse_x as f32, input.mouse_y as f32);
-        self.sight.face(from, to);
+        self.sight.face(from, to, dt);
 
         // Shoot once per press, aimed at cursor.
         let just_pressed = input.shoot && !self.was_shooting;

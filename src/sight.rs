@@ -13,6 +13,8 @@ pub struct Sight {
     pub range:         f32,
     /// Radius of the always-visible bubble around the entity.
     pub circle_radius: f32,
+    /// Maximum rotation speed in radians per second.
+    pub turn_speed:    f32,
 }
 
 impl Sight {
@@ -22,6 +24,7 @@ impl Sight {
             half_angle:    40_f32.to_radians(),
             range:         320.0,
             circle_radius: 80.0,
+            turn_speed:    12.0,
         }
     }
 
@@ -31,15 +34,23 @@ impl Sight {
             half_angle:    38_f32.to_radians(),
             range:         260.0,
             circle_radius: 60.0,
+            turn_speed:    6.0,
         }
     }
 
-    /// Rotate to face `to` from `from`.  No-op if the points are the same.
-    pub fn face(&mut self, from: (f32, f32), to: (f32, f32)) {
+    /// Smoothly rotate to face `to` from `from` using `turn_speed`.
+    pub fn face(&mut self, from: (f32, f32), to: (f32, f32), dt: f32) {
         let dx = to.0 - from.0;
         let dy = to.1 - from.1;
         if dx * dx + dy * dy > 0.01 {
-            self.direction = dy.atan2(dx);
+            let target = dy.atan2(dx);
+            let diff   = wrap_angle(target - self.direction);
+            let step   = self.turn_speed * dt;
+            if diff.abs() <= step {
+                self.direction = target;
+            } else {
+                self.direction += step * diff.signum();
+            }
         }
     }
 
@@ -67,14 +78,46 @@ impl Sight {
         has_los(from, target, walls)
     }
 
-    /// Cast `n_rays` evenly across the cone and return the arc endpoint
-    /// of each ray (wall-clipped).  The first element is at
-    /// `direction - half_angle`, the last at `direction + half_angle`.
+    /// Cast rays across the cone and return the arc endpoints (wall-clipped).
+    ///
+    /// Uniform samples are supplemented with rays aimed at each wall corner
+    /// (± a tiny epsilon) so shadow edges always snap to geometry and don't
+    /// jiggle as the player moves.
     pub fn cone_arc_pts(&self, origin: (f32, f32), walls: &[Wall], n_rays: usize) -> Vec<[f32; 2]> {
-        (0..=n_rays)
+        // Work in relative-angle space so wrapping is handled cleanly.
+        let mut rel: Vec<f32> = (0..=n_rays)
             .map(|i| {
-                let t     = i as f32 / n_rays as f32;
-                let angle = self.direction - self.half_angle + t * self.half_angle * 2.0;
+                let t = i as f32 / n_rays as f32;
+                -self.half_angle + t * self.half_angle * 2.0
+            })
+            .collect();
+
+        // Add corner angles for every wall that falls inside the cone.
+        const EPS: f32 = 0.0002;
+        for w in walls {
+            for &(cx, cy) in &[
+                (w.x,         w.y        ),
+                (w.x + w.w,   w.y        ),
+                (w.x,         w.y + w.h  ),
+                (w.x + w.w,   w.y + w.h  ),
+            ] {
+                let dx = cx - origin.0;
+                let dy = cy - origin.1;
+                if dx * dx + dy * dy < 1.0 { continue; }
+                let r = wrap_angle(dy.atan2(dx) - self.direction);
+                if r.abs() < self.half_angle {
+                    rel.push(r - EPS);
+                    rel.push(r);
+                    rel.push(r + EPS);
+                }
+            }
+        }
+
+        rel.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+
+        rel.iter()
+            .map(|&r| {
+                let angle = self.direction + r.clamp(-self.half_angle, self.half_angle);
                 let dir   = (angle.cos(), angle.sin());
                 let dist  = cast_ray(origin, dir, self.range, walls);
                 [origin.0 + dir.0 * dist, origin.1 + dir.1 * dist]
