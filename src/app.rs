@@ -360,7 +360,7 @@ fn play_texts(sw: f32, sh: f32, game: &Game, debug: bool) -> Vec<TextSection> {
         ts!(
             8.0,
             6.0,
-            "WASD: move   click: shoot   Esc: menu   F1: editor   F8: debug",
+            "WASD: move   X+WASD: peek   click: shoot   Esc: menu   F1: editor   F8: debug",
             13.0,
             [0.5, 0.5, 0.5, 1.0]
         ),

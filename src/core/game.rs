@@ -91,7 +91,8 @@ impl Game {
 
     pub fn update(&mut self, dt: f32, input: &InputState) {
         // --- move entities ---
-        self.player.update(dt, input, &mut self.spawn_queue);
+        self.player
+            .update(dt, input, &self.walls, PLAYER_HALF, &mut self.spawn_queue);
         wall::resolve_all(
             &mut self.player.movement.x,
             &mut self.player.movement.y,

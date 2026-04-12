@@ -17,6 +17,7 @@ pub struct InputState {
     pub shoot: bool, // left mouse button
     pub walk: bool,  // space — slow/sneak movement
     pub shift: bool, // shift — run
+    pub peek: bool,  // hold X — peek modifier
     pub escape: bool,
     pub enter: bool,
 
@@ -107,6 +108,7 @@ impl InputHandler {
                 "s" | "S" => self.state.down = pressed,
                 "a" | "A" => self.state.left = pressed,
                 "d" | "D" => self.state.right = pressed,
+                "x" | "X" => self.state.peek = pressed,
                 "1" => self.state.key_1 = pressed,
                 "2" => self.state.key_2 = pressed,
                 "3" => self.state.key_3 = pressed,
