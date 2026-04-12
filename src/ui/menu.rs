@@ -1,4 +1,4 @@
-use crate::renderer::QuadInstance;
+use crate::render::quad::QuadInstance;
 
 // ---------------------------------------------------------------------------
 // Button

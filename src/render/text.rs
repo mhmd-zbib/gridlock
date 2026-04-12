@@ -20,7 +20,7 @@ pub struct TextSection {
     /// `RASTER_PX`; other sizes are scaled at the vertex level.
     pub size:  f32,
     pub color: [f32; 4],
-}
+}   
 
 // ---------------------------------------------------------------------------
 // Constants

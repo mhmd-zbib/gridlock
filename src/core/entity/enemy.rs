@@ -1,7 +1,7 @@
-use crate::movement::{Movement, MovementInput};
-use crate::sight::Sight;
-use crate::spawn::{SpawnQueue, SpawnRequest};
-use crate::wall::Wall;
+use super::movement::{Movement, MovementInput};
+use crate::core::world::sight::Sight;
+use crate::core::spawn::{SpawnQueue, SpawnRequest};
+use crate::core::world::wall::Wall;
 
 // How long an enemy keeps chasing after losing sight of the player.
 const ALERT_DURATION: f32 = 2.5;

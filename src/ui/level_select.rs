@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use crate::renderer::QuadInstance;
+use crate::render::quad::QuadInstance;
 
 pub struct LevelSelect {
     pub levels:   Vec<PathBuf>,

@@ -1,7 +1,7 @@
 use crate::input::InputState;
-use crate::level::{LevelData, Pos};
-use crate::renderer::QuadInstance;
-use crate::wall::Wall;
+use crate::core::world::level::{LevelData, Pos};
+use crate::core::world::wall::Wall;
+use crate::render::quad::QuadInstance;
 
 // ---------------------------------------------------------------------------
 // Tool

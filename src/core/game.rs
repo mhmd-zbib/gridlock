@@ -1,10 +1,10 @@
-use crate::bullet::Bullet;
-use crate::enemy::Enemy;
+use super::entity::bullet::Bullet;
+use super::entity::enemy::Enemy;
+use super::entity::player::Player;
+use super::spawn::{SpawnQueue, SpawnRequest};
+use super::world::level::LevelData;
+use super::world::wall::{self, Wall};
 use crate::input::InputState;
-use crate::level::LevelData;
-use crate::player::Player;
-use crate::spawn::{SpawnQueue, SpawnRequest};
-use crate::wall::{self, Wall};
 
 const PLAYER_HALF: f32 = 10.0;
 const ENEMY_HALF:  f32 = 8.0;

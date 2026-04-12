@@ -4,9 +4,9 @@ use wgpu::{CurrentSurfaceTexture, Device, Queue, Surface, SurfaceConfiguration};
 use winit::dpi::PhysicalSize;
 use winit::window::Window;
 
-use crate::geometry::{GeoVertex, GeometryRenderer};
-use crate::renderer::{QuadInstance, Renderer};
-use crate::text::{TextRenderer, TextSection};
+use super::geometry::{GeoVertex, GeometryRenderer};
+use super::quad::{QuadInstance, Renderer};
+use super::text::{TextRenderer, TextSection};
 
 pub struct State {
     pub window: Arc<Window>,

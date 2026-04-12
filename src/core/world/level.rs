@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use crate::wall::Wall;
+use super::wall::Wall;
 
 /// A 2-D position stored in the level file.
 #[derive(Serialize, Deserialize, Clone, Copy, Default)]

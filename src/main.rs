@@ -1,22 +1,9 @@
 mod app;
-mod bullet;
-mod editor;
-mod enemy;
-mod game;
-mod game_loop;
-mod geometry;
+mod core;
 mod input;
-mod level;
-mod level_select;
-mod menu;
-mod movement;
-mod player;
-mod renderer;
-mod sight;
-mod spawn;
-mod state;
-mod text;
-mod wall;
+mod render;
+mod timing;
+mod ui;
 
 use winit::event_loop::{ControlFlow, EventLoop};
 

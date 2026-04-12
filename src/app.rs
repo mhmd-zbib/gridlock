@@ -5,16 +5,17 @@ use winit::event::WindowEvent;
 use winit::event_loop::ActiveEventLoop;
 use winit::window::{Window, WindowId};
 
-use crate::editor::Editor;
-use crate::game::Game;
-use crate::game_loop::GameLoop;
-use crate::geometry::{push_circle_fan, push_cone_fan, GeoVertex};
+use crate::core::game::Game;
+use crate::core::world::level::LevelData;
 use crate::input::InputHandler;
-use crate::level_select::LevelSelect;
-use crate::menu::{MainMenu, MenuChoice};
-use crate::renderer::QuadInstance;
-use crate::state::State;
-use crate::text::TextSection;
+use crate::render::geometry::{push_circle_fan, push_cone_fan, GeoVertex};
+use crate::render::quad::QuadInstance;
+use crate::render::state::State;
+use crate::render::text::TextSection;
+use crate::timing::GameLoop;
+use crate::ui::editor::{Editor, Tool};
+use crate::ui::level_select::LevelSelect;
+use crate::ui::menu::{MainMenu, MenuChoice};
 
 macro_rules! ts {
     ($x:expr, $y:expr, $text:expr, $size:expr, $color:expr) => {
@@ -166,7 +167,7 @@ impl App {
                 if esc   { return Some(AppState::MainMenu(MainMenu::new())); }
                 if enter {
                     if let Some(path) = sel.selected_path() {
-                        match crate::level::LevelData::load(path) {
+                        match LevelData::load(path) {
                             Ok(level) => {
                                 self.game.load_level(&level);
                                 return Some(AppState::Playing);
@@ -283,9 +284,9 @@ fn play_texts(sw: f32, _sh: f32) -> Vec<TextSection> {
 
 fn editor_texts(sw: f32, sh: f32, editor: &Editor) -> Vec<TextSection> {
     let tool = match editor.tool {
-        crate::editor::Tool::PlayerSpawn => "Player Spawn",
-        crate::editor::Tool::Enemy       => "Enemy",
-        crate::editor::Tool::Wall        => "Wall (drag)",
+        Tool::PlayerSpawn => "Player Spawn",
+        Tool::Enemy       => "Enemy",
+        Tool::Wall        => "Wall (drag)",
     };
     let grid  = if editor.grid_snap { "Grid: ON" } else { "Grid: OFF" };
     let stats = format!("Enemies: {}  Walls: {}", editor.level.enemies.len(), editor.level.walls.len());
@@ -351,6 +352,10 @@ fn play_geo(game: &Game) -> Vec<GeoVertex> {
     // Vision cone.
     let arc = game.player.sight.cone_arc_pts(player_pos, walls, 60);
     push_cone_fan(&mut out, player_pos, &arc, [0.3, 0.7, 1.0, 0.16]);
+
+    // Aim cone — shows bullet spread, distinct from the visibility cone.
+    let aim_arc = game.player.aim_cone.cone_arc_pts(player_pos, walls, 16);
+    push_cone_fan(&mut out, player_pos, &aim_arc, [1.0, 0.6, 0.1, 0.45]);
 
     // --- Enemies (only those the player can see) ---
     for e in &game.enemies {
