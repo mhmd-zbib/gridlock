@@ -1,7 +1,8 @@
-use super::entity::bullet::{Bullet, BulletOwner};
+use super::entity::bullet::Bullet;
 use super::entity::enemy::Enemy;
 use super::entity::player::Player;
-use super::spawn::{SpawnQueue, SpawnRequest};
+use super::spawn::SpawnQueue;
+use super::systems::{projectile, spawn, visibility};
 use super::world::level::LevelData;
 use super::world::rooms::LevelRooms;
 use super::world::wall::{self, Wall};
@@ -90,7 +91,7 @@ impl Game {
     }
 
     pub fn update(&mut self, dt: f32, input: &InputState) {
-        // --- move entities ---
+        // --- entity updates ---
         self.player
             .update(dt, input, &self.walls, PLAYER_HALF, &mut self.spawn_queue);
         wall::resolve_all(
@@ -111,71 +112,33 @@ impl Game {
             );
         }
 
-        // Compute which enemies are visible to the player.
-        for enemy in &mut self.enemies {
-            let ep = (enemy.movement.x, enemy.movement.y);
-            enemy.visible_to_player = self.player.sight.can_see(target, ep, &self.walls);
-        }
+        visibility::sync_enemy_visibility(
+            &mut self.enemies,
+            target,
+            &self.player.sight,
+            &self.walls,
+        );
 
-        let mut new_impacts = Vec::new();
-        for bullet in &mut self.bullets {
-            bullet.update(dt);
-            if self.walls.iter().any(|w| w.contains(bullet.x, bullet.y)) {
-                bullet.alive = false;
-                new_impacts.push(ImpactMark::new(bullet.x, bullet.y));
-                continue;
-            }
-
-            match bullet.owner {
-                BulletOwner::Player => {
-                    for enemy in &mut self.enemies {
-                        let dx = bullet.x - enemy.movement.x;
-                        let dy = bullet.y - enemy.movement.y;
-                        if (dx * dx + dy * dy).sqrt() < ENEMY_HALF * 2.0 {
-                            bullet.alive = false;
-                            enemy.hp = enemy.hp.saturating_sub(bullet.damage);
-                            new_impacts.push(ImpactMark::new(bullet.x, bullet.y));
-                            break;
-                        }
-                    }
-                }
-                BulletOwner::Enemy => {
-                    let dx = bullet.x - self.player.movement.x;
-                    let dy = bullet.y - self.player.movement.y;
-                    if (dx * dx + dy * dy).sqrt() < PLAYER_HALF * 2.0 {
-                        bullet.alive = false;
-                        new_impacts.push(ImpactMark::new(bullet.x, bullet.y));
-                    }
-                }
-            }
-        }
-        self.bullets.retain(|b| b.alive);
+        let impact_events = projectile::step_projectiles(
+            dt,
+            &mut self.bullets,
+            &self.walls,
+            &mut self.enemies,
+            target,
+            ENEMY_HALF,
+            PLAYER_HALF,
+        );
         self.enemies.retain(|e| e.hp > 0);
-        self.impacts.extend(new_impacts);
+        self.impacts.extend(
+            impact_events
+                .into_iter()
+                .map(|hit| ImpactMark::new(hit.x, hit.y)),
+        );
         for impact in &mut self.impacts {
             impact.ttl -= dt;
         }
         self.impacts.retain(|impact| impact.ttl > 0.0);
 
-        // --- flush spawn queue ---
-        for req in self.spawn_queue.drain() {
-            match req {
-                SpawnRequest::Bullet {
-                    x,
-                    y,
-                    dir_x,
-                    dir_y,
-                    speed,
-                    damage,
-                    owner,
-                } => {
-                    self.bullets
-                        .push(Bullet::new(x, y, dir_x, dir_y, speed, damage, owner));
-                }
-                SpawnRequest::Enemy { x, y } => {
-                    self.enemies.push(Enemy::new(x, y));
-                }
-            }
-        }
+        spawn::flush_spawn_queue(&mut self.spawn_queue, &mut self.bullets, &mut self.enemies);
     }
 }
