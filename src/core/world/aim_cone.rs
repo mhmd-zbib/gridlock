@@ -1,5 +1,5 @@
-use super::wall::Wall;
 use super::ray::{cast_ray, wrap_angle};
+use super::wall::Wall;
 
 // ---------------------------------------------------------------------------
 // Tunable constants — edit these to feel the behaviour
@@ -63,10 +63,10 @@ pub struct AimCone {
 impl AimCone {
     pub fn new() -> Self {
         Self {
-            direction:              0.0,
-            recoil_spread:          0.0,
+            direction: 0.0,
+            recoil_spread: 0.0,
             smoothed_velocity_frac: 0.0,
-            rng_state:              0xDEAD_BEEF,
+            rng_state: 0xDEAD_BEEF,
         }
     }
 
@@ -115,9 +115,9 @@ impl AimCone {
 
     /// Sample a random direction vector for a fired bullet, spread within the current cone.
     pub fn sample_direction(&mut self) -> (f32, f32) {
-        let half   = self.half_angle();
+        let half = self.half_angle();
         let offset = (self.next_f32() * 2.0 - 1.0) * half;
-        let angle  = self.direction + offset;
+        let angle = self.direction + offset;
         (angle.cos(), angle.sin())
     }
 
@@ -129,13 +129,8 @@ impl AimCone {
     ///
     /// The algorithm is identical to `Sight::cone_arc_pts`: uniform ray samples are
     /// supplemented with wall-corner rays so shadow edges snap cleanly to geometry.
-    pub fn cone_arc_pts(
-        &self,
-        origin:  (f32, f32),
-        walls:   &[Wall],
-        n_rays:  usize,
-    ) -> Vec<[f32; 2]> {
-        let half  = self.half_angle();
+    pub fn cone_arc_pts(&self, origin: (f32, f32), walls: &[Wall], n_rays: usize) -> Vec<[f32; 2]> {
+        let half = self.half_angle();
         let range = AIM_CONE_RENDER_RANGE;
 
         let mut rel: Vec<f32> = (0..=n_rays)
@@ -149,14 +144,16 @@ impl AimCone {
         const EPS: f32 = 0.0002;
         for w in walls {
             for &(cx, cy) in &[
-                (w.x,         w.y        ),
-                (w.x + w.w,   w.y        ),
-                (w.x,         w.y + w.h  ),
-                (w.x + w.w,   w.y + w.h  ),
+                (w.x, w.y),
+                (w.x + w.w, w.y),
+                (w.x, w.y + w.h),
+                (w.x + w.w, w.y + w.h),
             ] {
                 let dx = cx - origin.0;
                 let dy = cy - origin.1;
-                if dx * dx + dy * dy < 1.0 { continue; }
+                if dx * dx + dy * dy < 1.0 {
+                    continue;
+                }
                 let r = wrap_angle(dy.atan2(dx) - self.direction);
                 if r.abs() < half {
                     rel.push(r - EPS);
@@ -171,8 +168,8 @@ impl AimCone {
         rel.iter()
             .map(|&r| {
                 let angle = self.direction + r.clamp(-half, half);
-                let dir   = (angle.cos(), angle.sin());
-                let dist  = cast_ray(origin, dir, range, walls);
+                let dir = (angle.cos(), angle.sin());
+                let dist = cast_ray(origin, dir, range, walls);
                 [origin.0 + dir.0 * dist, origin.1 + dir.1 * dist]
             })
             .collect()

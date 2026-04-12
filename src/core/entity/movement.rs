@@ -23,19 +23,44 @@ pub struct Movement {
 
 impl Movement {
     pub fn new(x: f32, y: f32, speed: f32) -> Self {
-        Self { x, y, speed, velocity_frac: 0.0 }
+        Self {
+            x,
+            y,
+            speed,
+            velocity_frac: 0.0,
+        }
     }
 
     /// Advance position by `input` over `dt` seconds and update `velocity_frac`.
     pub fn apply(&mut self, input: MovementInput, dt: f32) {
-        if input.up    { self.y -= self.speed * dt; }
-        if input.down  { self.y += self.speed * dt; }
-        if input.left  { self.x -= self.speed * dt; }
-        if input.right { self.x += self.speed * dt; }
+        if input.up {
+            self.y -= self.speed * dt;
+        }
+        if input.down {
+            self.y += self.speed * dt;
+        }
+        if input.left {
+            self.x -= self.speed * dt;
+        }
+        if input.right {
+            self.x += self.speed * dt;
+        }
 
         // Compute velocity fraction from the input axes (normalised to [0, 1]).
-        let vx: f32 = if input.right { 1.0 } else if input.left  { -1.0 } else { 0.0 };
-        let vy: f32 = if input.down  { 1.0 } else if input.up    { -1.0 } else { 0.0 };
+        let vx: f32 = if input.right {
+            1.0
+        } else if input.left {
+            -1.0
+        } else {
+            0.0
+        };
+        let vy: f32 = if input.down {
+            1.0
+        } else if input.up {
+            -1.0
+        } else {
+            0.0
+        };
         self.velocity_frac = ((vx * vx + vy * vy).sqrt()).min(1.0);
     }
 }

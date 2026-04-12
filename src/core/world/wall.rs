@@ -30,26 +30,28 @@ impl Wall {
             return;
         }
 
-        let pen_right  = (*cx + half) - self.x;           // how far right edge pokes into left wall face
-        let pen_left   = (self.x + self.w) - (*cx - half); // how far left edge pokes into right wall face
+        let pen_right = (*cx + half) - self.x; // how far right edge pokes into left wall face
+        let pen_left = (self.x + self.w) - (*cx - half); // how far left edge pokes into right wall face
         let pen_bottom = (*cy + half) - self.y;
-        let pen_top    = (self.y + self.h) - (*cy - half);
+        let pen_top = (self.y + self.h) - (*cy - half);
 
         let min = pen_right.min(pen_left).min(pen_bottom).min(pen_top);
 
-        if      min == pen_right  { *cx -= pen_right;  }
-        else if min == pen_left   { *cx += pen_left;   }
-        else if min == pen_bottom { *cy -= pen_bottom; }
-        else                      { *cy += pen_top;    }
+        if min == pen_right {
+            *cx -= pen_right;
+        } else if min == pen_left {
+            *cx += pen_left;
+        } else if min == pen_bottom {
+            *cy -= pen_bottom;
+        } else {
+            *cy += pen_top;
+        }
     }
 
     /// True if the point (px, py) is strictly inside this wall.
     /// Used for bullet collision (bullets are treated as points).
     pub fn contains(&self, px: f32, py: f32) -> bool {
-        px > self.x
-            && px < self.x + self.w
-            && py > self.y
-            && py < self.y + self.h
+        px > self.x && px < self.x + self.w && py > self.y && py < self.y + self.h
     }
 }
 

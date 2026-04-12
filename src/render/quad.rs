@@ -51,12 +51,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 // Geometry — unit quad, scaled per-instance by half_size
 // ---------------------------------------------------------------------------
 
-const VERTICES: &[[f32; 2]] = &[
-    [-1.0, -1.0],
-    [ 1.0, -1.0],
-    [-1.0,  1.0],
-    [ 1.0,  1.0],
-];
+const VERTICES: &[[f32; 2]] = &[[-1.0, -1.0], [1.0, -1.0], [-1.0, 1.0], [1.0, 1.0]];
 const INDICES: &[u16] = &[0, 1, 2, 1, 3, 2];
 
 const MAX_INSTANCES: u64 = 4096;
@@ -70,16 +65,16 @@ const MAX_INSTANCES: u64 = 4096;
 #[repr(C)]
 #[derive(Copy, Clone, Pod, Zeroable)]
 pub struct QuadInstance {
-    pub center:    [f32; 2],
+    pub center: [f32; 2],
     pub half_size: [f32; 2],
-    pub color:     [f32; 4], // RGBA linear
+    pub color: [f32; 4], // RGBA linear
 }
 
 #[repr(C)]
 #[derive(Copy, Clone, Pod, Zeroable)]
 struct Uniforms {
     screen_size: [f32; 2],
-    _pad:        [f32; 2],
+    _pad: [f32; 2],
 }
 
 // ---------------------------------------------------------------------------
@@ -87,93 +82,93 @@ struct Uniforms {
 // ---------------------------------------------------------------------------
 
 pub struct Renderer {
-    pipeline:     wgpu::RenderPipeline,
-    vertex_buf:   wgpu::Buffer,
-    index_buf:    wgpu::Buffer,
+    pipeline: wgpu::RenderPipeline,
+    vertex_buf: wgpu::Buffer,
+    index_buf: wgpu::Buffer,
     instance_buf: wgpu::Buffer,
-    uniform_buf:  wgpu::Buffer,
-    bind_group:   wgpu::BindGroup,
+    uniform_buf: wgpu::Buffer,
+    bind_group: wgpu::BindGroup,
 }
 
 impl Renderer {
     pub fn new(device: &wgpu::Device, format: wgpu::TextureFormat) -> Self {
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label:  Some("quad shader"),
+            label: Some("quad shader"),
             source: wgpu::ShaderSource::Wgsl(SHADER.into()),
         });
 
         let vertex_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label:    Some("vertices"),
+            label: Some("vertices"),
             contents: bytemuck::cast_slice(VERTICES),
-            usage:    wgpu::BufferUsages::VERTEX,
+            usage: wgpu::BufferUsages::VERTEX,
         });
 
         let index_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label:    Some("indices"),
+            label: Some("indices"),
             contents: bytemuck::cast_slice(INDICES),
-            usage:    wgpu::BufferUsages::INDEX,
+            usage: wgpu::BufferUsages::INDEX,
         });
 
         let instance_buf = device.create_buffer(&wgpu::BufferDescriptor {
-            label:              Some("instances"),
-            size:               MAX_INSTANCES * std::mem::size_of::<QuadInstance>() as u64,
-            usage:              wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+            label: Some("instances"),
+            size: MAX_INSTANCES * std::mem::size_of::<QuadInstance>() as u64,
+            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
 
         let uniform_buf = device.create_buffer(&wgpu::BufferDescriptor {
-            label:              Some("uniforms"),
-            size:               std::mem::size_of::<Uniforms>() as u64,
-            usage:              wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            label: Some("uniforms"),
+            size: std::mem::size_of::<Uniforms>() as u64,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
 
         let bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label:   Some("bgl"),
+            label: Some("bgl"),
             entries: &[wgpu::BindGroupLayoutEntry {
-                binding:    0,
+                binding: 0,
                 visibility: wgpu::ShaderStages::VERTEX,
-                ty:         wgpu::BindingType::Buffer {
-                    ty:                 wgpu::BufferBindingType::Uniform,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Uniform,
                     has_dynamic_offset: false,
-                    min_binding_size:   None,
+                    min_binding_size: None,
                 },
                 count: None,
             }],
         });
 
         let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label:   Some("bind group"),
-            layout:  &bgl,
+            label: Some("bind group"),
+            layout: &bgl,
             entries: &[wgpu::BindGroupEntry {
-                binding:  0,
+                binding: 0,
                 resource: uniform_buf.as_entire_binding(),
             }],
         });
 
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label:               Some("pipeline layout"),
-            bind_group_layouts:  &[Some(&bgl)],
-            immediate_size:      0,
+            label: Some("pipeline layout"),
+            bind_group_layouts: &[Some(&bgl)],
+            immediate_size: 0,
         });
 
         let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label:  Some("quad pipeline"),
+            label: Some("quad pipeline"),
             layout: Some(&pipeline_layout),
             vertex: wgpu::VertexState {
-                module:               &shader,
-                entry_point:          Some("vs_main"),
-                compilation_options:  Default::default(),
+                module: &shader,
+                entry_point: Some("vs_main"),
+                compilation_options: Default::default(),
                 buffers: &[
                     wgpu::VertexBufferLayout {
                         array_stride: std::mem::size_of::<[f32; 2]>() as u64,
-                        step_mode:    wgpu::VertexStepMode::Vertex,
-                        attributes:   &wgpu::vertex_attr_array![0 => Float32x2],
+                        step_mode: wgpu::VertexStepMode::Vertex,
+                        attributes: &wgpu::vertex_attr_array![0 => Float32x2],
                     },
                     wgpu::VertexBufferLayout {
                         array_stride: std::mem::size_of::<QuadInstance>() as u64,
-                        step_mode:    wgpu::VertexStepMode::Instance,
-                        attributes:   &wgpu::vertex_attr_array![
+                        step_mode: wgpu::VertexStepMode::Instance,
+                        attributes: &wgpu::vertex_attr_array![
                             1 => Float32x2, // center
                             2 => Float32x2, // half_size
                             3 => Float32x4, // color
@@ -186,32 +181,39 @@ impl Renderer {
                 ..Default::default()
             },
             depth_stencil: None,
-            multisample:   wgpu::MultisampleState::default(),
+            multisample: wgpu::MultisampleState::default(),
             fragment: Some(wgpu::FragmentState {
-                module:              &shader,
-                entry_point:         Some("fs_main"),
+                module: &shader,
+                entry_point: Some("fs_main"),
                 compilation_options: Default::default(),
                 targets: &[Some(wgpu::ColorTargetState {
                     format,
-                    blend:      Some(wgpu::BlendState::ALPHA_BLENDING),
+                    blend: Some(wgpu::BlendState::ALPHA_BLENDING),
                     write_mask: wgpu::ColorWrites::ALL,
                 })],
             }),
             multiview_mask: None,
-            cache:          None,
+            cache: None,
         });
 
-        Self { pipeline, vertex_buf, index_buf, instance_buf, uniform_buf, bind_group }
+        Self {
+            pipeline,
+            vertex_buf,
+            index_buf,
+            instance_buf,
+            uniform_buf,
+            bind_group,
+        }
     }
 
     /// Upload instances and draw them all in one indexed draw call.
     pub fn draw(
         &self,
-        encoder:   &mut wgpu::CommandEncoder,
-        view:      &wgpu::TextureView,
-        queue:     &wgpu::Queue,
-        screen_w:  f32,
-        screen_h:  f32,
+        encoder: &mut wgpu::CommandEncoder,
+        view: &wgpu::TextureView,
+        queue: &wgpu::Queue,
+        screen_w: f32,
+        screen_h: f32,
         instances: &[QuadInstance],
     ) {
         queue.write_buffer(
@@ -219,7 +221,7 @@ impl Renderer {
             0,
             bytemuck::bytes_of(&Uniforms {
                 screen_size: [screen_w, screen_h],
-                _pad:        [0.0; 2],
+                _pad: [0.0; 2],
             }),
         );
 
@@ -232,10 +234,13 @@ impl Renderer {
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                 view,
                 resolve_target: None,
-                depth_slice:    None,
+                depth_slice: None,
                 ops: wgpu::Operations {
-                    load:  wgpu::LoadOp::Clear(wgpu::Color {
-                        r: 0.05, g: 0.05, b: 0.10, a: 1.0,
+                    load: wgpu::LoadOp::Clear(wgpu::Color {
+                        r: 0.05,
+                        g: 0.05,
+                        b: 0.10,
+                        a: 1.0,
                     }),
                     store: wgpu::StoreOp::Store,
                 },

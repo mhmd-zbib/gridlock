@@ -25,11 +25,11 @@ pub struct Pos {
 /// ```
 #[derive(Serialize, Deserialize, Clone, Default)]
 pub struct LevelData {
-    pub name:         String,
+    pub name: String,
     /// `None` means no spawn defined yet (editor hasn't placed one).
     pub player_spawn: Option<Pos>,
-    pub enemies:      Vec<Pos>,
-    pub walls:        Vec<Wall>,
+    pub enemies: Vec<Pos>,
+    pub walls: Vec<Wall>,
 }
 
 impl LevelData {

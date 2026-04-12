@@ -14,20 +14,20 @@ pub struct InputState {
     pub right: bool,
 
     // Actions
-    pub shoot:  bool,   // left mouse button
-    pub walk:   bool,   // space — slow/sneak movement
-    pub shift:  bool,   // shift — run
+    pub shoot: bool, // left mouse button
+    pub walk: bool,  // space — slow/sneak movement
+    pub shift: bool, // shift — run
     pub escape: bool,
-    pub enter:  bool,
+    pub enter: bool,
 
     // Editor
-    pub f1:    bool,    // toggle editor mode
-    pub f5:    bool,    // save level
-    pub key_1: bool,    // tool: player spawn
-    pub key_2: bool,    // tool: enemy
-    pub key_3: bool,    // tool: wall
-    pub key_g: bool,    // toggle grid snap
-    pub key_l: bool,    // load level
+    pub f1: bool,    // toggle editor mode
+    pub f5: bool,    // save level
+    pub key_1: bool, // tool: player spawn
+    pub key_2: bool, // tool: enemy
+    pub key_3: bool, // tool: wall
+    pub key_g: bool, // toggle grid snap
+    pub key_l: bool, // load level
 
     // Mouse
     pub mouse_x: f64,
@@ -80,16 +80,16 @@ impl InputHandler {
 
         if let Key::Named(named) = &event.logical_key {
             match named {
-                NamedKey::ArrowUp    => self.state.up     = pressed,
-                NamedKey::ArrowDown  => self.state.down   = pressed,
-                NamedKey::ArrowLeft  => self.state.left   = pressed,
-                NamedKey::ArrowRight => self.state.right  = pressed,
-                NamedKey::Space      => self.state.walk   = pressed,
-                NamedKey::Shift      => self.state.shift  = pressed,
-                NamedKey::Escape     => self.state.escape = pressed,
-                NamedKey::Enter      => self.state.enter  = pressed,
-                NamedKey::F1         => self.state.f1     = pressed,
-                NamedKey::F5         => self.state.f5     = pressed,
+                NamedKey::ArrowUp => self.state.up = pressed,
+                NamedKey::ArrowDown => self.state.down = pressed,
+                NamedKey::ArrowLeft => self.state.left = pressed,
+                NamedKey::ArrowRight => self.state.right = pressed,
+                NamedKey::Space => self.state.walk = pressed,
+                NamedKey::Shift => self.state.shift = pressed,
+                NamedKey::Escape => self.state.escape = pressed,
+                NamedKey::Enter => self.state.enter = pressed,
+                NamedKey::F1 => self.state.f1 = pressed,
+                NamedKey::F5 => self.state.f5 = pressed,
                 other => {
                     let _ = other;
                     return;
@@ -100,13 +100,13 @@ impl InputHandler {
 
         if let Key::Character(ch) = &event.logical_key {
             match ch.as_str() {
-                "w" | "W" => self.state.up    = pressed,
-                "s" | "S" => self.state.down  = pressed,
-                "a" | "A" => self.state.left  = pressed,
+                "w" | "W" => self.state.up = pressed,
+                "s" | "S" => self.state.down = pressed,
+                "a" | "A" => self.state.left = pressed,
                 "d" | "D" => self.state.right = pressed,
-                "1"       => self.state.key_1 = pressed,
-                "2"       => self.state.key_2 = pressed,
-                "3"       => self.state.key_3 = pressed,
+                "1" => self.state.key_1 = pressed,
+                "2" => self.state.key_2 = pressed,
+                "3" => self.state.key_3 = pressed,
                 "g" | "G" => self.state.key_g = pressed,
                 "l" | "L" => self.state.key_l = pressed,
                 _ => {}
@@ -119,7 +119,7 @@ impl InputHandler {
         match button {
             MouseButton::Left => {
                 self.state.mouse_left = pressed;
-                self.state.shoot      = pressed;
+                self.state.shoot = pressed;
             }
             MouseButton::Right => self.state.mouse_right = pressed,
             _ => {}
@@ -128,4 +128,3 @@ impl InputHandler {
 
     fn on_scroll(&self, _delta: &MouseScrollDelta) {}
 }
-

@@ -7,23 +7,23 @@ use super::world::wall::{self, Wall};
 use crate::input::InputState;
 
 const PLAYER_HALF: f32 = 10.0;
-const ENEMY_HALF:  f32 = 8.0;
+const ENEMY_HALF: f32 = 8.0;
 
 pub struct Game {
-    pub player:  Player,
+    pub player: Player,
     pub enemies: Vec<Enemy>,
     pub bullets: Vec<Bullet>,
-    pub walls:   Vec<Wall>,
+    pub walls: Vec<Wall>,
     spawn_queue: SpawnQueue,
 }
 
 impl Game {
     pub fn new() -> Self {
         Self {
-            player:      Player::new(400.0, 300.0),
-            enemies:     vec![Enemy::new(100.0, 100.0), Enemy::new(700.0, 500.0)],
-            bullets:     Vec::new(),
-            walls:       Vec::new(),
+            player: Player::new(400.0, 300.0),
+            enemies: vec![Enemy::new(100.0, 100.0), Enemy::new(700.0, 500.0)],
+            bullets: Vec::new(),
+            walls: Vec::new(),
             spawn_queue: SpawnQueue::default(),
         }
     }
@@ -31,13 +31,17 @@ impl Game {
     pub fn load_level(&mut self, level: &LevelData) {
         self.player = match level.player_spawn {
             Some(sp) => Player::new(sp.x, sp.y),
-            None     => Player::new(400.0, 300.0),
+            None => Player::new(400.0, 300.0),
         };
-        self.enemies     = level.enemies.iter().map(|p| Enemy::new(p.x, p.y)).collect();
-        self.walls       = level.walls.clone();
-        self.bullets     = Vec::new();
+        self.enemies = level.enemies.iter().map(|p| Enemy::new(p.x, p.y)).collect();
+        self.walls = level.walls.clone();
+        self.bullets = Vec::new();
         self.spawn_queue = SpawnQueue::default();
-        println!("[game] level loaded  enemies={}  walls={}", self.enemies.len(), self.walls.len());
+        println!(
+            "[game] level loaded  enemies={}  walls={}",
+            self.enemies.len(),
+            self.walls.len()
+        );
     }
 
     pub fn update(&mut self, dt: f32, input: &InputState) {
@@ -91,7 +95,13 @@ impl Game {
         // --- flush spawn queue ---
         for req in self.spawn_queue.drain() {
             match req {
-                SpawnRequest::Bullet { x, y, dir_x, dir_y, owner } => {
+                SpawnRequest::Bullet {
+                    x,
+                    y,
+                    dir_x,
+                    dir_y,
+                    owner,
+                } => {
                     self.bullets.push(Bullet::new(x, y, dir_x, dir_y, owner));
                 }
                 SpawnRequest::Enemy { x, y } => {

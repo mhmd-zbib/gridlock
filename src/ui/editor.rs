@@ -1,6 +1,6 @@
-use crate::input::InputState;
 use crate::core::world::level::{LevelData, Pos};
 use crate::core::world::wall::Wall;
+use crate::input::InputState;
 use crate::render::quad::QuadInstance;
 
 // ---------------------------------------------------------------------------
@@ -11,8 +11,8 @@ use crate::render::quad::QuadInstance;
 pub enum Tool {
     #[default]
     PlayerSpawn, // key 1 — green
-    Enemy,       // key 2 — red
-    Wall,        // key 3 — brown, drag to draw rectangle
+    Enemy, // key 2 — red
+    Wall,  // key 3 — brown, drag to draw rectangle
 }
 
 // ---------------------------------------------------------------------------
@@ -23,17 +23,17 @@ const GRID: f32 = 16.0;
 const MIN_WALL: f32 = GRID; // walls smaller than this are discarded
 
 pub struct Editor {
-    pub tool:      Tool,
-    pub level:     LevelData,
+    pub tool: Tool,
+    pub level: LevelData,
     pub grid_snap: bool,
 
     /// Set when left-button is pressed while the Wall tool is active.
     wall_drag_start: Option<(f32, f32)>,
 
     // Edge detection
-    prev_left:  bool,
+    prev_left: bool,
     prev_right: bool,
-    prev_f5:    bool,
+    prev_f5: bool,
     prev_key_l: bool,
     prev_key_1: bool,
     prev_key_2: bool,
@@ -44,30 +44,38 @@ pub struct Editor {
 impl Editor {
     pub fn new() -> Self {
         Self {
-            tool:            Tool::default(),
-            level:           LevelData::default(),
-            grid_snap:       true,
+            tool: Tool::default(),
+            level: LevelData::default(),
+            grid_snap: true,
             wall_drag_start: None,
-            prev_left:       false,
-            prev_right:      false,
-            prev_f5:         false,
-            prev_key_l:      false,
-            prev_key_1:      false,
-            prev_key_2:      false,
-            prev_key_3:      false,
-            prev_key_g:      false,
+            prev_left: false,
+            prev_right: false,
+            prev_f5: false,
+            prev_key_l: false,
+            prev_key_1: false,
+            prev_key_2: false,
+            prev_key_3: false,
+            prev_key_g: false,
         }
     }
 
     pub fn update(&mut self, input: &InputState) {
         let raw_mx = input.mouse_x as f32;
         let raw_my = input.mouse_y as f32;
-        let mx = if self.grid_snap { snap(raw_mx, GRID) } else { raw_mx };
-        let my = if self.grid_snap { snap(raw_my, GRID) } else { raw_my };
+        let mx = if self.grid_snap {
+            snap(raw_mx, GRID)
+        } else {
+            raw_mx
+        };
+        let my = if self.grid_snap {
+            snap(raw_my, GRID)
+        } else {
+            raw_my
+        };
 
-        let just_pressed        = input.mouse_left  && !self.prev_left;
-        let just_released       = !input.mouse_left && self.prev_left;
-        let just_right_pressed  = input.mouse_right && !self.prev_right;
+        let just_pressed = input.mouse_left && !self.prev_left;
+        let just_released = !input.mouse_left && self.prev_left;
+        let just_right_pressed = input.mouse_right && !self.prev_right;
 
         // --- tool selection ---
         if input.key_1 && !self.prev_key_1 {
@@ -88,7 +96,10 @@ impl Editor {
         // --- grid snap toggle ---
         if input.key_g && !self.prev_key_g {
             self.grid_snap = !self.grid_snap;
-            println!("[editor] grid snap {}", if self.grid_snap { "ON" } else { "OFF" });
+            println!(
+                "[editor] grid snap {}",
+                if self.grid_snap { "ON" } else { "OFF" }
+            );
         }
 
         // --- place / drag ---
@@ -134,9 +145,9 @@ impl Editor {
         }
 
         // Update edge state.
-        self.prev_left  = input.mouse_left;
+        self.prev_left = input.mouse_left;
         self.prev_right = input.mouse_right;
-        self.prev_f5    = input.f5;
+        self.prev_f5 = input.f5;
         self.prev_key_l = input.key_l;
         self.prev_key_1 = input.key_1;
         self.prev_key_2 = input.key_2;
@@ -152,7 +163,10 @@ impl Editor {
             }
             Tool::Enemy => {
                 self.level.enemies.push(Pos { x, y });
-                println!("[editor] enemy ({x:.0}, {y:.0})  total={}", self.level.enemies.len());
+                println!(
+                    "[editor] enemy ({x:.0}, {y:.0})  total={}",
+                    self.level.enemies.len()
+                );
             }
             Tool::Wall => {} // handled via drag
         }
@@ -162,7 +176,14 @@ impl Editor {
         // Walls — delete if the click point is inside the rect.
         if let Some(idx) = self.level.walls.iter().position(|w| w.contains(x, y)) {
             let w = self.level.walls.remove(idx);
-            println!("[editor] wall removed  ({:.0}, {:.0}) {:.0}×{:.0}  remaining={}", w.x, w.y, w.w, w.h, self.level.walls.len());
+            println!(
+                "[editor] wall removed  ({:.0}, {:.0}) {:.0}×{:.0}  remaining={}",
+                w.x,
+                w.y,
+                w.w,
+                w.h,
+                self.level.walls.len()
+            );
             return;
         }
 
@@ -170,7 +191,10 @@ impl Editor {
         const R: f32 = 20.0;
         if let Some(idx) = nearest_idx(&self.level.enemies, x, y, R) {
             self.level.enemies.remove(idx);
-            println!("[editor] enemy removed  remaining={}", self.level.enemies.len());
+            println!(
+                "[editor] enemy removed  remaining={}",
+                self.level.enemies.len()
+            );
             return;
         }
 
@@ -185,7 +209,7 @@ impl Editor {
 
     pub fn save(&self, path: &str) {
         match self.level.save(path) {
-            Ok(_)  => println!("[editor] saved   → {path}"),
+            Ok(_) => println!("[editor] saved   → {path}"),
             Err(e) => println!("[editor] save error: {e}"),
         }
     }
@@ -195,7 +219,8 @@ impl Editor {
             Ok(data) => {
                 println!(
                     "[editor] loaded  ← {path}  enemies={}  walls={}",
-                    data.enemies.len(), data.walls.len()
+                    data.enemies.len(),
+                    data.walls.len()
                 );
                 self.level = data;
             }
@@ -205,35 +230,43 @@ impl Editor {
 
     /// Build the instance list for the editor overlay.
     pub fn instances(&self, mouse_x: f32, mouse_y: f32) -> Vec<QuadInstance> {
-        let mx = if self.grid_snap { snap(mouse_x, GRID) } else { mouse_x };
-        let my = if self.grid_snap { snap(mouse_y, GRID) } else { mouse_y };
+        let mx = if self.grid_snap {
+            snap(mouse_x, GRID)
+        } else {
+            mouse_x
+        };
+        let my = if self.grid_snap {
+            snap(mouse_y, GRID)
+        } else {
+            mouse_y
+        };
 
         let mut out = Vec::new();
 
         // Walls — brownish gray
         for w in &self.level.walls {
             out.push(QuadInstance {
-                center:    [w.x + w.w * 0.5, w.y + w.h * 0.5],
+                center: [w.x + w.w * 0.5, w.y + w.h * 0.5],
                 half_size: [w.w * 0.5, w.h * 0.5],
-                color:     [0.45, 0.4, 0.35, 1.0],
+                color: [0.45, 0.4, 0.35, 1.0],
             });
         }
 
         // Player spawn — green
         if let Some(sp) = self.level.player_spawn {
             out.push(QuadInstance {
-                center:    [sp.x, sp.y],
+                center: [sp.x, sp.y],
                 half_size: [10.0, 10.0],
-                color:     [0.2, 1.0, 0.2, 1.0],
+                color: [0.2, 1.0, 0.2, 1.0],
             });
         }
 
         // Enemies — red
         for e in &self.level.enemies {
             out.push(QuadInstance {
-                center:    [e.x, e.y],
+                center: [e.x, e.y],
                 half_size: [8.0, 8.0],
-                color:     [1.0, 0.2, 0.2, 1.0],
+                color: [1.0, 0.2, 0.2, 1.0],
             });
         }
 
@@ -247,31 +280,31 @@ impl Editor {
                     let w = (start.0 - mx).abs().max(1.0);
                     let h = (start.1 - my).abs().max(1.0);
                     out.push(QuadInstance {
-                        center:    [x + w * 0.5, y + h * 0.5],
+                        center: [x + w * 0.5, y + h * 0.5],
                         half_size: [w * 0.5, h * 0.5],
-                        color:     [0.45, 0.4, 0.35, 0.45],
+                        color: [0.45, 0.4, 0.35, 0.45],
                     });
                 } else {
                     // Small cursor dot showing snap position.
                     out.push(QuadInstance {
-                        center:    [mx, my],
+                        center: [mx, my],
                         half_size: [3.0, 3.0],
-                        color:     [0.45, 0.4, 0.35, 0.5],
+                        color: [0.45, 0.4, 0.35, 0.5],
                     });
                 }
             }
             Tool::PlayerSpawn => {
                 out.push(QuadInstance {
-                    center:    [mx, my],
+                    center: [mx, my],
                     half_size: [10.0, 10.0],
-                    color:     [0.2, 1.0, 0.2, 0.35],
+                    color: [0.2, 1.0, 0.2, 0.35],
                 });
             }
             Tool::Enemy => {
                 out.push(QuadInstance {
-                    center:    [mx, my],
+                    center: [mx, my],
                     half_size: [8.0, 8.0],
-                    color:     [1.0, 0.2, 0.2, 0.35],
+                    color: [1.0, 0.2, 0.2, 0.35],
                 });
             }
         }

@@ -1,5 +1,5 @@
-use super::wall::Wall;
 use super::ray::{cast_ray, has_los, wrap_angle};
+use super::wall::Wall;
 
 // ---------------------------------------------------------------------------
 // Sight
@@ -7,35 +7,35 @@ use super::ray::{cast_ray, has_los, wrap_angle};
 
 pub struct Sight {
     /// Current facing direction in radians (0 = right, PI/2 = down).
-    pub direction:     f32,
+    pub direction: f32,
     /// Half-angle of the vision cone in radians.
-    pub half_angle:    f32,
+    pub half_angle: f32,
     /// How far the cone reaches in pixels.
-    pub range:         f32,
+    pub range: f32,
     /// Radius of the always-visible bubble around the entity.
     pub circle_radius: f32,
     /// Maximum rotation speed in radians per second.
-    pub turn_speed:    f32,
+    pub turn_speed: f32,
 }
 
 impl Sight {
     pub fn player() -> Self {
         Self {
-            direction:     0.0,
-            half_angle:    40_f32.to_radians(),
-            range:         320.0,
+            direction: 0.0,
+            half_angle: 40_f32.to_radians(),
+            range: 320.0,
             circle_radius: 80.0,
-            turn_speed:    12.0,
+            turn_speed: 12.0,
         }
     }
 
     pub fn enemy() -> Self {
         Self {
-            direction:     std::f32::consts::PI,
-            half_angle:    38_f32.to_radians(),
-            range:         260.0,
+            direction: std::f32::consts::PI,
+            half_angle: 38_f32.to_radians(),
+            range: 260.0,
             circle_radius: 60.0,
-            turn_speed:    6.0,
+            turn_speed: 6.0,
         }
     }
 
@@ -45,8 +45,8 @@ impl Sight {
         let dy = to.1 - from.1;
         if dx * dx + dy * dy > 0.01 {
             let target = dy.atan2(dx);
-            let diff   = wrap_angle(target - self.direction);
-            let step   = self.turn_speed * dt;
+            let diff = wrap_angle(target - self.direction);
+            let step = self.turn_speed * dt;
             if diff.abs() <= step {
                 self.direction = target;
             } else {
@@ -59,8 +59,8 @@ impl Sight {
     /// - within the nearby circle (+ unobstructed line of sight), OR
     /// - inside the cone and unobstructed.
     pub fn can_see(&self, from: (f32, f32), target: (f32, f32), walls: &[Wall]) -> bool {
-        let dx   = target.0 - from.0;
-        let dy   = target.1 - from.1;
+        let dx = target.0 - from.0;
+        let dy = target.1 - from.1;
         let dist = (dx * dx + dy * dy).sqrt();
 
         // Circle bubble — always visible if nearby and unobstructed.
@@ -69,7 +69,9 @@ impl Sight {
         }
 
         // Cone — must be in range, in angle, and unobstructed.
-        if dist > self.range { return false; }
+        if dist > self.range {
+            return false;
+        }
 
         let angle_to = dy.atan2(dx);
         if wrap_angle(angle_to - self.direction).abs() > self.half_angle {
@@ -97,14 +99,16 @@ impl Sight {
         const EPS: f32 = 0.0002;
         for w in walls {
             for &(cx, cy) in &[
-                (w.x,         w.y        ),
-                (w.x + w.w,   w.y        ),
-                (w.x,         w.y + w.h  ),
-                (w.x + w.w,   w.y + w.h  ),
+                (w.x, w.y),
+                (w.x + w.w, w.y),
+                (w.x, w.y + w.h),
+                (w.x + w.w, w.y + w.h),
             ] {
                 let dx = cx - origin.0;
                 let dy = cy - origin.1;
-                if dx * dx + dy * dy < 1.0 { continue; }
+                if dx * dx + dy * dy < 1.0 {
+                    continue;
+                }
                 let r = wrap_angle(dy.atan2(dx) - self.direction);
                 if r.abs() < self.half_angle {
                     rel.push(r - EPS);
@@ -119,8 +123,8 @@ impl Sight {
         rel.iter()
             .map(|&r| {
                 let angle = self.direction + r.clamp(-self.half_angle, self.half_angle);
-                let dir   = (angle.cos(), angle.sin());
-                let dist  = cast_ray(origin, dir, self.range, walls);
+                let dir = (angle.cos(), angle.sin());
+                let dist = cast_ray(origin, dir, self.range, walls);
                 [origin.0 + dir.0 * dist, origin.1 + dir.1 * dist]
             })
             .collect()
