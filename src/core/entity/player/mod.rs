@@ -51,6 +51,10 @@ impl Player {
         self.loadout.is_reloading()
     }
 
+    pub fn weapon_buy_prompt(&self) -> Option<&'static str> {
+        self.loadout.buy_prompt()
+    }
+
     pub fn update(
         &mut self,
         dt: f32,

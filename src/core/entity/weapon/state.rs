@@ -1,4 +1,4 @@
-use super::catalog::{WeaponId, WeaponStats};
+use super::{WeaponId, WeaponStats};
 
 #[derive(Clone, Copy, Debug)]
 pub struct WeaponState {

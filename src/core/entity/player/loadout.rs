@@ -1,13 +1,29 @@
-use crate::core::entity::weapon::{WeaponId, WeaponState, WeaponStats};
+use crate::core::entity::weapon::{WeaponClass, WeaponId, WeaponState, WeaponStats};
 use crate::input::InputState;
 
-const PLAYER_LOADOUT: [WeaponId; 3] = [WeaponId::Ak47, WeaponId::Mp5, WeaponId::Sniper];
+const PLAYER_LOADOUT: [WeaponId; 6] = [
+    WeaponId::Ak47,
+    WeaponId::Mp5,
+    WeaponId::Sniper,
+    WeaponId::M4a1,
+    WeaponId::Uzi,
+    WeaponId::Dmr,
+];
 
 pub struct WeaponLoadout {
     slots: [WeaponState; PLAYER_LOADOUT.len()],
     active_slot: usize,
     was_reload_pressed: bool,
-    was_select_pressed: [bool; PLAYER_LOADOUT.len()],
+    was_buy_pressed: bool,
+    was_digit_pressed: [bool; 5],
+    buy_stage: BuyStage,
+}
+
+#[derive(Clone, Copy)]
+enum BuyStage {
+    Closed,
+    ClassSelect,
+    WeaponSelect(WeaponClass),
 }
 
 impl WeaponLoadout {
@@ -16,7 +32,9 @@ impl WeaponLoadout {
             slots: PLAYER_LOADOUT.map(WeaponState::new),
             active_slot: 0,
             was_reload_pressed: false,
-            was_select_pressed: [false; PLAYER_LOADOUT.len()],
+            was_buy_pressed: false,
+            was_digit_pressed: [false; 5],
+            buy_stage: BuyStage::Closed,
         }
     }
 
@@ -51,13 +69,72 @@ impl WeaponLoadout {
     }
 
     pub fn update_selection(&mut self, input: &InputState) {
-        let pressed = [input.key_5, input.key_6, input.key_7];
-        for (idx, is_pressed) in pressed.iter().enumerate() {
-            if *is_pressed && !self.was_select_pressed[idx] {
-                self.active_slot = idx;
+        let buy_pressed = input.key_b;
+        if buy_pressed && !self.was_buy_pressed {
+            self.buy_stage = match self.buy_stage {
+                BuyStage::Closed => BuyStage::ClassSelect,
+                BuyStage::ClassSelect | BuyStage::WeaponSelect(_) => BuyStage::Closed,
+            };
+        }
+        self.was_buy_pressed = buy_pressed;
+
+        let digits = [
+            input.key_1,
+            input.key_2,
+            input.key_3,
+            input.key_4,
+            input.key_5,
+        ];
+        let mut just_pressed_digit = None;
+        for (idx, is_pressed) in digits.iter().enumerate() {
+            if *is_pressed && !self.was_digit_pressed[idx] {
+                just_pressed_digit = Some(idx + 1);
+                break;
             }
         }
-        self.was_select_pressed = pressed;
+        self.was_digit_pressed = digits;
+
+        let Some(choice) = just_pressed_digit else {
+            return;
+        };
+
+        match self.buy_stage {
+            BuyStage::Closed => {}
+            BuyStage::ClassSelect => {
+                self.buy_stage = match choice {
+                    1 => BuyStage::WeaponSelect(WeaponClass::Rifle),
+                    2 => BuyStage::WeaponSelect(WeaponClass::Smg),
+                    3 => BuyStage::WeaponSelect(WeaponClass::Sniper),
+                    _ => BuyStage::ClassSelect,
+                };
+            }
+            BuyStage::WeaponSelect(class) => {
+                if let Some(weapon) = weapon_for_class_slot(class, choice) {
+                    if let Some(slot_idx) = PLAYER_LOADOUT.iter().position(|id| *id == weapon) {
+                        self.active_slot = slot_idx;
+                    }
+                    self.buy_stage = BuyStage::Closed;
+                }
+            }
+        }
+    }
+
+    pub fn buy_prompt(&self) -> Option<&'static str> {
+        match self.buy_stage {
+            BuyStage::Closed => None,
+            BuyStage::ClassSelect => {
+                Some("BUY: choose class  1=Rifle  2=SMG  3=Sniper  (B cancel)")
+            }
+            BuyStage::WeaponSelect(WeaponClass::Rifle) => {
+                Some("Rifle: 1=AK-47  2=M4A1  3-5=empty  (B cancel)")
+            }
+            BuyStage::WeaponSelect(WeaponClass::Smg) => {
+                Some("SMG: 1=MP5  2=Uzi  3-5=empty  (B cancel)")
+            }
+            BuyStage::WeaponSelect(WeaponClass::Sniper) => {
+                Some("Sniper: 1=Sniper  2=DMR  3-5=empty  (B cancel)")
+            }
+        }
     }
 
     pub fn update_reload_input(&mut self, reload_pressed: bool) {
@@ -88,5 +165,17 @@ impl WeaponLoadout {
 
     fn active_state_mut(&mut self) -> &mut WeaponState {
         &mut self.slots[self.active_slot]
+    }
+}
+
+fn weapon_for_class_slot(class: WeaponClass, slot: usize) -> Option<WeaponId> {
+    match (class, slot) {
+        (WeaponClass::Rifle, 1) => Some(WeaponId::Ak47),
+        (WeaponClass::Rifle, 2) => Some(WeaponId::M4a1),
+        (WeaponClass::Smg, 1) => Some(WeaponId::Mp5),
+        (WeaponClass::Smg, 2) => Some(WeaponId::Uzi),
+        (WeaponClass::Sniper, 1) => Some(WeaponId::Sniper),
+        (WeaponClass::Sniper, 2) => Some(WeaponId::Dmr),
+        _ => None,
     }
 }

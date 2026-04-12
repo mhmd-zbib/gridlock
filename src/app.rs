@@ -368,7 +368,7 @@ fn play_texts(sw: f32, sh: f32, game: &Game, debug: bool) -> Vec<TextSection> {
             8.0,
             22.0,
             format!(
-                "{} ({})  ammo: {}/{}{}   R: reload   5: AK-47   6: MP5   7: Sniper",
+                "{} ({})  ammo: {}/{}{}   R: reload   B: buy (1..3 class, then 1..5 weapon)",
                 game.player.weapon_name(),
                 game.player.weapon_class_label(),
                 game.player.ammo_in_mag(),
@@ -390,6 +390,10 @@ fn play_texts(sw: f32, sh: f32, game: &Game, debug: bool) -> Vec<TextSection> {
             [0.35, 0.35, 0.35, 1.0]
         ),
     ];
+
+    if let Some(prompt) = game.player.weapon_buy_prompt() {
+        out.push(ts!(8.0, 38.0, prompt, 13.0, [0.92, 0.85, 0.35, 1.0]));
+    }
 
     if !debug {
         return out;

@@ -1,0 +1,21 @@
+use crate::core::entity::weapon::{WeaponClass, WeaponStats};
+
+pub fn stats() -> WeaponStats {
+    WeaponStats {
+        class: WeaponClass::Sniper,
+        name: "Sniper",
+        visibility_range: 620.0,
+        visibility_half_angle_deg: 20.0,
+        aim_cone_render_range: 450.0,
+        aim_base_half_angle_deg: 0.35,
+        movement_spread_max_deg: 80.0,
+        bullet_speed: 1200.0,
+        bullet_damage: 3,
+        recoil_per_shot_deg: 8.0,
+        recoil_max_deg: 32.0,
+        recoil_decay_deg_per_sec: 5.0,
+        fire_rate_rps: 1.1,
+        mag_size: 5,
+        reload_time_secs: 3.0,
+    }
+}
