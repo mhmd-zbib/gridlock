@@ -5,6 +5,10 @@ use crate::core::world::aim_cone::AimCone;
 use crate::core::spawn::{SpawnQueue, SpawnRequest};
 use super::bullet::BulletOwner;
 
+const WALK_SPEED: f32 = 80.0;
+const NORMAL_SPEED: f32 = 150.0;
+const RUN_SPEED: f32 = 300.0;
+
 pub struct Player {
     pub movement:  Movement,
     pub sight:     Sight,
@@ -15,7 +19,7 @@ pub struct Player {
 impl Player {
     pub fn new(x: f32, y: f32) -> Self {
         Self {
-            movement:    Movement::new(x, y, 200.0),
+            movement:    Movement::new(x, y, NORMAL_SPEED),
             sight:       Sight::player(),
             aim_cone:    AimCone::new(),
             was_shooting: false,
@@ -23,6 +27,14 @@ impl Player {
     }
 
     pub fn update(&mut self, dt: f32, input: &InputState, spawns: &mut SpawnQueue) {
+        self.movement.speed = if input.shift {
+            RUN_SPEED
+        } else if input.walk {
+            WALK_SPEED
+        } else {
+            NORMAL_SPEED
+        };
+
         let mv = MovementInput {
             up:    input.up,
             down:  input.down,
@@ -38,8 +50,9 @@ impl Player {
         self.sight.face(from, to, dt);
         self.aim_cone.direction = self.sight.direction;
 
-        // Advance the aim cone (decay recoil + smooth movement spread).
-        self.aim_cone.update(dt, self.movement.velocity_frac);
+        // Scale velocity fraction by speed ratio so walk = tight cone, run = wide cone.
+        let speed_frac = self.movement.velocity_frac * (self.movement.speed / RUN_SPEED);
+        self.aim_cone.update(dt, speed_frac);
 
         // Shoot once per press, direction randomised within the current aim cone.
         let just_pressed = input.shoot && !self.was_shooting;

@@ -14,7 +14,9 @@ pub struct InputState {
     pub right: bool,
 
     // Actions
-    pub shoot:  bool,   // left mouse button or space
+    pub shoot:  bool,   // left mouse button
+    pub walk:   bool,   // space — slow/sneak movement
+    pub shift:  bool,   // shift — run
     pub escape: bool,
     pub enter:  bool,
 
@@ -82,7 +84,8 @@ impl InputHandler {
                 NamedKey::ArrowDown  => self.state.down   = pressed,
                 NamedKey::ArrowLeft  => self.state.left   = pressed,
                 NamedKey::ArrowRight => self.state.right  = pressed,
-                NamedKey::Space      => self.state.shoot  = pressed,
+                NamedKey::Space      => self.state.walk   = pressed,
+                NamedKey::Shift      => self.state.shift  = pressed,
                 NamedKey::Escape     => self.state.escape = pressed,
                 NamedKey::Enter      => self.state.enter  = pressed,
                 NamedKey::F1         => self.state.f1     = pressed,
@@ -116,7 +119,7 @@ impl InputHandler {
         match button {
             MouseButton::Left => {
                 self.state.mouse_left = pressed;
-                self.state.shoot = pressed;
+                self.state.shoot      = pressed;
             }
             MouseButton::Right => self.state.mouse_right = pressed,
             _ => {}
