@@ -6,9 +6,11 @@ use crate::core::world::sight::Sight;
 use crate::core::world::wall::Wall;
 use crate::input::InputState;
 
-const WALK_SPEED: f32 = 80.0;
-const NORMAL_SPEED: f32 = 150.0;
-const RUN_SPEED: f32 = 300.0;
+const WALK_SPEED: f32 = 40.0;
+const NORMAL_SPEED: f32 = 100.0;
+const RUN_SPEED: f32 = 280.0;
+const SPRINT_BURST_SECS: f32 = 1.2;
+const SPRINT_COOLDOWN_SECS: f32 = 8.0;
 const PEEK_DISTANCE: f32 = 18.0;
 
 pub struct Player {
@@ -18,6 +20,8 @@ pub struct Player {
     was_shooting: bool,
     peek_origin: Option<(f32, f32)>,
     was_peeking: bool,
+    sprint_time_left: f32,
+    sprint_cooldown_left: f32,
 }
 
 impl Player {
@@ -29,6 +33,8 @@ impl Player {
             was_shooting: false,
             peek_origin: None,
             was_peeking: false,
+            sprint_time_left: SPRINT_BURST_SECS,
+            sprint_cooldown_left: 0.0,
         }
     }
 
@@ -40,7 +46,23 @@ impl Player {
         half_size: f32,
         spawns: &mut SpawnQueue,
     ) {
-        self.movement.speed = if input.shift {
+        if self.sprint_cooldown_left > 0.0 {
+            self.sprint_cooldown_left = (self.sprint_cooldown_left - dt).max(0.0);
+            if self.sprint_cooldown_left <= 0.0 {
+                self.sprint_time_left = SPRINT_BURST_SECS;
+            }
+        }
+
+        let sprinting =
+            input.shift && self.sprint_cooldown_left <= 0.0 && self.sprint_time_left > 0.0;
+        if sprinting {
+            self.sprint_time_left = (self.sprint_time_left - dt).max(0.0);
+            if self.sprint_time_left <= 0.0 {
+                self.sprint_cooldown_left = SPRINT_COOLDOWN_SECS;
+            }
+        }
+
+        self.movement.speed = if sprinting {
             RUN_SPEED
         } else if input.walk {
             WALK_SPEED
