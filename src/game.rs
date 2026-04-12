@@ -52,13 +52,19 @@ impl Game {
 
         let target = (self.player.movement.x, self.player.movement.y);
         for enemy in &mut self.enemies {
-            enemy.update(dt, target);
+            enemy.update(dt, target, &self.walls, &mut self.spawn_queue);
             wall::resolve_all(
                 &mut enemy.movement.x,
                 &mut enemy.movement.y,
                 ENEMY_HALF,
                 &self.walls,
             );
+        }
+
+        // Compute which enemies are visible to the player.
+        for enemy in &mut self.enemies {
+            let ep = (enemy.movement.x, enemy.movement.y);
+            enemy.visible_to_player = self.player.sight.can_see(target, ep, &self.walls);
         }
 
         for bullet in &mut self.bullets {

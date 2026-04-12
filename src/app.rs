@@ -8,6 +8,7 @@ use winit::window::{Window, WindowId};
 use crate::editor::Editor;
 use crate::game::Game;
 use crate::game_loop::GameLoop;
+use crate::geometry::{push_circle_fan, push_cone_fan, GeoVertex};
 use crate::input::InputHandler;
 use crate::level_select::LevelSelect;
 use crate::menu::{MainMenu, MenuChoice};
@@ -113,9 +114,10 @@ impl ApplicationHandler for App {
                 let next = self.tick(sw, sh, mx, my, esc, enter, f1, click, &input);
 
                 let quads = self.build_quads(sw, sh, mx, my);
+                let geo   = self.build_geo();
                 let texts = self.build_texts(sw, sh, mx, my);
 
-                self.wgpu_state.as_mut().unwrap().render(&quads, &texts);
+                self.wgpu_state.as_mut().unwrap().render(&quads, &geo, &texts);
 
                 if let Some(ns) = next { self.app_state = ns; }
 
@@ -194,6 +196,18 @@ impl App {
                 }
                 None
             }
+        }
+    }
+
+    // ---------------------------------------------------------------------------
+    // Sight-cone geometry (triangles)
+    // ---------------------------------------------------------------------------
+
+    fn build_geo(&self) -> Vec<GeoVertex> {
+        if let AppState::Playing = &self.app_state {
+            play_geo(&self.game)
+        } else {
+            Vec::new()
         }
     }
 
@@ -304,6 +318,7 @@ fn play_quads(game: &Game) -> Vec<QuadInstance> {
         color:     [1.0, 1.0, 1.0, 1.0],
     });
     for e in &game.enemies {
+        if !e.visible_to_player { continue; }
         out.push(QuadInstance {
             center:    [e.movement.x, e.movement.y],
             half_size: [8.0, 8.0],
@@ -317,5 +332,46 @@ fn play_quads(game: &Game) -> Vec<QuadInstance> {
             color:     [1.0, 1.0, 0.0, 1.0],
         });
     }
+    out
+}
+
+// ---------------------------------------------------------------------------
+// Play-mode sight-cone geometry builder
+// ---------------------------------------------------------------------------
+
+fn play_geo(game: &Game) -> Vec<GeoVertex> {
+    let mut out   = Vec::new();
+    let walls     = &game.walls;
+    let player_pos = (game.player.movement.x, game.player.movement.y);
+
+    // --- Player ---
+    // Nearby circle (soft blue, very translucent).
+    push_circle_fan(&mut out, player_pos, game.player.sight.circle_radius,
+        [0.3, 0.7, 1.0, 0.07], 48);
+    // Vision cone.
+    let arc = game.player.sight.cone_arc_pts(player_pos, walls, 60);
+    push_cone_fan(&mut out, player_pos, &arc, [0.3, 0.7, 1.0, 0.16]);
+
+    // --- Enemies (only those the player can see) ---
+    for e in &game.enemies {
+        if !e.visible_to_player { continue; }
+        let ep = (e.movement.x, e.movement.y);
+
+        // Nearby circle.
+        push_circle_fan(&mut out, ep, e.sight.circle_radius,
+            [1.0, 0.3, 0.3, 0.05], 36);
+
+        // Cone color: red if chasing, orange if alerted, yellow if patrolling.
+        let cone_color = if e.sees_player {
+            [1.0, 0.08, 0.08, 0.35]
+        } else if e.is_alerted() {
+            [1.0, 0.50, 0.05, 0.28]
+        } else {
+            [1.0, 0.85, 0.20, 0.14]
+        };
+        let arc = e.sight.cone_arc_pts(ep, walls, 48);
+        push_cone_fan(&mut out, ep, &arc, cone_color);
+    }
+
     out
 }

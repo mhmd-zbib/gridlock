@@ -4,6 +4,7 @@ use wgpu::{CurrentSurfaceTexture, Device, Queue, Surface, SurfaceConfiguration};
 use winit::dpi::PhysicalSize;
 use winit::window::Window;
 
+use crate::geometry::{GeoVertex, GeometryRenderer};
 use crate::renderer::{QuadInstance, Renderer};
 use crate::text::{TextRenderer, TextSection};
 
@@ -15,6 +16,7 @@ pub struct State {
     config:     SurfaceConfiguration,
     pub size:   PhysicalSize<u32>,
     renderer:   Renderer,
+    geo:        GeometryRenderer,
     text:       TextRenderer,
 }
 
@@ -55,9 +57,10 @@ impl State {
         surface.configure(&device, &config);
 
         let renderer = Renderer::new(&device, format);
+        let geo      = GeometryRenderer::new(&device, format);
         let text     = TextRenderer::new(&device, &queue, format);
 
-        Self { window, surface, device, queue, config, size, renderer, text }
+        Self { window, surface, device, queue, config, size, renderer, geo, text }
     }
 
     pub fn resize(&mut self, new_size: PhysicalSize<u32>) {
@@ -68,8 +71,8 @@ impl State {
         self.surface.configure(&self.device, &self.config);
     }
 
-    /// Draw quads first (clears to background), then text on top.
-    pub fn render(&mut self, quads: &[QuadInstance], texts: &[TextSection]) {
+    /// Draw quads (clears to background), then sight-cone geometry, then text on top.
+    pub fn render(&mut self, quads: &[QuadInstance], geo_verts: &[GeoVertex], texts: &[TextSection]) {
         let surface_tex = match self.surface.get_current_texture() {
             CurrentSurfaceTexture::Success(t) | CurrentSurfaceTexture::Suboptimal(t) => t,
             CurrentSurfaceTexture::Outdated | CurrentSurfaceTexture::Lost => {
@@ -88,7 +91,10 @@ impl State {
         // Pass 1: quads (clears to background colour).
         self.renderer.draw(&mut encoder, &view, &self.queue, sw, sh, quads);
 
-        // Pass 2: text (LoadOp::Load — preserves quads).
+        // Pass 2: sight-cone triangle fans (LoadOp::Load — layered on top of quads).
+        self.geo.draw(&mut encoder, &view, &self.queue, sw, sh, geo_verts);
+
+        // Pass 3: text (LoadOp::Load — topmost layer).
         self.text.draw(&mut encoder, &view, &self.queue, sw, sh, texts);
 
         self.queue.submit([encoder.finish()]);
