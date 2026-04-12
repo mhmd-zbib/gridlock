@@ -14,6 +14,7 @@ pub enum Tool {
     Enemy,       // key 2 — red
     Wall,        // key 3 — brown, drag to draw rectangle
     TargetDummy, // key 4 — yellow
+    Breakable,   // key 5 — cyan, 2-point thin breakable wall
 }
 
 // ---------------------------------------------------------------------------
@@ -22,6 +23,9 @@ pub enum Tool {
 
 const GRID: f32 = 16.0;
 const MIN_WALL: f32 = GRID; // walls smaller than this are discarded
+const BREAKABLE_THICKNESS: f32 = GRID * 0.5;
+const MIN_BREAKABLE_LEN: f32 = GRID;
+const BREAKABLE_HP: u32 = 1;
 
 pub struct Editor {
     pub tool: Tool,
@@ -30,6 +34,8 @@ pub struct Editor {
 
     /// Set when left-button is pressed while the Wall tool is active.
     wall_drag_start: Option<(f32, f32)>,
+    /// First point for two-click breakable placement.
+    breakable_start: Option<(f32, f32)>,
 
     // Edge detection
     prev_left: bool,
@@ -40,6 +46,7 @@ pub struct Editor {
     prev_key_2: bool,
     prev_key_3: bool,
     prev_key_4: bool,
+    prev_key_5: bool,
     prev_key_g: bool,
 }
 
@@ -50,6 +57,7 @@ impl Editor {
             level: LevelData::default(),
             grid_snap: true,
             wall_drag_start: None,
+            breakable_start: None,
             prev_left: false,
             prev_right: false,
             prev_f5: false,
@@ -58,6 +66,7 @@ impl Editor {
             prev_key_2: false,
             prev_key_3: false,
             prev_key_4: false,
+            prev_key_5: false,
             prev_key_g: false,
         }
     }
@@ -84,21 +93,33 @@ impl Editor {
         if input.key_1 && !self.prev_key_1 {
             self.tool = Tool::PlayerSpawn;
             self.wall_drag_start = None;
+            self.breakable_start = None;
             println!("[editor] tool → player spawn  (1)");
         }
         if input.key_2 && !self.prev_key_2 {
             self.tool = Tool::Enemy;
             self.wall_drag_start = None;
+            self.breakable_start = None;
             println!("[editor] tool → enemy  (2)");
         }
         if input.key_3 && !self.prev_key_3 {
             self.tool = Tool::Wall;
+            self.breakable_start = None;
             println!("[editor] tool → wall  (3) — drag to draw, right-click to delete");
         }
         if input.key_4 && !self.prev_key_4 {
             self.tool = Tool::TargetDummy;
             self.wall_drag_start = None;
+            self.breakable_start = None;
             println!("[editor] tool → target dummy  (4)");
+        }
+        if input.key_5 && !self.prev_key_5 {
+            self.tool = Tool::Breakable;
+            self.wall_drag_start = None;
+            self.breakable_start = None;
+            println!(
+                "[editor] tool → breakable wall  (5) — click 2 points, right-click to cancel/delete"
+            );
         }
 
         // --- grid snap toggle ---
@@ -132,6 +153,27 @@ impl Editor {
                     }
                 }
             }
+            Tool::Breakable => {
+                if just_pressed {
+                    if let Some(start) = self.breakable_start.take() {
+                        if let Some(w) = build_breakable_wall(start, (mx, my)) {
+                            self.level.walls.push(w);
+                            println!(
+                                "[editor] breakable wall placed  ({:.0}, {:.0}) {:.0}×{:.0}  total={}  breakables={}",
+                                w.x,
+                                w.y,
+                                w.w,
+                                w.h,
+                                self.level.walls.len(),
+                                count_breakables(&self.level)
+                            );
+                        }
+                    } else {
+                        self.breakable_start = Some((mx, my));
+                        println!("[editor] breakable wall: first point set at ({mx:.0}, {my:.0})");
+                    }
+                }
+            }
             _ => {
                 if just_pressed {
                     self.place(mx, my);
@@ -141,7 +183,11 @@ impl Editor {
 
         // --- delete on right-click ---
         if just_right_pressed {
-            self.delete_at(raw_mx, raw_my);
+            if self.tool == Tool::Breakable && self.breakable_start.take().is_some() {
+                println!("[editor] breakable wall placement cancelled");
+            } else {
+                self.delete_at(raw_mx, raw_my);
+            }
         }
 
         // --- save / load ---
@@ -161,6 +207,7 @@ impl Editor {
         self.prev_key_2 = input.key_2;
         self.prev_key_3 = input.key_3;
         self.prev_key_4 = input.key_4;
+        self.prev_key_5 = input.key_5;
         self.prev_key_g = input.key_g;
     }
 
@@ -184,7 +231,7 @@ impl Editor {
                     self.level.target_enemies.len()
                 );
             }
-            Tool::Wall => {} // handled via drag
+            Tool::Wall | Tool::Breakable => {} // handled via drag/two-point
         }
     }
 
@@ -192,13 +239,19 @@ impl Editor {
         // Walls — delete if the click point is inside the rect.
         if let Some(idx) = self.level.walls.iter().position(|w| w.contains(x, y)) {
             let w = self.level.walls.remove(idx);
+            let label = if w.breakable {
+                "breakable wall"
+            } else {
+                "wall"
+            };
             println!(
-                "[editor] wall removed  ({:.0}, {:.0}) {:.0}×{:.0}  remaining={}",
+                "[editor] {label} removed  ({:.0}, {:.0}) {:.0}×{:.0}  remaining={}  breakables={}",
                 w.x,
                 w.y,
                 w.w,
                 w.h,
-                self.level.walls.len()
+                self.level.walls.len(),
+                count_breakables(&self.level)
             );
             return;
         }
@@ -243,10 +296,11 @@ impl Editor {
         match LevelData::load(path) {
             Ok(data) => {
                 println!(
-                    "[editor] loaded  ← {path}  enemies={}  targets={}  walls={}",
+                    "[editor] loaded  ← {path}  enemies={}  targets={}  walls={}  breakables={}",
                     data.enemies.len(),
                     data.target_enemies.len(),
-                    data.walls.len()
+                    data.walls.len(),
+                    count_breakables(&data)
                 );
                 self.level = data;
             }
@@ -274,7 +328,11 @@ impl Editor {
             out.push(QuadInstance {
                 center: [w.x + w.w * 0.5, w.y + w.h * 0.5],
                 half_size: [w.w * 0.5, w.h * 0.5],
-                color: [0.45, 0.4, 0.35, 1.0],
+                color: if w.breakable {
+                    [0.2, 0.8, 0.95, 1.0]
+                } else {
+                    [0.45, 0.4, 0.35, 1.0]
+                },
             });
         }
 
@@ -328,6 +386,23 @@ impl Editor {
                     });
                 }
             }
+            Tool::Breakable => {
+                if let Some(start) = self.breakable_start {
+                    if let Some(w) = build_breakable_wall(start, (mx, my)) {
+                        out.push(QuadInstance {
+                            center: [w.x + w.w * 0.5, w.y + w.h * 0.5],
+                            half_size: [w.w * 0.5, w.h * 0.5],
+                            color: [0.2, 0.8, 0.95, 0.45],
+                        });
+                    }
+                } else {
+                    out.push(QuadInstance {
+                        center: [mx, my],
+                        half_size: [3.0, 3.0],
+                        color: [0.2, 0.8, 0.95, 0.5],
+                    });
+                }
+            }
             Tool::PlayerSpawn => {
                 out.push(QuadInstance {
                     center: [mx, my],
@@ -377,4 +452,40 @@ fn nearest_idx(points: &[Pos], x: f32, y: f32, max_dist: f32) -> Option<usize> {
         .filter(|(_, d)| *d < max_dist)
         .min_by(|a, b| a.1.partial_cmp(&b.1).unwrap())
         .map(|(i, _)| i)
+}
+
+fn build_breakable_wall(start: (f32, f32), end: (f32, f32)) -> Option<Wall> {
+    let dx = end.0 - start.0;
+    let dy = end.1 - start.1;
+    if dx.abs() < MIN_BREAKABLE_LEN && dy.abs() < MIN_BREAKABLE_LEN {
+        return None;
+    }
+
+    if dx.abs() >= dy.abs() {
+        let w = dx.abs().max(MIN_BREAKABLE_LEN);
+        let x = start.0.min(end.0);
+        let y = (start.1 + end.1) * 0.5 - BREAKABLE_THICKNESS * 0.5;
+        Some(Wall::new_breakable(
+            x,
+            y,
+            w,
+            BREAKABLE_THICKNESS,
+            BREAKABLE_HP,
+        ))
+    } else {
+        let h = dy.abs().max(MIN_BREAKABLE_LEN);
+        let x = (start.0 + end.0) * 0.5 - BREAKABLE_THICKNESS * 0.5;
+        let y = start.1.min(end.1);
+        Some(Wall::new_breakable(
+            x,
+            y,
+            BREAKABLE_THICKNESS,
+            h,
+            BREAKABLE_HP,
+        ))
+    }
+}
+
+fn count_breakables(level: &LevelData) -> usize {
+    level.walls.iter().filter(|w| w.breakable).count()
 }

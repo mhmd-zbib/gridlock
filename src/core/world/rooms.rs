@@ -712,7 +712,7 @@ mod tests {
     use crate::core::world::wall::Wall;
 
     fn w(x: f32, y: f32, w: f32, h: f32) -> Wall {
-        Wall { x, y, w, h }
+        Wall::new(x, y, w, h)
     }
 
     #[test]

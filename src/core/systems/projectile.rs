@@ -10,7 +10,7 @@ pub struct ImpactEvent {
 pub fn step_projectiles(
     dt: f32,
     bullets: &mut Vec<Bullet>,
-    walls: &[Wall],
+    walls: &mut Vec<Wall>,
     enemies: &mut Vec<Enemy>,
     player_pos: (f32, f32),
     enemy_half: f32,
@@ -20,8 +20,15 @@ pub fn step_projectiles(
 
     for bullet in bullets.iter_mut() {
         bullet.update(dt);
-        if walls.iter().any(|w| w.contains(bullet.x, bullet.y)) {
+        if let Some(hit_idx) = walls.iter().position(|w| w.contains(bullet.x, bullet.y)) {
             bullet.alive = false;
+            let destroyed = {
+                let wall = &mut walls[hit_idx];
+                wall.take_damage(bullet.damage)
+            };
+            if destroyed {
+                walls.remove(hit_idx);
+            }
             impacts.push(ImpactEvent {
                 x: bullet.x,
                 y: bullet.y,

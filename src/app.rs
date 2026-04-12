@@ -516,17 +516,21 @@ fn editor_texts(sw: f32, sh: f32, editor: &Editor) -> Vec<TextSection> {
         Tool::Enemy => "Enemy",
         Tool::Wall => "Wall (drag)",
         Tool::TargetDummy => "Target Dummy",
+        Tool::Breakable => "Breakable Wall (2-point)",
     };
     let grid = if editor.grid_snap {
         "Grid: ON"
     } else {
         "Grid: OFF"
     };
+    let breakables = editor.level.walls.iter().filter(|w| w.breakable).count();
+    let solids = editor.level.walls.len().saturating_sub(breakables);
     let stats = format!(
-        "Enemies: {}  Targets: {}  Walls: {}",
+        "Enemies: {}  Targets: {}  Walls: {}  Breakables: {}",
         editor.level.enemies.len(),
         editor.level.target_enemies.len(),
-        editor.level.walls.len()
+        solids,
+        breakables
     );
     vec![
         ts!(8.0, 6.0, "LEVEL EDITOR", 18.0, [1.0, 0.7, 0.2, 1.0]),
@@ -535,7 +539,7 @@ fn editor_texts(sw: f32, sh: f32, editor: &Editor) -> Vec<TextSection> {
         ts!(
             6.0,
             sh - 38.0,
-            "1: Spawn   2: Enemy   3: Wall   4: Target   G: Grid",
+            "1: Spawn   2: Enemy   3: Wall   4: Target   5: Breakable   G: Grid",
             13.0,
             [0.55, 0.55, 0.55, 1.0]
         ),
@@ -560,7 +564,11 @@ fn play_quads(game: &Game, debug: bool) -> Vec<QuadInstance> {
         out.push(QuadInstance {
             center: [w.x + w.w * 0.5, w.y + w.h * 0.5],
             half_size: [w.w * 0.5, w.h * 0.5],
-            color: [0.45, 0.4, 0.35, 1.0],
+            color: if w.breakable {
+                [0.2, 0.8, 0.95, 1.0]
+            } else {
+                [0.45, 0.4, 0.35, 1.0]
+            },
         });
     }
     out.push(QuadInstance {

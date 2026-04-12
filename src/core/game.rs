@@ -122,7 +122,7 @@ impl Game {
         let impact_events = projectile::step_projectiles(
             dt,
             &mut self.bullets,
-            &self.walls,
+            &mut self.walls,
             &mut self.enemies,
             target,
             ENEMY_HALF,

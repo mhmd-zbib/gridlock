@@ -8,11 +8,47 @@ pub struct Wall {
     pub y: f32, // top edge
     pub w: f32,
     pub h: f32,
+    #[serde(default)]
+    pub breakable: bool,
+    #[serde(default = "default_wall_hp")]
+    pub hp: u32,
+}
+
+const fn default_wall_hp() -> u32 {
+    1
 }
 
 impl Wall {
     pub fn new(x: f32, y: f32, w: f32, h: f32) -> Self {
-        Self { x, y, w, h }
+        Self {
+            x,
+            y,
+            w,
+            h,
+            breakable: false,
+            hp: default_wall_hp(),
+        }
+    }
+
+    pub fn new_breakable(x: f32, y: f32, w: f32, h: f32, hp: u32) -> Self {
+        Self {
+            x,
+            y,
+            w,
+            h,
+            breakable: true,
+            hp: hp.max(1),
+        }
+    }
+
+    /// Apply damage to this wall.
+    /// Returns true when the wall should be destroyed.
+    pub fn take_damage(&mut self, amount: u32) -> bool {
+        if !self.breakable {
+            return false;
+        }
+        self.hp = self.hp.saturating_sub(amount.max(1));
+        self.hp == 0
     }
 
     /// True if an AABB centred at (cx, cy) with half-extent `half` overlaps this wall.

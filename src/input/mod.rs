@@ -31,7 +31,7 @@ pub struct InputState {
     pub key_2: bool, // tool: enemy
     pub key_3: bool, // tool: wall
     pub key_4: bool, // tool: target dummy
-    pub key_5: bool, // buy menu choice digit
+    pub key_5: bool, // buy menu choice / editor tool: breakable wall
     pub key_g: bool, // toggle grid snap
     pub key_l: bool, // load level
 
