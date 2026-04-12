@@ -11,20 +11,28 @@ pub struct Bullet {
     pub y: f32,
     vx: f32,
     vy: f32,
+    pub damage: u32,
     pub alive: bool,
     pub owner: BulletOwner,
 }
 
-const BULLET_SPEED: f32 = 600.0;
-
 impl Bullet {
     /// `dir_x / dir_y` must be a normalised direction vector.
-    pub fn new(x: f32, y: f32, dir_x: f32, dir_y: f32, owner: BulletOwner) -> Self {
+    pub fn new(
+        x: f32,
+        y: f32,
+        dir_x: f32,
+        dir_y: f32,
+        speed: f32,
+        damage: u32,
+        owner: BulletOwner,
+    ) -> Self {
         Self {
             x,
             y,
-            vx: dir_x * BULLET_SPEED,
-            vy: dir_y * BULLET_SPEED,
+            vx: dir_x * speed,
+            vy: dir_y * speed,
+            damage,
             alive: true,
             owner,
         }

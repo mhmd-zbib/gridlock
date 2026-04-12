@@ -12,6 +12,8 @@ pub enum SpawnRequest {
         /// Normalised direction vector.
         dir_x: f32,
         dir_y: f32,
+        speed: f32,
+        damage: u32,
         owner: BulletOwner,
     },
     Enemy {

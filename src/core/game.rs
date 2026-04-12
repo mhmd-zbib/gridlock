@@ -133,7 +133,7 @@ impl Game {
                         let dy = bullet.y - enemy.movement.y;
                         if (dx * dx + dy * dy).sqrt() < ENEMY_HALF * 2.0 {
                             bullet.alive = false;
-                            enemy.hp = enemy.hp.saturating_sub(1);
+                            enemy.hp = enemy.hp.saturating_sub(bullet.damage);
                             new_impacts.push(ImpactMark::new(bullet.x, bullet.y));
                             break;
                         }
@@ -165,9 +165,12 @@ impl Game {
                     y,
                     dir_x,
                     dir_y,
+                    speed,
+                    damage,
                     owner,
                 } => {
-                    self.bullets.push(Bullet::new(x, y, dir_x, dir_y, owner));
+                    self.bullets
+                        .push(Bullet::new(x, y, dir_x, dir_y, speed, damage, owner));
                 }
                 SpawnRequest::Enemy { x, y } => {
                     self.enemies.push(Enemy::new(x, y));

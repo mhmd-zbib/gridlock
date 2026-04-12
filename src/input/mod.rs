@@ -18,6 +18,7 @@ pub struct InputState {
     pub walk: bool,  // space — slow/sneak movement
     pub shift: bool, // shift — run
     pub peek: bool,  // hold X — peek modifier
+    pub reload: bool,
     pub escape: bool,
     pub enter: bool,
 
@@ -29,6 +30,9 @@ pub struct InputState {
     pub key_2: bool, // tool: enemy
     pub key_3: bool, // tool: wall
     pub key_4: bool, // tool: target dummy
+    pub key_5: bool, // equip AK-47
+    pub key_6: bool, // equip MP5
+    pub key_7: bool, // equip Sniper
     pub key_g: bool, // toggle grid snap
     pub key_l: bool, // load level
 
@@ -109,10 +113,14 @@ impl InputHandler {
                 "a" | "A" => self.state.left = pressed,
                 "d" | "D" => self.state.right = pressed,
                 "x" | "X" => self.state.peek = pressed,
+                "r" | "R" => self.state.reload = pressed,
                 "1" => self.state.key_1 = pressed,
                 "2" => self.state.key_2 = pressed,
                 "3" => self.state.key_3 = pressed,
                 "4" => self.state.key_4 = pressed,
+                "5" => self.state.key_5 = pressed,
+                "6" => self.state.key_6 = pressed,
+                "7" => self.state.key_7 = pressed,
                 "g" | "G" => self.state.key_g = pressed,
                 "l" | "L" => self.state.key_l = pressed,
                 _ => {}

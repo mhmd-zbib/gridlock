@@ -360,7 +360,25 @@ fn play_texts(sw: f32, sh: f32, game: &Game, debug: bool) -> Vec<TextSection> {
         ts!(
             8.0,
             6.0,
-            "WASD: move   X+WASD: peek   click: shoot   Esc: menu   F1: editor   F8: debug",
+            "WASD: move   Shift: sprint   X+WASD: peek   hold click: fire   Esc: menu   F1: editor   F8: debug",
+            13.0,
+            [0.5, 0.5, 0.5, 1.0]
+        ),
+        ts!(
+            8.0,
+            22.0,
+            format!(
+                "{} ({})  ammo: {}/{}{}   R: reload   5: AK-47   6: MP5   7: Sniper",
+                game.player.weapon_name(),
+                game.player.weapon_class_label(),
+                game.player.ammo_in_mag(),
+                game.player.mag_size(),
+                if game.player.is_reloading() {
+                    " [reloading]"
+                } else {
+                    ""
+                }
+            ),
             13.0,
             [0.5, 0.5, 0.5, 1.0]
         ),

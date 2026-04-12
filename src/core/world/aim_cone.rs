@@ -7,21 +7,11 @@ use super::wall::Wall;
 
 /// Half-angle of the spread cone when perfectly still and not shooting (degrees).
 /// Full base cone width = 2 × BASE_HALF_ANGLE_DEG.
-pub const BASE_HALF_ANGLE_DEG: f32 = 1.5;
-
-/// Degrees added to recoil half-angle on each bullet fired.
-pub const RECOIL_PER_SHOT_DEG: f32 = 4.0;
-
-/// Maximum recoil half-angle the cone will ever reach (degrees).
-/// Cone can still be widened further by movement.
-pub const RECOIL_MAX_DEG: f32 = 20.0;
-
-/// How fast the recoil half-angle shrinks back to zero when not firing (degrees/second).
-pub const RECOIL_DECAY_DEG_PER_SEC: f32 = 10.0;
+pub const DEFAULT_BASE_HALF_ANGLE_DEG: f32 = 1.5;
 
 /// Maximum extra half-angle added when moving at full speed (degrees).
 /// Formula: movement_spread = MOVEMENT_SPREAD_MAX_DEG × smoothed_speed^MOVEMENT_SPREAD_POWER
-pub const MOVEMENT_SPREAD_MAX_DEG: f32 = 12.0;
+pub const DEFAULT_MOVEMENT_SPREAD_MAX_DEG: f32 = 12.0;
 
 /// Exponent for the movement-spread curve.
 ///   1.0 = linear (even spread across all speeds)
@@ -37,7 +27,7 @@ pub const MOVEMENT_SPREAD_RISE_RATE: f32 = 3.0;
 pub const MOVEMENT_SPREAD_FALL_RATE: f32 = 1.8;
 
 /// How far the aim-cone arc is drawn in pixels (visual only, not a bullet range cap).
-pub const AIM_CONE_RENDER_RANGE: f32 = 180.0;
+pub const DEFAULT_AIM_CONE_RENDER_RANGE: f32 = 180.0;
 
 // ---------------------------------------------------------------------------
 // AimCone
@@ -55,6 +45,9 @@ pub struct AimCone {
     /// Ramps toward the real value at different rates for rising vs falling,
     /// so the cone grows and shrinks gradually instead of snapping.
     smoothed_velocity_frac: f32,
+    base_half_angle_deg: f32,
+    movement_spread_max_deg: f32,
+    render_range: f32,
 
     /// Tiny embedded xorshift32 PRNG — no external crate needed.
     rng_state: u32,
@@ -66,8 +59,22 @@ impl AimCone {
             direction: 0.0,
             recoil_spread: 0.0,
             smoothed_velocity_frac: 0.0,
+            base_half_angle_deg: DEFAULT_BASE_HALF_ANGLE_DEG,
+            movement_spread_max_deg: DEFAULT_MOVEMENT_SPREAD_MAX_DEG,
+            render_range: DEFAULT_AIM_CONE_RENDER_RANGE,
             rng_state: 0xDEAD_BEEF,
         }
+    }
+
+    pub fn set_spread_profile(
+        &mut self,
+        base_half_angle_deg: f32,
+        movement_spread_max_deg: f32,
+        render_range: f32,
+    ) {
+        self.base_half_angle_deg = base_half_angle_deg.max(0.0);
+        self.movement_spread_max_deg = movement_spread_max_deg.max(0.0);
+        self.render_range = render_range.max(0.0);
     }
 
     // -----------------------------------------------------------------------
@@ -75,18 +82,19 @@ impl AimCone {
     // -----------------------------------------------------------------------
 
     /// Call once per bullet fired to widen the spread cone.
-    pub fn on_shot(&mut self) {
-        let max = RECOIL_MAX_DEG.to_radians();
-        self.recoil_spread = (self.recoil_spread + RECOIL_PER_SHOT_DEG.to_radians()).min(max);
+    pub fn on_shot(&mut self, recoil_per_shot_deg: f32, recoil_max_deg: f32) {
+        let per_shot = recoil_per_shot_deg.max(0.0).to_radians();
+        let max = recoil_max_deg.max(0.0).to_radians();
+        self.recoil_spread = (self.recoil_spread + per_shot).min(max);
     }
 
     /// Advance the cone simulation one frame.
     ///
     /// `velocity_frac` is the raw speed fraction from movement (0 = still, 1 = full speed).
     /// The cone smooths it internally — callers just pass the instantaneous value.
-    pub fn update(&mut self, dt: f32, velocity_frac: f32) {
+    pub fn update(&mut self, dt: f32, velocity_frac: f32, recoil_decay_deg_per_sec: f32) {
         // Recoil decays at a fixed rate regardless of whether we're shooting.
-        let decay = RECOIL_DECAY_DEG_PER_SEC.to_radians() * dt;
+        let decay = recoil_decay_deg_per_sec.max(0.0).to_radians() * dt;
         self.recoil_spread = (self.recoil_spread - decay).max(0.0);
 
         // Smooth the velocity fraction: use a faster rate when rising (player starts
@@ -108,9 +116,9 @@ impl AimCone {
 
     /// Total current half-angle in radians (base + recoil + smoothed movement spread).
     pub fn half_angle(&self) -> f32 {
-        let movement_spread = MOVEMENT_SPREAD_MAX_DEG.to_radians()
+        let movement_spread = self.movement_spread_max_deg.to_radians()
             * self.smoothed_velocity_frac.powf(MOVEMENT_SPREAD_POWER);
-        BASE_HALF_ANGLE_DEG.to_radians() + self.recoil_spread + movement_spread
+        self.base_half_angle_deg.to_radians() + self.recoil_spread + movement_spread
     }
 
     /// Sample a random direction vector for a fired bullet, spread within the current cone.
@@ -131,7 +139,7 @@ impl AimCone {
     /// supplemented with wall-corner rays so shadow edges snap cleanly to geometry.
     pub fn cone_arc_pts(&self, origin: (f32, f32), walls: &[Wall], n_rays: usize) -> Vec<[f32; 2]> {
         let half = self.half_angle();
-        let range = AIM_CONE_RENDER_RANGE;
+        let range = self.render_range;
 
         let mut rel: Vec<f32> = (0..=n_rays)
             .map(|i| {

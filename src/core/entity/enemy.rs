@@ -6,6 +6,8 @@ use crate::core::world::sight::Sight;
 use crate::core::world::wall::{self, Wall};
 
 const MAX_HP: u32 = 3;
+const ENEMY_BULLET_SPEED: f32 = 600.0;
+const ENEMY_BULLET_DAMAGE: u32 = 1;
 /// Must match ENEMY_HALF in game.rs — the collision half-extent used for push_out.
 const ENEMY_HALF: f32 = 8.0;
 
@@ -82,6 +84,8 @@ impl Enemy {
                 y: from.1,
                 dir_x,
                 dir_y,
+                speed: ENEMY_BULLET_SPEED,
+                damage: ENEMY_BULLET_DAMAGE,
                 owner: BulletOwner::Enemy,
             });
         }
