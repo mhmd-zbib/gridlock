@@ -1,3 +1,9 @@
+#[derive(Clone, Copy, PartialEq)]
+pub enum BulletOwner {
+    Player,
+    Enemy,
+}
+
 /// Bullets don't respond to input — they move in a fixed direction
 /// at a fixed speed, so a velocity vector is enough. No MovementInput needed.
 pub struct Bullet {
@@ -6,19 +12,21 @@ pub struct Bullet {
     vx: f32,
     vy: f32,
     pub alive: bool,
+    pub owner: BulletOwner,
 }
 
 const BULLET_SPEED: f32 = 600.0;
 
 impl Bullet {
     /// `dir_x / dir_y` must be a normalised direction vector.
-    pub fn new(x: f32, y: f32, dir_x: f32, dir_y: f32) -> Self {
+    pub fn new(x: f32, y: f32, dir_x: f32, dir_y: f32, owner: BulletOwner) -> Self {
         Self {
             x,
             y,
             vx: dir_x * BULLET_SPEED,
             vy: dir_y * BULLET_SPEED,
             alive: true,
+            owner,
         }
     }
 

@@ -1,3 +1,5 @@
+use crate::core::entity::bullet::BulletOwner;
+
 /// A request to create a new entity, pushed during the update loop
 /// and flushed by `Game` at the end of each frame.
 ///
@@ -10,6 +12,7 @@ pub enum SpawnRequest {
         /// Normalised direction vector.
         dir_x: f32,
         dir_y: f32,
+        owner: BulletOwner,
     },
     Enemy {
         x: f32,

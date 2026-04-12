@@ -3,6 +3,7 @@ use super::movement::{Movement, MovementInput};
 use crate::core::world::sight::Sight;
 use crate::core::world::aim_cone::AimCone;
 use crate::core::spawn::{SpawnQueue, SpawnRequest};
+use super::bullet::BulletOwner;
 
 pub struct Player {
     pub movement:  Movement,
@@ -47,6 +48,7 @@ impl Player {
             spawns.push(SpawnRequest::Bullet {
                 x: from.0, y: from.1,
                 dir_x, dir_y,
+                owner: BulletOwner::Player,
             });
             self.aim_cone.on_shot();
         }

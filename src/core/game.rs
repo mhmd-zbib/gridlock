@@ -1,4 +1,4 @@
-use super::entity::bullet::Bullet;
+use super::entity::bullet::{Bullet, BulletOwner};
 use super::entity::enemy::Enemy;
 use super::entity::player::Player;
 use super::spawn::{SpawnQueue, SpawnRequest};
@@ -71,15 +71,28 @@ impl Game {
             bullet.update(dt);
             if self.walls.iter().any(|w| w.contains(bullet.x, bullet.y)) {
                 bullet.alive = false;
+                continue;
+            }
+            if bullet.owner == BulletOwner::Player {
+                for enemy in &mut self.enemies {
+                    let dx = bullet.x - enemy.movement.x;
+                    let dy = bullet.y - enemy.movement.y;
+                    if (dx * dx + dy * dy).sqrt() < ENEMY_HALF * 2.0 {
+                        bullet.alive = false;
+                        enemy.hp = enemy.hp.saturating_sub(1);
+                        break;
+                    }
+                }
             }
         }
         self.bullets.retain(|b| b.alive);
+        self.enemies.retain(|e| e.hp > 0);
 
         // --- flush spawn queue ---
         for req in self.spawn_queue.drain() {
             match req {
-                SpawnRequest::Bullet { x, y, dir_x, dir_y } => {
-                    self.bullets.push(Bullet::new(x, y, dir_x, dir_y));
+                SpawnRequest::Bullet { x, y, dir_x, dir_y, owner } => {
+                    self.bullets.push(Bullet::new(x, y, dir_x, dir_y, owner));
                 }
                 SpawnRequest::Enemy { x, y } => {
                     self.enemies.push(Enemy::new(x, y));

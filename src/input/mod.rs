@@ -59,7 +59,6 @@ impl InputHandler {
             WindowEvent::CursorMoved { position, .. } => {
                 self.state.mouse_x = position.x;
                 self.state.mouse_y = position.y;
-                println!("[input] mouse moved  x={:.1} y={:.1}", position.x, position.y);
                 true
             }
             WindowEvent::MouseInput { state, button, .. } => {
@@ -89,11 +88,10 @@ impl InputHandler {
                 NamedKey::F1         => self.state.f1     = pressed,
                 NamedKey::F5         => self.state.f5     = pressed,
                 other => {
-                    println!("[input] key {:9} named={other:?}", label(pressed));
+                    let _ = other;
                     return;
                 }
             }
-            println!("[input] key {:9} {:?}", label(pressed), named);
             return;
         }
 
@@ -110,7 +108,6 @@ impl InputHandler {
                 "l" | "L" => self.state.key_l = pressed,
                 _ => {}
             }
-            println!("[input] key {:9} '{ch}'", label(pressed));
         }
     }
 
@@ -124,21 +121,8 @@ impl InputHandler {
             MouseButton::Right => self.state.mouse_right = pressed,
             _ => {}
         }
-        println!("[input] mouse {:9} {button:?}", label(pressed));
     }
 
-    fn on_scroll(&self, delta: &MouseScrollDelta) {
-        match delta {
-            MouseScrollDelta::LineDelta(x, y) => {
-                println!("[input] scroll lines  dx={x:.1} dy={y:.1}");
-            }
-            MouseScrollDelta::PixelDelta(pos) => {
-                println!("[input] scroll pixels dx={:.1} dy={:.1}", pos.x, pos.y);
-            }
-        }
-    }
+    fn on_scroll(&self, _delta: &MouseScrollDelta) {}
 }
 
-fn label(pressed: bool) -> &'static str {
-    if pressed { "pressed" } else { "released" }
-}

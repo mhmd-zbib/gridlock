@@ -1,4 +1,5 @@
 use super::movement::{Movement, MovementInput};
+use super::bullet::BulletOwner;
 use crate::core::world::sight::Sight;
 use crate::core::spawn::{SpawnQueue, SpawnRequest};
 use crate::core::world::wall::Wall;
@@ -10,6 +11,8 @@ const SHOOT_INTERVAL: f32 = 2.2;
 // Patrol cone sweep amplitude (radians).
 const SWEEP_AMP: f32 = 0.75;
 
+const MAX_HP: u32 = 3;
+
 pub struct Enemy {
     pub movement:          Movement,
     pub sight:             Sight,
@@ -17,6 +20,8 @@ pub struct Enemy {
     pub visible_to_player: bool,
     /// Whether this enemy can currently see the player.
     pub sees_player:       bool,
+    /// Hit points remaining (dies at 0).
+    pub hp:                u32,
 
     // AI state
     pub alert_timer:  f32,  // > 0 while alerted after losing sight
@@ -34,6 +39,7 @@ impl Enemy {
             sight:             Sight::enemy(),
             visible_to_player: true, // default visible until game computes it
             sees_player:       false,
+            hp:                MAX_HP,
             alert_timer:       0.0,
             shoot_timer:       SHOOT_INTERVAL,
             sweep_timer:       0.0,
@@ -80,6 +86,7 @@ impl Enemy {
                         x: from.0, y: from.1,
                         dir_x: dx / len,
                         dir_y: dy / len,
+                        owner: BulletOwner::Enemy,
                     });
                 }
             }
