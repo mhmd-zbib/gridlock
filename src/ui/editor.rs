@@ -11,8 +11,9 @@ use crate::render::quad::QuadInstance;
 pub enum Tool {
     #[default]
     PlayerSpawn, // key 1 — green
-    Enemy, // key 2 — red
-    Wall,  // key 3 — brown, drag to draw rectangle
+    Enemy,       // key 2 — red
+    Wall,        // key 3 — brown, drag to draw rectangle
+    TargetDummy, // key 4 — yellow
 }
 
 // ---------------------------------------------------------------------------
@@ -38,6 +39,7 @@ pub struct Editor {
     prev_key_1: bool,
     prev_key_2: bool,
     prev_key_3: bool,
+    prev_key_4: bool,
     prev_key_g: bool,
 }
 
@@ -55,6 +57,7 @@ impl Editor {
             prev_key_1: false,
             prev_key_2: false,
             prev_key_3: false,
+            prev_key_4: false,
             prev_key_g: false,
         }
     }
@@ -91,6 +94,11 @@ impl Editor {
         if input.key_3 && !self.prev_key_3 {
             self.tool = Tool::Wall;
             println!("[editor] tool → wall  (3) — drag to draw, right-click to delete");
+        }
+        if input.key_4 && !self.prev_key_4 {
+            self.tool = Tool::TargetDummy;
+            self.wall_drag_start = None;
+            println!("[editor] tool → target dummy  (4)");
         }
 
         // --- grid snap toggle ---
@@ -152,6 +160,7 @@ impl Editor {
         self.prev_key_1 = input.key_1;
         self.prev_key_2 = input.key_2;
         self.prev_key_3 = input.key_3;
+        self.prev_key_4 = input.key_4;
         self.prev_key_g = input.key_g;
     }
 
@@ -166,6 +175,13 @@ impl Editor {
                 println!(
                     "[editor] enemy ({x:.0}, {y:.0})  total={}",
                     self.level.enemies.len()
+                );
+            }
+            Tool::TargetDummy => {
+                self.level.target_enemies.push(Pos { x, y });
+                println!(
+                    "[editor] target dummy ({x:.0}, {y:.0})  total={}",
+                    self.level.target_enemies.len()
                 );
             }
             Tool::Wall => {} // handled via drag
@@ -198,6 +214,15 @@ impl Editor {
             return;
         }
 
+        if let Some(idx) = nearest_idx(&self.level.target_enemies, x, y, R) {
+            self.level.target_enemies.remove(idx);
+            println!(
+                "[editor] target dummy removed  remaining={}",
+                self.level.target_enemies.len()
+            );
+            return;
+        }
+
         // Player spawn — delete if near enough.
         if let Some(sp) = self.level.player_spawn {
             if dist(sp.x, sp.y, x, y) < R {
@@ -218,8 +243,9 @@ impl Editor {
         match LevelData::load(path) {
             Ok(data) => {
                 println!(
-                    "[editor] loaded  ← {path}  enemies={}  walls={}",
+                    "[editor] loaded  ← {path}  enemies={}  targets={}  walls={}",
                     data.enemies.len(),
+                    data.target_enemies.len(),
                     data.walls.len()
                 );
                 self.level = data;
@@ -270,6 +296,15 @@ impl Editor {
             });
         }
 
+        // Target dummies — yellow
+        for e in &self.level.target_enemies {
+            out.push(QuadInstance {
+                center: [e.x, e.y],
+                half_size: [8.0, 8.0],
+                color: [1.0, 0.85, 0.2, 1.0],
+            });
+        }
+
         // Ghost: drag preview (wall tool) or cursor dot (other tools)
         match self.tool {
             Tool::Wall => {
@@ -305,6 +340,13 @@ impl Editor {
                     center: [mx, my],
                     half_size: [8.0, 8.0],
                     color: [1.0, 0.2, 0.2, 0.35],
+                });
+            }
+            Tool::TargetDummy => {
+                out.push(QuadInstance {
+                    center: [mx, my],
+                    half_size: [8.0, 8.0],
+                    color: [1.0, 0.85, 0.2, 0.35],
                 });
             }
         }

@@ -15,8 +15,8 @@ use crate::core::ai::awareness::{AiState, Awareness, Memory};
 use crate::core::ai::guard::RoomGuard;
 use crate::core::ai::perception::{PerceptionContext, PerceptionSystem, VisibilityFactor};
 use crate::core::ai::search::SearchPlanner;
-use crate::core::world::spatial;
 use crate::core::world::sight::Sight;
+use crate::core::world::spatial;
 use crate::core::world::wall::Wall;
 
 const SHOOT_INTERVAL: f32 = 2.2;
@@ -113,8 +113,7 @@ impl EnemyBrain {
             self.search = SearchPlanner::new();
             self.base_dir = (player_pos.1 - pos.1).atan2(player_pos.0 - pos.0);
         } else {
-            let entered_alert =
-                self.prev_state != AiState::Alert && state_now == AiState::Alert;
+            let entered_alert = self.prev_state != AiState::Alert && state_now == AiState::Alert;
             let just_lost = self.was_seeing && !seeing_now;
             if (entered_alert || just_lost)
                 && self.search.is_done()
@@ -210,7 +209,13 @@ impl EnemyBrain {
 
     // ── Alert ────────────────────────────────────────────────────────────────
 
-    fn tick_alert(&mut self, pos: (f32, f32), sight: &Sight, walls: &[Wall], dt: f32) -> BrainOutput {
+    fn tick_alert(
+        &mut self,
+        pos: (f32, f32),
+        sight: &Sight,
+        walls: &[Wall],
+        dt: f32,
+    ) -> BrainOutput {
         if let Some(last_known) = self.awareness.last_known_pos() {
             if !self.search.is_done() {
                 let decision =

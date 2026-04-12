@@ -10,8 +10,8 @@
 // This module owns only the search state machine and scoring logic.
 // ─────────────────────────────────────────────────────────────────────────────
 
-use crate::core::world::spatial::{self, SCAN_RANGE, SCAN_SECTORS};
 use crate::core::world::ray::wrap_angle;
+use crate::core::world::spatial::{self, SCAN_RANGE, SCAN_SECTORS};
 use crate::core::world::wall::Wall;
 use std::f32::consts::PI;
 
@@ -578,7 +578,10 @@ impl SearchPlanner {
                 + edge_connectivity_norm * 0.05
                 + room_bonus;
             let anchor_penalty = ANCHOR_LAMBDA
-                * self.normalized(spatial::distance(gap.pos, self.spawn_anchor), SCAN_RANGE * 1.7);
+                * self.normalized(
+                    spatial::distance(gap.pos, self.spawn_anchor),
+                    SCAN_RANGE * 1.7,
+                );
             let memory_boost = self.gap_memory_boost(gap, enemy_pos, last_known);
             let score = (base + memory_boost - anchor_penalty).max(0.0);
 

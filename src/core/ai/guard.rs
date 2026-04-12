@@ -12,8 +12,8 @@
 // attention-cycle state machine and the idle-specific gap scorer.
 // ─────────────────────────────────────────────────────────────────────────────
 
-use crate::core::world::spatial::{self, SCAN_RANGE, SCAN_SECTORS};
 use crate::core::world::ray::wrap_angle;
+use crate::core::world::spatial::{self, SCAN_RANGE, SCAN_SECTORS};
 use crate::core::world::wall::Wall;
 use std::f32::consts::PI;
 
@@ -101,8 +101,7 @@ impl RoomGuard {
                 self.active_idx = idx;
             } else {
                 self.active_idx = 0;
-                self.attention_timer =
-                    self.gaps.first().map(|g| g.attention_time).unwrap_or(0.0);
+                self.attention_timer = self.gaps.first().map(|g| g.attention_time).unwrap_or(0.0);
             }
         }
 
@@ -133,12 +132,7 @@ impl RoomGuard {
         }
     }
 
-    fn rebuild_gaps(
-        &mut self,
-        pos: (f32, f32),
-        threat_hint: Option<(f32, f32)>,
-        walls: &[Wall],
-    ) {
+    fn rebuild_gaps(&mut self, pos: (f32, f32), threat_hint: Option<(f32, f32)>, walls: &[Wall]) {
         let hits = spatial::sample_sector_hits(pos, walls);
         let candidate = spatial::detect_gap_sectors(&hits);
         let clusters = spatial::cluster_gap_sectors(&candidate);
@@ -161,8 +155,7 @@ impl RoomGuard {
             let gap_pos = (pos.0 + dir.0 * travel, pos.1 + dir.1 * travel);
 
             let openness = (cluster_hit_avg / SCAN_RANGE).clamp(0.0, 1.0);
-            let width_norm =
-                (cluster.len() as f32 / (SCAN_SECTORS as f32 * 0.25)).clamp(0.0, 1.0);
+            let width_norm = (cluster.len() as f32 / (SCAN_SECTORS as f32 * 0.25)).clamp(0.0, 1.0);
             let connectivity_raw = openness * 2.0 + width_norm * 1.0;
             let mut score = 0.45 * openness + 0.25 * width_norm + 0.30 * (connectivity_raw / 3.0);
 

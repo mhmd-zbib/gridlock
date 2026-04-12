@@ -9,11 +9,33 @@ use crate::input::InputState;
 
 const PLAYER_HALF: f32 = 10.0;
 const ENEMY_HALF: f32 = 8.0;
+const IMPACT_TTL: f32 = 0.15;
+
+pub struct ImpactMark {
+    pub x: f32,
+    pub y: f32,
+    ttl: f32,
+}
+
+impl ImpactMark {
+    fn new(x: f32, y: f32) -> Self {
+        Self {
+            x,
+            y,
+            ttl: IMPACT_TTL,
+        }
+    }
+
+    pub fn alpha(&self) -> f32 {
+        (self.ttl / IMPACT_TTL).clamp(0.0, 1.0)
+    }
+}
 
 pub struct Game {
     pub player: Player,
     pub enemies: Vec<Enemy>,
     pub bullets: Vec<Bullet>,
+    pub impacts: Vec<ImpactMark>,
     pub walls: Vec<Wall>,
     pub rooms: LevelRooms,
     spawn_queue: SpawnQueue,
@@ -25,6 +47,7 @@ impl Game {
             player: Player::new(400.0, 300.0),
             enemies: vec![Enemy::new(100.0, 100.0), Enemy::new(700.0, 500.0)],
             bullets: Vec::new(),
+            impacts: Vec::new(),
             walls: Vec::new(),
             rooms: LevelRooms::default(),
             spawn_queue: SpawnQueue::default(),
@@ -36,17 +59,29 @@ impl Game {
             Some(sp) => Player::new(sp.x, sp.y),
             None => Player::new(400.0, 300.0),
         };
-        self.enemies = level.enemies.iter().map(|p| Enemy::new(p.x, p.y)).collect();
+        self.enemies = level
+            .enemies
+            .iter()
+            .map(|p| Enemy::new(p.x, p.y))
+            .chain(
+                level
+                    .target_enemies
+                    .iter()
+                    .map(|p| Enemy::target_dummy(p.x, p.y)),
+            )
+            .collect();
         self.walls = level.walls.clone();
         self.bullets = Vec::new();
+        self.impacts = Vec::new();
         self.spawn_queue = SpawnQueue::default();
-        
+
         // Compute rooms and gaps ONCE at level load (cached for debug rendering)
         self.rooms = LevelRooms::compute(&self.walls, level_width, level_height);
-        
+
         println!(
-            "[game] level loaded  enemies={}  walls={}  rooms={}  gaps={}  outside_cells={}",
+            "[game] level loaded  enemies={}  targets={}  walls={}  rooms={}  gaps={}  outside_cells={}",
             self.enemies.len(),
+            level.target_enemies.len(),
             self.walls.len(),
             self.rooms.rooms.len(),
             self.rooms.gaps.len(),
@@ -81,26 +116,45 @@ impl Game {
             enemy.visible_to_player = self.player.sight.can_see(target, ep, &self.walls);
         }
 
+        let mut new_impacts = Vec::new();
         for bullet in &mut self.bullets {
             bullet.update(dt);
             if self.walls.iter().any(|w| w.contains(bullet.x, bullet.y)) {
                 bullet.alive = false;
+                new_impacts.push(ImpactMark::new(bullet.x, bullet.y));
                 continue;
             }
-            if bullet.owner == BulletOwner::Player {
-                for enemy in &mut self.enemies {
-                    let dx = bullet.x - enemy.movement.x;
-                    let dy = bullet.y - enemy.movement.y;
-                    if (dx * dx + dy * dy).sqrt() < ENEMY_HALF * 2.0 {
+
+            match bullet.owner {
+                BulletOwner::Player => {
+                    for enemy in &mut self.enemies {
+                        let dx = bullet.x - enemy.movement.x;
+                        let dy = bullet.y - enemy.movement.y;
+                        if (dx * dx + dy * dy).sqrt() < ENEMY_HALF * 2.0 {
+                            bullet.alive = false;
+                            enemy.hp = enemy.hp.saturating_sub(1);
+                            new_impacts.push(ImpactMark::new(bullet.x, bullet.y));
+                            break;
+                        }
+                    }
+                }
+                BulletOwner::Enemy => {
+                    let dx = bullet.x - self.player.movement.x;
+                    let dy = bullet.y - self.player.movement.y;
+                    if (dx * dx + dy * dy).sqrt() < PLAYER_HALF * 2.0 {
                         bullet.alive = false;
-                        enemy.hp = enemy.hp.saturating_sub(1);
-                        break;
+                        new_impacts.push(ImpactMark::new(bullet.x, bullet.y));
                     }
                 }
             }
         }
         self.bullets.retain(|b| b.alive);
         self.enemies.retain(|e| e.hp > 0);
+        self.impacts.extend(new_impacts);
+        for impact in &mut self.impacts {
+            impact.ttl -= dt;
+        }
+        self.impacts.retain(|impact| impact.ttl > 0.0);
 
         // --- flush spawn queue ---
         for req in self.spawn_queue.drain() {

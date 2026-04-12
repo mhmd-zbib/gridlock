@@ -20,6 +20,9 @@ pub struct Pos {
 ///   "enemies": [
 ///     { "x": 100.0, "y": 100.0 },
 ///     { "x": 700.0, "y": 200.0 }
+///   ],
+///   "target_enemies": [
+///     { "x": 500.0, "y": 300.0 }
 ///   ]
 /// }
 /// ```
@@ -28,7 +31,11 @@ pub struct LevelData {
     pub name: String,
     /// `None` means no spawn defined yet (editor hasn't placed one).
     pub player_spawn: Option<Pos>,
+    #[serde(default)]
     pub enemies: Vec<Pos>,
+    #[serde(default)]
+    pub target_enemies: Vec<Pos>,
+    #[serde(default)]
     pub walls: Vec<Wall>,
 }
 

@@ -5,6 +5,7 @@ use winit::event::WindowEvent;
 use winit::event_loop::ActiveEventLoop;
 use winit::window::{Window, WindowId};
 
+use crate::core::entity::enemy::EnemyKind;
 use crate::core::game::Game;
 use crate::core::world::level::LevelData;
 use crate::core::world::rooms::LevelRooms;
@@ -385,32 +386,34 @@ fn play_texts(sw: f32, sh: f32, game: &Game, debug: bool) -> Vec<TextSection> {
     out.push(ts!(
         px,
         py,
-        format!(
-            "[DEBUG]  spd:{:.0}  enemies:{}",
-            spd,
-            game.enemies.len()
-        ),
+        format!("[DEBUG]  spd:{:.0}  enemies:{}", spd, game.enemies.len()),
         12.0,
         [0.9, 0.9, 0.2, 1.0]
     ));
     py += lh + 2.0;
-    
+
     // Show if player is in a room
     let player_pos = (game.player.movement.x, game.player.movement.y);
     let room_info = match game.rooms.find_room_at(player_pos.0, player_pos.1) {
         Some(room_idx) => format!("Room: {}", room_idx),
         None => "Room: ---".to_string(),
     };
-    out.push(ts!(
-        px,
-        py,
-        room_info,
-        11.0,
-        [0.6, 0.9, 0.6, 1.0]
-    ));
+    out.push(ts!(px, py, room_info, 11.0, [0.6, 0.9, 0.6, 1.0]));
     py += lh + 2.0;
 
     for (i, e) in game.enemies.iter().enumerate() {
+        if e.kind == EnemyKind::TargetDummy {
+            out.push(ts!(
+                px,
+                py,
+                format!("T{i} [TARGET] hp:{}", e.hp),
+                11.0,
+                [1.0, 0.85, 0.25, 1.0]
+            ));
+            py += lh + 3.0;
+            continue;
+        }
+
         let state_label = match e.brain.awareness.state {
             crate::core::ai::awareness::AiState::Combat => "COMBAT",
             crate::core::ai::awareness::AiState::Alert => "ALERT ",
@@ -423,9 +426,7 @@ fn play_texts(sw: f32, sh: f32, game: &Game, debug: bool) -> Vec<TextSection> {
         };
         let line1 = format!(
             "E{i} [{state_label}] susp:{:.2} hp:{} vis:{}",
-            e.brain.awareness.suspicion,
-            e.hp,
-            sees
+            e.brain.awareness.suspicion, e.hp, sees
         );
         let col1 = if e.brain.awareness.in_combat() {
             [1.0, 0.35, 0.35, 1.0]
@@ -492,6 +493,7 @@ fn editor_texts(sw: f32, sh: f32, editor: &Editor) -> Vec<TextSection> {
         Tool::PlayerSpawn => "Player Spawn",
         Tool::Enemy => "Enemy",
         Tool::Wall => "Wall (drag)",
+        Tool::TargetDummy => "Target Dummy",
     };
     let grid = if editor.grid_snap {
         "Grid: ON"
@@ -499,8 +501,9 @@ fn editor_texts(sw: f32, sh: f32, editor: &Editor) -> Vec<TextSection> {
         "Grid: OFF"
     };
     let stats = format!(
-        "Enemies: {}  Walls: {}",
+        "Enemies: {}  Targets: {}  Walls: {}",
         editor.level.enemies.len(),
+        editor.level.target_enemies.len(),
         editor.level.walls.len()
     );
     vec![
@@ -510,7 +513,7 @@ fn editor_texts(sw: f32, sh: f32, editor: &Editor) -> Vec<TextSection> {
         ts!(
             6.0,
             sh - 38.0,
-            "1: Spawn   2: Enemy   3: Wall   G: Grid",
+            "1: Spawn   2: Enemy   3: Wall   4: Target   G: Grid",
             13.0,
             [0.55, 0.55, 0.55, 1.0]
         ),
@@ -549,10 +552,11 @@ fn play_quads(game: &Game, debug: bool) -> Vec<QuadInstance> {
             continue;
         }
         // Dimmer when not visible to player (debug see-through).
-        let color = if visible {
-            [1.0, 0.2, 0.2, 1.0]
-        } else {
-            [0.6, 0.15, 0.15, 0.55]
+        let color = match (e.kind, visible) {
+            (EnemyKind::Shooter, true) => [1.0, 0.2, 0.2, 1.0],
+            (EnemyKind::Shooter, false) => [0.6, 0.15, 0.15, 0.55],
+            (EnemyKind::TargetDummy, true) => [1.0, 0.85, 0.2, 1.0],
+            (EnemyKind::TargetDummy, false) => [0.6, 0.5, 0.12, 0.55],
         };
         out.push(QuadInstance {
             center: [e.movement.x, e.movement.y],
@@ -560,7 +564,7 @@ fn play_quads(game: &Game, debug: bool) -> Vec<QuadInstance> {
             color,
         });
 
-        if debug {
+        if debug && e.kind == EnemyKind::Shooter {
             let ep = (e.movement.x, e.movement.y);
 
             // Spawn anchor — blue dot.
@@ -613,7 +617,7 @@ fn play_quads(game: &Game, debug: bool) -> Vec<QuadInstance> {
 // Play-mode sight-cone geometry builder
 // ---------------------------------------------------------------------------
 
-fn play_geo(game: &Game, debug: bool, sw: f32, sh: f32) -> Vec<GeoVertex> {
+fn play_geo(game: &Game, debug: bool, _sw: f32, _sh: f32) -> Vec<GeoVertex> {
     let mut out = Vec::new();
     let walls = &game.walls;
     let player_pos = (game.player.movement.x, game.player.movement.y);
@@ -632,8 +636,22 @@ fn play_geo(game: &Game, debug: bool, sw: f32, sh: f32) -> Vec<GeoVertex> {
     let aim_arc = game.player.aim_cone.cone_arc_pts(player_pos, walls, 16);
     push_cone_fan(&mut out, player_pos, &aim_arc, [1.0, 0.6, 0.1, 0.45]);
 
+    // Bullet impact marks.
+    for impact in &game.impacts {
+        push_circle_fan(
+            &mut out,
+            (impact.x, impact.y),
+            5.0,
+            [1.0, 0.95, 0.2, 0.22 * impact.alpha()],
+            18,
+        );
+    }
+
     // ── Enemies ───────────────────────────────────────────────────────────────
     for e in &game.enemies {
+        if e.kind == EnemyKind::TargetDummy {
+            continue;
+        }
         let visible = e.visible_to_player;
         if !visible && !debug {
             continue;
@@ -642,7 +660,13 @@ fn play_geo(game: &Game, debug: bool, sw: f32, sh: f32) -> Vec<GeoVertex> {
 
         // Nearby circle — dimmed when not visible to player.
         let circle_alpha = if visible { 0.05 } else { 0.03 };
-        push_circle_fan(&mut out, ep, e.sight.circle_radius, [1.0, 0.3, 0.3, circle_alpha], 36);
+        push_circle_fan(
+            &mut out,
+            ep,
+            e.sight.circle_radius,
+            [1.0, 0.3, 0.3, circle_alpha],
+            36,
+        );
 
         // Cone colour: red=combat, orange=alert, yellow=idle. Dimmed if not visible.
         let alpha_scale = if visible { 1.0 } else { 0.45 };
@@ -676,12 +700,27 @@ fn push_level_rooms_geo(out: &mut Vec<GeoVertex>, rooms: &LevelRooms) {
 
         // Two triangles to fill the rectangle.
         out.push(GeoVertex { pos: [x, y], color });
-        out.push(GeoVertex { pos: [x2, y], color });
-        out.push(GeoVertex { pos: [x, y2], color });
+        out.push(GeoVertex {
+            pos: [x2, y],
+            color,
+        });
+        out.push(GeoVertex {
+            pos: [x, y2],
+            color,
+        });
 
-        out.push(GeoVertex { pos: [x2, y], color });
-        out.push(GeoVertex { pos: [x2, y2], color });
-        out.push(GeoVertex { pos: [x, y2], color });
+        out.push(GeoVertex {
+            pos: [x2, y],
+            color,
+        });
+        out.push(GeoVertex {
+            pos: [x2, y2],
+            color,
+        });
+        out.push(GeoVertex {
+            pos: [x, y2],
+            color,
+        });
     }
 
     // Gap waypoints: small filled diamonds (two triangles).
@@ -693,11 +732,29 @@ fn push_level_rooms_geo(out: &mut Vec<GeoVertex>, rooms: &LevelRooms) {
         let e_pt = [gx + R, gy];
         let s_pt = [gx, gy + R];
         let w_pt = [gx - R, gy];
-        out.push(GeoVertex { pos: n_pt, color: gap_col });
-        out.push(GeoVertex { pos: e_pt, color: gap_col });
-        out.push(GeoVertex { pos: s_pt, color: gap_col });
-        out.push(GeoVertex { pos: n_pt, color: gap_col });
-        out.push(GeoVertex { pos: s_pt, color: gap_col });
-        out.push(GeoVertex { pos: w_pt, color: gap_col });
+        out.push(GeoVertex {
+            pos: n_pt,
+            color: gap_col,
+        });
+        out.push(GeoVertex {
+            pos: e_pt,
+            color: gap_col,
+        });
+        out.push(GeoVertex {
+            pos: s_pt,
+            color: gap_col,
+        });
+        out.push(GeoVertex {
+            pos: n_pt,
+            color: gap_col,
+        });
+        out.push(GeoVertex {
+            pos: s_pt,
+            color: gap_col,
+        });
+        out.push(GeoVertex {
+            pos: w_pt,
+            color: gap_col,
+        });
     }
 }

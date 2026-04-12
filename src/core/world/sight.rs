@@ -94,9 +94,7 @@ impl Sight {
         use std::f32::consts::{PI, TAU};
 
         let n = n_rays.max(8);
-        let mut angles: Vec<f32> = (0..n)
-            .map(|i| -PI + (i as f32 / n as f32) * TAU)
-            .collect();
+        let mut angles: Vec<f32> = (0..n).map(|i| -PI + (i as f32 / n as f32) * TAU).collect();
 
         const EPS: f32 = 0.0002;
         for w in walls {

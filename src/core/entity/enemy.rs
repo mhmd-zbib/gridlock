@@ -9,11 +9,18 @@ const MAX_HP: u32 = 3;
 /// Must match ENEMY_HALF in game.rs — the collision half-extent used for push_out.
 const ENEMY_HALF: f32 = 8.0;
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum EnemyKind {
+    Shooter,
+    TargetDummy,
+}
+
 /// The physical enemy entity: position, sight, health.
 ///
 /// All cognition (perception, suspicion, behaviour) lives in `EnemyBrain`.
 /// This struct owns the body; the brain owns the mind.
 pub struct Enemy {
+    pub kind: EnemyKind,
     pub movement: Movement,
     pub sight: Sight,
     /// Set by `game.update()` — used by the renderer to cull invisible enemies.
@@ -25,9 +32,18 @@ pub struct Enemy {
 
 impl Enemy {
     pub fn new(x: f32, y: f32) -> Self {
+        Self::new_with_kind(x, y, EnemyKind::Shooter)
+    }
+
+    pub fn target_dummy(x: f32, y: f32) -> Self {
+        Self::new_with_kind(x, y, EnemyKind::TargetDummy)
+    }
+
+    fn new_with_kind(x: f32, y: f32, kind: EnemyKind) -> Self {
         let sight = Sight::enemy();
         let brain = EnemyBrain::new((x, y), sight.direction);
         Self {
+            kind,
             movement: Movement::new(x, y, 90.0),
             sight,
             visible_to_player: true,
@@ -43,6 +59,11 @@ impl Enemy {
         walls: &[Wall],
         spawns: &mut SpawnQueue,
     ) {
+        if self.kind == EnemyKind::TargetDummy {
+            self.movement.velocity_frac = 0.0;
+            return;
+        }
+
         let from = (self.movement.x, self.movement.y);
 
         // The brain reads sight.direction for smoothed rotation and perception.

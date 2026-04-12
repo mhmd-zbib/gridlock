@@ -27,6 +27,7 @@ pub struct InputState {
     pub key_1: bool, // tool: player spawn
     pub key_2: bool, // tool: enemy
     pub key_3: bool, // tool: wall
+    pub key_4: bool, // tool: target dummy
     pub key_g: bool, // toggle grid snap
     pub key_l: bool, // load level
 
@@ -109,6 +110,7 @@ impl InputHandler {
                 "1" => self.state.key_1 = pressed,
                 "2" => self.state.key_2 = pressed,
                 "3" => self.state.key_3 = pressed,
+                "4" => self.state.key_4 = pressed,
                 "g" | "G" => self.state.key_g = pressed,
                 "l" | "L" => self.state.key_l = pressed,
                 _ => {}
