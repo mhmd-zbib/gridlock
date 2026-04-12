@@ -138,10 +138,10 @@ impl Editor {
 
         // --- save / load ---
         if input.f5 && !self.prev_f5 {
-            self.save("levels/level.json");
+            self.save("levels/level_2.json");
         }
         if input.key_l && !self.prev_key_l {
-            self.load("levels/level.json");
+            self.load("levels/level_2.json");
         }
 
         // Update edge state.

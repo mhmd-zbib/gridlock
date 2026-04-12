@@ -15,6 +15,8 @@ const DOOR_EXPANSION_MIN_CELLS: i32 = 6;
 /// Door candidate cluster shape limits.
 const DOOR_CLUSTER_MAX_MAJOR_CELLS: i32 = 12;
 const DOOR_CLUSTER_MAX_AREA_CELLS: usize = 80;
+/// Separator walls around a doorway must continue this far.
+const DOOR_WALL_CONTINUATION_MIN_CELLS: i32 = 5;
 /// Merge nearby gap waypoints.
 const GAP_DEDUP_PX: f32 = 50.0;
 
@@ -133,7 +135,11 @@ fn detect_rooms_and_gaps(walls: &[Wall], level_w: f32, level_h: f32) -> LevelRoo
     let blocked = build_blocked_grid(walls, grid_w, grid_h);
     let free: Vec<bool> = blocked.iter().map(|b| !b).collect();
 
-    let door_clusters = detect_door_clusters(&free, grid_w, grid_h);
+    let outside_unsealed = flood_outside(&free, grid_w, grid_h);
+    let door_clusters: Vec<DoorCluster> = detect_door_clusters(&free, grid_w, grid_h)
+        .into_iter()
+        .filter(|cluster| should_seal_cluster(cluster, &free, &outside_unsealed, grid_w, grid_h))
+        .collect();
 
     let mut sealed_free = free.clone();
     for cluster in &door_clusters {
@@ -146,15 +152,16 @@ fn detect_rooms_and_gaps(walls: &[Wall], level_w: f32, level_h: f32) -> LevelRoo
     let outside_cells = outside.iter().filter(|b| **b).count();
 
     let mut room_lookup = vec![-1_i32; cell_count];
-    let rooms = extract_rooms(
-        &sealed_free,
+    let rooms = extract_rooms(&sealed_free, &outside, grid_w, grid_h, &mut room_lookup);
+
+    let gap_edges = extract_gap_edges(
+        &door_clusters,
+        &free,
         &outside,
+        &room_lookup,
         grid_w,
         grid_h,
-        &mut room_lookup,
     );
-
-    let gap_edges = extract_gap_edges(&door_clusters, &free, &outside, &room_lookup, grid_w, grid_h);
     let gaps = dedup_gap_points(gap_edges.iter().map(|g| g.pos));
 
     LevelRooms {
@@ -301,6 +308,115 @@ fn detect_door_clusters(free: &[bool], grid_w: i32, grid_h: i32) -> Vec<DoorClus
     }
 
     clusters
+}
+
+fn should_seal_cluster(
+    cluster: &DoorCluster,
+    free: &[bool],
+    outside_unsealed: &[bool],
+    grid_w: i32,
+    grid_h: i32,
+) -> bool {
+    cluster_touches_outside(cluster, free, outside_unsealed, grid_w, grid_h)
+        || cluster_has_wall_continuation(cluster, free, grid_w, grid_h)
+}
+
+fn cluster_touches_outside(
+    cluster: &DoorCluster,
+    free: &[bool],
+    outside_unsealed: &[bool],
+    grid_w: i32,
+    grid_h: i32,
+) -> bool {
+    let in_cluster: HashSet<(i32, i32)> = cluster.cells.iter().copied().collect();
+
+    for &(cx, cy) in &cluster.cells {
+        for (nx, ny) in neighbors8(cx, cy) {
+            if nx < 0 || ny < 0 || nx >= grid_w || ny >= grid_h || in_cluster.contains(&(nx, ny)) {
+                continue;
+            }
+            let ni = idx(grid_w, nx, ny);
+            if !free[ni] {
+                continue;
+            }
+            if outside_unsealed[ni] {
+                return true;
+            }
+        }
+    }
+
+    false
+}
+
+fn cluster_has_wall_continuation(
+    cluster: &DoorCluster,
+    free: &[bool],
+    grid_w: i32,
+    grid_h: i32,
+) -> bool {
+    let bbox_w = cluster.max_x - cluster.min_x + 1;
+    let bbox_h = cluster.max_y - cluster.min_y + 1;
+
+    // Wider cluster => doorway is vertically narrow (walls above + below).
+    if bbox_w >= bbox_h {
+        let y_up = cluster.min_y - 1;
+        let y_down = cluster.max_y + 1;
+        if y_up < 0 || y_down >= grid_h {
+            return false;
+        }
+
+        let mut up_depth = 0;
+        let mut down_depth = 0;
+        for x in cluster.min_x..=cluster.max_x {
+            if is_blocked(free, grid_w, x, y_up) {
+                up_depth = up_depth.max(blocked_depth(free, grid_w, grid_h, x, y_up, 0, -1));
+            }
+            if is_blocked(free, grid_w, x, y_down) {
+                down_depth = down_depth.max(blocked_depth(free, grid_w, grid_h, x, y_down, 0, 1));
+            }
+        }
+
+        up_depth >= DOOR_WALL_CONTINUATION_MIN_CELLS
+            && down_depth >= DOOR_WALL_CONTINUATION_MIN_CELLS
+    } else {
+        // Taller cluster => doorway is horizontally narrow (walls left + right).
+        let x_left = cluster.min_x - 1;
+        let x_right = cluster.max_x + 1;
+        if x_left < 0 || x_right >= grid_w {
+            return false;
+        }
+
+        let mut left_depth = 0;
+        let mut right_depth = 0;
+        for y in cluster.min_y..=cluster.max_y {
+            if is_blocked(free, grid_w, x_left, y) {
+                left_depth = left_depth.max(blocked_depth(free, grid_w, grid_h, x_left, y, -1, 0));
+            }
+            if is_blocked(free, grid_w, x_right, y) {
+                right_depth =
+                    right_depth.max(blocked_depth(free, grid_w, grid_h, x_right, y, 1, 0));
+            }
+        }
+
+        left_depth >= DOOR_WALL_CONTINUATION_MIN_CELLS
+            && right_depth >= DOOR_WALL_CONTINUATION_MIN_CELLS
+    }
+}
+
+fn is_blocked(free: &[bool], grid_w: i32, x: i32, y: i32) -> bool {
+    !free[idx(grid_w, x, y)]
+}
+
+fn blocked_depth(free: &[bool], grid_w: i32, grid_h: i32, x: i32, y: i32, dx: i32, dy: i32) -> i32 {
+    let mut depth = 0;
+    let mut cx = x;
+    let mut cy = y;
+    while cx >= 0 && cy >= 0 && cx < grid_w && cy < grid_h && is_blocked(free, grid_w, cx, cy) {
+        depth += 1;
+        cx += dx;
+        cy += dy;
+    }
+    depth
 }
 
 fn span(
@@ -485,7 +601,8 @@ fn extract_gap_edges(
         let bbox_w = cluster.max_x - cluster.min_x + 1;
         let bbox_h = cluster.max_y - cluster.min_y + 1;
         let width_cells = bbox_w.min(bbox_h).max(1) as usize;
-        if width_cells < DOOR_MIN_WIDTH_CELLS as usize || width_cells > DOOR_MAX_WIDTH_CELLS as usize
+        if width_cells < DOOR_MIN_WIDTH_CELLS as usize
+            || width_cells > DOOR_MAX_WIDTH_CELLS as usize
         {
             continue;
         }
@@ -667,5 +784,45 @@ mod tests {
         let rooms = LevelRooms::compute(&walls, 400.0, 320.0);
         assert_eq!(rooms.rooms.len(), 1);
         assert_eq!(rooms.find_room_at(160.0, 160.0), Some(0));
+    }
+
+    #[test]
+    fn detects_concave_closed_room_with_wall_stub() {
+        let walls = vec![
+            // Outer shell.
+            w(64.0, 64.0, 256.0, 16.0),
+            w(64.0, 256.0, 256.0, 16.0),
+            w(64.0, 64.0, 16.0, 208.0),
+            w(304.0, 64.0, 16.0, 208.0),
+            // Wall protruding from the right side into the room (concave, 6+ corners).
+            w(224.0, 144.0, 96.0, 16.0),
+        ];
+
+        let rooms = LevelRooms::compute(&walls, 480.0, 320.0);
+        assert_eq!(rooms.rooms.len(), 1);
+
+        let above_stub = rooms.find_room_at(176.0, 120.0).expect("upper area");
+        let below_stub = rooms.find_room_at(176.0, 200.0).expect("lower area");
+        assert_eq!(above_stub, below_stub);
+    }
+
+    #[test]
+    fn does_not_split_concave_room_with_deep_wall_stub() {
+        let walls = vec![
+            // Outer shell.
+            w(64.0, 64.0, 256.0, 16.0),
+            w(64.0, 256.0, 256.0, 16.0),
+            w(64.0, 64.0, 16.0, 208.0),
+            w(304.0, 64.0, 16.0, 208.0),
+            // Deep wall stub still leaves one connected concave room.
+            w(112.0, 144.0, 208.0, 16.0),
+        ];
+
+        let rooms = LevelRooms::compute(&walls, 480.0, 320.0);
+        assert_eq!(rooms.rooms.len(), 1);
+
+        let upper = rooms.find_room_at(176.0, 120.0).expect("upper area");
+        let lower = rooms.find_room_at(176.0, 200.0).expect("lower area");
+        assert_eq!(upper, lower);
     }
 }

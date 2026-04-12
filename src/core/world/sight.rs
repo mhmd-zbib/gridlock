@@ -81,6 +81,61 @@ impl Sight {
         has_los(from, target, walls)
     }
 
+    /// Cast rays around the nearby circle and return the clipped outline points.
+    ///
+    /// This uses the same wall-corner hinting as the cone so nearby-vision edges
+    /// snap cleanly to geometry while moving.
+    pub fn circle_arc_pts(
+        &self,
+        origin: (f32, f32),
+        walls: &[Wall],
+        n_rays: usize,
+    ) -> Vec<[f32; 2]> {
+        use std::f32::consts::{PI, TAU};
+
+        let n = n_rays.max(8);
+        let mut angles: Vec<f32> = (0..n)
+            .map(|i| -PI + (i as f32 / n as f32) * TAU)
+            .collect();
+
+        const EPS: f32 = 0.0002;
+        for w in walls {
+            for &(cx, cy) in &[
+                (w.x, w.y),
+                (w.x + w.w, w.y),
+                (w.x, w.y + w.h),
+                (w.x + w.w, w.y + w.h),
+            ] {
+                let dx = cx - origin.0;
+                let dy = cy - origin.1;
+                if dx * dx + dy * dy < 1.0 {
+                    continue;
+                }
+                let a = dy.atan2(dx);
+                angles.push(wrap_angle(a - EPS));
+                angles.push(a);
+                angles.push(wrap_angle(a + EPS));
+            }
+        }
+
+        angles.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+
+        let mut pts: Vec<[f32; 2]> = angles
+            .iter()
+            .map(|&a| {
+                let dir = (a.cos(), a.sin());
+                let dist = cast_ray(origin, dir, self.circle_radius, walls);
+                [origin.0 + dir.0 * dist, origin.1 + dir.1 * dist]
+            })
+            .collect();
+
+        if let Some(first) = pts.first().copied() {
+            pts.push(first);
+        }
+
+        pts
+    }
+
     /// Cast rays across the cone and return the arc endpoints (wall-clipped).
     ///
     /// Uniform samples are supplemented with rays aimed at each wall corner

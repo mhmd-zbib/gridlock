@@ -625,7 +625,8 @@ fn play_geo(game: &Game, debug: bool, sw: f32, sh: f32) -> Vec<GeoVertex> {
     }
 
     // ── Player ────────────────────────────────────────────────────────────────
-    push_circle_fan(&mut out, player_pos, game.player.sight.circle_radius, [0.3, 0.7, 1.0, 0.07], 48);
+    let circle = game.player.sight.circle_arc_pts(player_pos, walls, 64);
+    push_cone_fan(&mut out, player_pos, &circle, [0.3, 0.7, 1.0, 0.07]);
     let arc = game.player.sight.cone_arc_pts(player_pos, walls, 60);
     push_cone_fan(&mut out, player_pos, &arc, [0.3, 0.7, 1.0, 0.16]);
     let aim_arc = game.player.aim_cone.cone_arc_pts(player_pos, walls, 16);
