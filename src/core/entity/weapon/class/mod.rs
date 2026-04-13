@@ -2,7 +2,9 @@ mod rifle;
 mod smg;
 mod sniper;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+use serde::{Deserialize, Serialize};
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum WeaponClass {
     Rifle,
     Smg,

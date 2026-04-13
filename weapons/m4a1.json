@@ -1,0 +1,17 @@
+{
+  "class": "Rifle",
+  "name": "M4A1",
+  "visibility_range_px": 340.0,
+  "visibility_half_angle_deg": 42.0,
+  "aim_cone_render_range_px": 240.0,
+  "aim_base_half_angle_deg": 1.2,
+  "movement_spread_max_deg": 11.0,
+  "bullet_speed_px_per_sec": 820.0,
+  "bullet_damage": 1,
+  "recoil_per_shot_deg": 3.0,
+  "recoil_max_deg": 20.0,
+  "recoil_decay_deg_per_sec": 9.5,
+  "fire_rate_rps": 10.5,
+  "mag_size": 30,
+  "reload_time_secs": 2.2
+}
