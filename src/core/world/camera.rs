@@ -1,8 +1,8 @@
 use super::rooms::LevelRooms;
 use super::units::{px_to_tiles, tiles_to_px};
 
-const W_AIM: f32 = 0.68;
-const W_MOVE: f32 = 0.32;
+const W_AIM: f32 = 0.0;
+const W_MOVE: f32 = 0.0;
 const MAX_OFFSET_RADIUS: f32 = px_to_tiles(200.0);
 const OFFSET_RESPONSE_GAMMA: f32 = 1.35;
 const AIM_DEADZONE: f32 = px_to_tiles(56.0);
@@ -155,29 +155,15 @@ impl TacticalCamera {
         let aim_dir = normalize(aim_delta);
         let aim_scale = aim_distance_scale(length(aim_delta));
 
-        let room_id = step.rooms.find_room_at(player_pos.0, player_pos.1);
-        self.in_room = room_id.is_some();
+        self.in_room = false;
+        self.near_gap = false;
+        self.state = step.desired_state;
 
-        let (gap_dir, gap_pull, near_gap) = nearest_gap_bias(step.rooms, room_id, player_pos);
-        self.near_gap = near_gap;
-        self.state = if step.desired_state == CameraBehaviorState::Combat {
-            CameraBehaviorState::Combat
-        } else if near_gap {
-            CameraBehaviorState::PeekTension
-        } else {
-            step.desired_state
-        };
-
-        let (follow_alpha, offset_alpha, mut k_aim, mut k_move) = match self.state {
+        let (follow_alpha, offset_alpha, k_aim, k_move) = match self.state {
             CameraBehaviorState::Combat => (0.58, 0.70, px_to_tiles(170.0), px_to_tiles(84.0)),
             CameraBehaviorState::PeekTension => (0.46, 0.60, px_to_tiles(140.0), px_to_tiles(72.0)),
             CameraBehaviorState::Exploration => (0.36, 0.50, px_to_tiles(115.0), px_to_tiles(56.0)),
         };
-
-        if self.in_room {
-            k_aim *= IN_ROOM_AIM_SCALE;
-            k_move *= IN_ROOM_MOVE_SCALE;
-        }
 
         let o_aim = (aim_dir.0 * k_aim * aim_scale, aim_dir.1 * k_aim * aim_scale);
         let o_move = (move_dir.0 * k_move, move_dir.1 * k_move);
@@ -186,10 +172,6 @@ impl TacticalCamera {
             o_aim.0 * W_AIM + o_move.0 * W_MOVE,
             o_aim.1 * W_AIM + o_move.1 * W_MOVE,
         );
-        if gap_pull > 0.0 {
-            desired_offset.0 += gap_dir.0 * GAP_BIAS_STRENGTH * gap_pull;
-            desired_offset.1 += gap_dir.1 * GAP_BIAS_STRENGTH * gap_pull;
-        }
 
         desired_offset = apply_response_curve(desired_offset);
         self.offset = lerp2(self.offset, desired_offset, offset_alpha);

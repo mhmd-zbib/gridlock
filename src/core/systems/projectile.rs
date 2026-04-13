@@ -24,7 +24,7 @@ pub fn step_projectiles(
             bullet.alive = false;
             let destroyed = {
                 let wall = &mut walls[hit_idx];
-                wall.take_damage(bullet.damage)
+                wall.take_damage_at(bullet.x, bullet.y, bullet.damage)
             };
             if destroyed {
                 walls.remove(hit_idx);
@@ -38,10 +38,11 @@ pub fn step_projectiles(
 
         match bullet.owner {
             BulletOwner::Player => {
+                let hit_sq = (enemy_half * 2.0) * (enemy_half * 2.0);
                 for enemy in enemies.iter_mut() {
                     let dx = bullet.x - enemy.movement.x;
                     let dy = bullet.y - enemy.movement.y;
-                    if (dx * dx + dy * dy).sqrt() < enemy_half * 2.0 {
+                    if dx * dx + dy * dy < hit_sq {
                         bullet.alive = false;
                         enemy.hp = enemy.hp.saturating_sub(bullet.damage);
                         impacts.push(ImpactEvent {
@@ -55,7 +56,8 @@ pub fn step_projectiles(
             BulletOwner::Enemy => {
                 let dx = bullet.x - player_pos.0;
                 let dy = bullet.y - player_pos.1;
-                if (dx * dx + dy * dy).sqrt() < player_half * 2.0 {
+                let hit_sq = (player_half * 2.0) * (player_half * 2.0);
+                if dx * dx + dy * dy < hit_sq {
                     bullet.alive = false;
                     impacts.push(ImpactEvent {
                         x: bullet.x,

@@ -826,16 +826,34 @@ fn play_quads(
         });
     }
     for w in &game.walls {
-        let center = world_pos_to_screen(camera, viewport_px, (w.x + w.w * 0.5, w.y + w.h * 0.5));
-        out.push(QuadInstance {
-            center: [center.0, center.1],
-            half_size: [tiles_to_px(w.w * 0.5), tiles_to_px(w.h * 0.5)],
-            color: if w.breakable {
-                [0.2, 0.8, 0.95, 1.0]
-            } else {
-                [0.45, 0.4, 0.35, 1.0]
-            },
-        });
+        if w.breakable && !w.segments.is_empty() {
+            let n = w.segments.len();
+            for (i, &alive) in w.segments.iter().enumerate() {
+                if !alive {
+                    continue;
+                }
+                let (sx, sy, sw, sh) = w.segment_rect(i, n);
+                let center =
+                    world_pos_to_screen(camera, viewport_px, (sx + sw * 0.5, sy + sh * 0.5));
+                out.push(QuadInstance {
+                    center: [center.0, center.1],
+                    half_size: [tiles_to_px(sw * 0.5), tiles_to_px(sh * 0.5)],
+                    color: [0.2, 0.8, 0.95, 1.0],
+                });
+            }
+        } else {
+            let center =
+                world_pos_to_screen(camera, viewport_px, (w.x + w.w * 0.5, w.y + w.h * 0.5));
+            out.push(QuadInstance {
+                center: [center.0, center.1],
+                half_size: [tiles_to_px(w.w * 0.5), tiles_to_px(w.h * 0.5)],
+                color: if w.breakable {
+                    [0.2, 0.8, 0.95, 1.0]
+                } else {
+                    [0.45, 0.4, 0.35, 1.0]
+                },
+            });
+        }
     }
     for prop_instance in &game.props {
         let center = world_pos_to_screen(camera, viewport_px, (prop_instance.x, prop_instance.y));

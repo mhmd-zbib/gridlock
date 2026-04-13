@@ -4,8 +4,8 @@ use crate::core::world::wall::Wall;
 use crate::input::InputState;
 
 const WALK_SPEED: f32 = px_to_tiles(40.0);
-const NORMAL_SPEED: f32 = px_to_tiles(100.0);
-pub const RUN_SPEED: f32 = px_to_tiles(280.0);
+const NORMAL_SPEED: f32 = px_to_tiles(85.0);
+pub const RUN_SPEED: f32 = px_to_tiles(200.0);
 const SPRINT_BURST_SECS: f32 = 1.2;
 const SPRINT_COOLDOWN_SECS: f32 = 8.0;
 const PEEK_DISTANCE: f32 = px_to_tiles(18.0);

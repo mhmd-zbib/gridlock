@@ -104,6 +104,9 @@ impl Game {
         let prop_assets = prop::load_assets();
         self.props = prop::resolve_level_props(&level.props, &prop_assets);
         self.walls = level.walls.clone();
+        for wall in &mut self.walls {
+            wall.init_segments();
+        }
         let collider_props = self.props.iter().filter(|p| p.is_collider).count();
         for prop in self.props.iter().filter(|p| p.is_collider) {
             self.walls.push(Wall::new(

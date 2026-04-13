@@ -98,7 +98,17 @@ impl Sight {
         let mut angles: Vec<f32> = (0..n).map(|i| -PI + (i as f32 / n as f32) * TAU).collect();
 
         const EPS: f32 = 0.0002;
+        let range_sq = self.circle_radius * self.circle_radius;
+        let skip_sq = px_to_tiles(1.0) * px_to_tiles(1.0);
         for w in walls {
+            // Skip walls whose closest point is beyond the circle radius.
+            let closest_x = origin.0.clamp(w.x, w.x + w.w);
+            let closest_y = origin.1.clamp(w.y, w.y + w.h);
+            let cdx = closest_x - origin.0;
+            let cdy = closest_y - origin.1;
+            if cdx * cdx + cdy * cdy > range_sq {
+                continue;
+            }
             for &(cx, cy) in &[
                 (w.x, w.y),
                 (w.x + w.w, w.y),
@@ -107,7 +117,7 @@ impl Sight {
             ] {
                 let dx = cx - origin.0;
                 let dy = cy - origin.1;
-                if dx * dx + dy * dy < px_to_tiles(1.0) * px_to_tiles(1.0) {
+                if dx * dx + dy * dy < skip_sq {
                     continue;
                 }
                 let a = dy.atan2(dx);
@@ -151,7 +161,17 @@ impl Sight {
 
         // Add corner angles for every wall that falls inside the cone.
         const EPS: f32 = 0.0002;
+        let range_sq = self.range * self.range;
+        let skip_sq = px_to_tiles(1.0) * px_to_tiles(1.0);
         for w in walls {
+            // Skip walls whose closest point is beyond the cone range.
+            let closest_x = origin.0.clamp(w.x, w.x + w.w);
+            let closest_y = origin.1.clamp(w.y, w.y + w.h);
+            let cdx = closest_x - origin.0;
+            let cdy = closest_y - origin.1;
+            if cdx * cdx + cdy * cdy > range_sq {
+                continue;
+            }
             for &(cx, cy) in &[
                 (w.x, w.y),
                 (w.x + w.w, w.y),
@@ -160,7 +180,7 @@ impl Sight {
             ] {
                 let dx = cx - origin.0;
                 let dy = cy - origin.1;
-                if dx * dx + dy * dy < px_to_tiles(1.0) * px_to_tiles(1.0) {
+                if dx * dx + dy * dy < skip_sq {
                     continue;
                 }
                 let r = wrap_angle(dy.atan2(dx) - self.direction);
