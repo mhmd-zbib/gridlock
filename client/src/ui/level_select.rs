@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
-use game::world::level::LevelData;
 use engine::render::quad::QuadInstance;
+use game::world::level::LevelData;
 
 pub struct LevelEntry {
     pub path: PathBuf,

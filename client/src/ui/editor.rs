@@ -1,9 +1,9 @@
+use engine::render::quad::QuadInstance;
+use engine::input::InputState;
 use game::world::level::{LevelBounds, LevelData, Pos};
 use game::world::prop::{self, LevelProp, PropAssetDef};
 use game::world::units::{px_to_tiles, tiles_to_px};
 use game::world::wall::Wall;
-use game::input::InputState;
-use engine::render::quad::QuadInstance;
 use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
 

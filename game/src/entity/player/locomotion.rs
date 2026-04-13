@@ -1,7 +1,7 @@
 use crate::entity::movement::{Movement, MovementInput};
+use crate::input::InputState;
 use crate::world::units::px_to_tiles;
 use crate::world::wall::Wall;
-use crate::input::InputState;
 
 const WALK_SPEED: f32 = px_to_tiles(40.0);
 const NORMAL_SPEED: f32 = px_to_tiles(85.0);

@@ -5,12 +5,12 @@ use super::bullet::BulletOwner;
 use crate::entity::movement::Movement;
 use crate::entity::weapon::attachment::{AttachmentCategory, AttachmentLoadout};
 use crate::entity::weapon::{WeaponId, all_weapon_ids};
+use crate::input::InputState;
 use crate::spawn::{SpawnQueue, SpawnRequest};
 use crate::world::aim_cone::AimCone;
 use crate::world::sight::Sight;
 use crate::world::units::px_to_tiles;
 use crate::world::wall::Wall;
-use crate::input::InputState;
 
 use self::loadout::WeaponLoadout;
 use self::locomotion::{LocomotionState, RUN_SPEED};

@@ -8,4 +8,6 @@ name = "server"
 path = "src/main.rs"
 
 [dependencies]
+engine = { workspace = true }
 game = { workspace = true }
+tokio = { version = "1", features = ["macros", "net", "rt-multi-thread", "time"] }

@@ -5,26 +5,24 @@ use winit::event::WindowEvent;
 use winit::event_loop::ActiveEventLoop;
 use winit::window::{Fullscreen, Window, WindowId};
 
-use game::entity::enemy::EnemyKind;
-use game::entity::weapon::attachment::AttachmentCategory;
-use game::game::Game;
-use game::world::camera::{
-    CameraBehaviorState, CameraBounds, CameraStepInput, TacticalCamera,
-};
-use game::world::level::LevelData;
-use game::world::prop;
-use game::world::rooms::LevelRooms;
-use game::world::units::{px_to_tiles, tiles_to_px};
+use crate::ui::editor::{Editor, Tool};
+use crate::ui::level_select::LevelSelect;
+use crate::ui::loadout::LoadoutMenu;
+use crate::ui::menu::{MainMenu, MenuChoice};
 use engine::input::InputHandler;
 use engine::render::geometry::{GeoVertex, push_circle_fan, push_cone_fan};
 use engine::render::quad::QuadInstance;
 use engine::render::state::State;
 use engine::render::text::TextSection;
 use engine::timing::GameLoop;
-use crate::ui::editor::{Editor, Tool};
-use crate::ui::level_select::LevelSelect;
-use crate::ui::loadout::LoadoutMenu;
-use crate::ui::menu::{MainMenu, MenuChoice};
+use game::entity::enemy::EnemyKind;
+use game::entity::weapon::attachment::AttachmentCategory;
+use game::game::Game;
+use game::world::camera::{CameraBehaviorState, CameraBounds, CameraStepInput, TacticalCamera};
+use game::world::level::LevelData;
+use game::world::prop;
+use game::world::rooms::LevelRooms;
+use game::world::units::{px_to_tiles, tiles_to_px};
 
 macro_rules! ts {
     ($x:expr, $y:expr, $text:expr, $size:expr, $color:expr) => {
@@ -186,7 +184,7 @@ impl App {
         enter: bool,
         f1: bool,
         click: bool,
-        input: &game::input::InputState,
+        input: &engine::input::InputState,
     ) -> Option<AppState> {
         match &mut self.app_state {
             AppState::MainMenu(menu) => {
