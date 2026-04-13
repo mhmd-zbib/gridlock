@@ -1,0 +1,17 @@
+{
+  "class": "Rifle",
+  "name": "SCAR-H",
+  "visibility_range_px": 360.0,
+  "visibility_half_angle_deg": 38.0,
+  "aim_cone_render_range_px": 250.0,
+  "aim_base_half_angle_deg": 1.1,
+  "movement_spread_max_deg": 14.0,
+  "bullet_speed_px_per_sec": 860.0,
+  "bullet_damage": 2,
+  "recoil_per_shot_deg": 4.8,
+  "recoil_max_deg": 28.0,
+  "recoil_decay_deg_per_sec": 7.3,
+  "fire_rate_rps": 6.5,
+  "mag_size": 20,
+  "reload_time_secs": 2.8
+}

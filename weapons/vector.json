@@ -1,0 +1,17 @@
+{
+  "class": "Smg",
+  "name": "Vector",
+  "visibility_range_px": 220.0,
+  "visibility_half_angle_deg": 45.0,
+  "aim_cone_render_range_px": 130.0,
+  "aim_base_half_angle_deg": 2.8,
+  "movement_spread_max_deg": 8.5,
+  "bullet_speed_px_per_sec": 590.0,
+  "bullet_damage": 1,
+  "recoil_per_shot_deg": 1.5,
+  "recoil_max_deg": 13.0,
+  "recoil_decay_deg_per_sec": 13.0,
+  "fire_rate_rps": 17.5,
+  "mag_size": 25,
+  "reload_time_secs": 1.8
+}

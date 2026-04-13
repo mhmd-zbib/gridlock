@@ -371,7 +371,7 @@ fn play_texts(sw: f32, sh: f32, game: &Game, debug: bool) -> Vec<TextSection> {
             8.0,
             22.0,
             format!(
-                "{} ({})  ammo: {}/{}{}   R: reload   B: buy (1..3 class, then 1..5 weapon)",
+                "{} ({})  ammo: {}/{}{}   R: reload   B: buy (1..3 class, 1..3 pick, 4/5 page)",
                 game.player.weapon_name(),
                 game.player.weapon_class_label(),
                 game.player.ammo_in_mag(),

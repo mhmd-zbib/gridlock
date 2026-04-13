@@ -1,0 +1,17 @@
+{
+  "class": "Rifle",
+  "name": "G36C",
+  "visibility_range_px": 330.0,
+  "visibility_half_angle_deg": 42.0,
+  "aim_cone_render_range_px": 230.0,
+  "aim_base_half_angle_deg": 1.1,
+  "movement_spread_max_deg": 10.0,
+  "bullet_speed_px_per_sec": 800.0,
+  "bullet_damage": 1,
+  "recoil_per_shot_deg": 2.8,
+  "recoil_max_deg": 18.0,
+  "recoil_decay_deg_per_sec": 9.8,
+  "fire_rate_rps": 11.2,
+  "mag_size": 30,
+  "reload_time_secs": 2.2
+}

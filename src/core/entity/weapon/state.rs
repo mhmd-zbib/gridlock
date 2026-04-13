@@ -23,6 +23,10 @@ impl WeaponState {
         self.id.stats()
     }
 
+    pub fn id(&self) -> WeaponId {
+        self.id
+    }
+
     pub fn ammo_in_mag(&self) -> u32 {
         self.rounds_in_mag
     }
@@ -68,9 +72,13 @@ mod tests {
 
     use super::WeaponState;
 
+    fn weapon(name: &str) -> WeaponId {
+        WeaponId::from_name(name).unwrap_or_else(|| panic!("missing weapon in catalog: {name}"))
+    }
+
     #[test]
     fn fire_rate_blocks_shots_until_cooldown_elapsed() {
-        let mut weapon = WeaponState::new(WeaponId::Ak47);
+        let mut weapon = WeaponState::new(weapon("AK-47"));
         assert!(weapon.try_fire());
         assert!(!weapon.try_fire());
         weapon.tick(0.09);
@@ -81,7 +89,7 @@ mod tests {
 
     #[test]
     fn reload_restores_magazine() {
-        let mut weapon = WeaponState::new(WeaponId::Mp5);
+        let mut weapon = WeaponState::new(weapon("MP5"));
         for _ in 0..weapon.stats().mag_size {
             assert!(weapon.try_fire());
             weapon.tick(1.0 / weapon.stats().fire_rate_rps);
@@ -98,8 +106,8 @@ mod tests {
 
     #[test]
     fn smg_is_less_visible_by_distance_worse_still_better_moving_than_ak47() {
-        let ak = WeaponId::Ak47.stats();
-        let mp5 = WeaponId::Mp5.stats();
+        let ak = weapon("AK-47").stats();
+        let mp5 = weapon("MP5").stats();
 
         assert!(mp5.visibility_range < ak.visibility_range);
         assert_eq!(mp5.visibility_half_angle_deg, ak.visibility_half_angle_deg);
@@ -109,8 +117,8 @@ mod tests {
 
     #[test]
     fn sniper_has_huge_visibility_and_movement_penalty() {
-        let ak = WeaponId::Ak47.stats();
-        let sniper = WeaponId::Sniper.stats();
+        let ak = weapon("AK-47").stats();
+        let sniper = weapon("Sniper").stats();
 
         assert!(sniper.visibility_range > ak.visibility_range);
         assert!(sniper.visibility_half_angle_deg > ak.visibility_half_angle_deg);
@@ -120,9 +128,9 @@ mod tests {
 
     #[test]
     fn aim_cone_render_distance_is_sniper_then_ak_then_smg() {
-        let ak = WeaponId::Ak47.stats();
-        let mp5 = WeaponId::Mp5.stats();
-        let sniper = WeaponId::Sniper.stats();
+        let ak = weapon("AK-47").stats();
+        let mp5 = weapon("MP5").stats();
+        let sniper = weapon("Sniper").stats();
 
         assert!(sniper.aim_cone_render_range > ak.aim_cone_render_range);
         assert!(ak.aim_cone_render_range > mp5.aim_cone_render_range);
@@ -130,9 +138,9 @@ mod tests {
 
     #[test]
     fn sniper_has_highest_bullet_damage_and_speed() {
-        let ak = WeaponId::Ak47.stats();
-        let mp5 = WeaponId::Mp5.stats();
-        let sniper = WeaponId::Sniper.stats();
+        let ak = weapon("AK-47").stats();
+        let mp5 = weapon("MP5").stats();
+        let sniper = weapon("Sniper").stats();
 
         assert!(sniper.bullet_speed > ak.bullet_speed);
         assert!(ak.bullet_speed > mp5.bullet_speed);

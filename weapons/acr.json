@@ -1,0 +1,17 @@
+{
+  "class": "Rifle",
+  "name": "ACR",
+  "visibility_range_px": 350.0,
+  "visibility_half_angle_deg": 41.0,
+  "aim_cone_render_range_px": 245.0,
+  "aim_base_half_angle_deg": 0.95,
+  "movement_spread_max_deg": 9.0,
+  "bullet_speed_px_per_sec": 840.0,
+  "bullet_damage": 1,
+  "recoil_per_shot_deg": 2.2,
+  "recoil_max_deg": 16.0,
+  "recoil_decay_deg_per_sec": 10.5,
+  "fire_rate_rps": 9.2,
+  "mag_size": 30,
+  "reload_time_secs": 2.3
+}

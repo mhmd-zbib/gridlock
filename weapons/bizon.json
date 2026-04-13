@@ -1,0 +1,17 @@
+{
+  "class": "Smg",
+  "name": "Bizon",
+  "visibility_range_px": 245.0,
+  "visibility_half_angle_deg": 43.0,
+  "aim_cone_render_range_px": 140.0,
+  "aim_base_half_angle_deg": 2.4,
+  "movement_spread_max_deg": 9.0,
+  "bullet_speed_px_per_sec": 600.0,
+  "bullet_damage": 1,
+  "recoil_per_shot_deg": 1.6,
+  "recoil_max_deg": 13.5,
+  "recoil_decay_deg_per_sec": 12.2,
+  "fire_rate_rps": 13.2,
+  "mag_size": 64,
+  "reload_time_secs": 2.9
+}

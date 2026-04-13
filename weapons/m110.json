@@ -1,0 +1,17 @@
+{
+  "class": "Sniper",
+  "name": "M110",
+  "visibility_range_px": 560.0,
+  "visibility_half_angle_deg": 27.0,
+  "aim_cone_render_range_px": 390.0,
+  "aim_base_half_angle_deg": 0.6,
+  "movement_spread_max_deg": 34.0,
+  "bullet_speed_px_per_sec": 1020.0,
+  "bullet_damage": 2,
+  "recoil_per_shot_deg": 4.2,
+  "recoil_max_deg": 20.0,
+  "recoil_decay_deg_per_sec": 7.2,
+  "fire_rate_rps": 2.8,
+  "mag_size": 20,
+  "reload_time_secs": 2.9
+}

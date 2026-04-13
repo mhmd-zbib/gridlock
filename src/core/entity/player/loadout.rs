@@ -1,17 +1,12 @@
-use crate::core::entity::weapon::{WeaponClass, WeaponId, WeaponState, WeaponStats};
+use crate::core::entity::weapon::{
+    WeaponClass, WeaponState, WeaponStats, all_weapon_ids, weapon_classes, weapon_ids_for_class,
+};
 use crate::input::InputState;
 
-const PLAYER_LOADOUT: [WeaponId; 6] = [
-    WeaponId::Ak47,
-    WeaponId::Mp5,
-    WeaponId::Sniper,
-    WeaponId::M4a1,
-    WeaponId::Uzi,
-    WeaponId::Dmr,
-];
+const WEAPON_PAGE_SIZE: usize = 3;
 
 pub struct WeaponLoadout {
-    slots: [WeaponState; PLAYER_LOADOUT.len()],
+    slots: Vec<WeaponState>,
     active_slot: usize,
     was_reload_pressed: bool,
     was_buy_pressed: bool,
@@ -23,13 +18,15 @@ pub struct WeaponLoadout {
 enum BuyStage {
     Closed,
     ClassSelect,
-    WeaponSelect(WeaponClass),
+    WeaponSelect { class: WeaponClass, page: usize },
 }
 
 impl WeaponLoadout {
     pub fn new() -> Self {
+        let weapon_ids = all_weapon_ids();
+        assert!(!weapon_ids.is_empty(), "weapon catalog is empty");
         Self {
-            slots: PLAYER_LOADOUT.map(WeaponState::new),
+            slots: weapon_ids.into_iter().map(WeaponState::new).collect(),
             active_slot: 0,
             was_reload_pressed: false,
             was_buy_pressed: false,
@@ -73,7 +70,7 @@ impl WeaponLoadout {
         if buy_pressed && !self.was_buy_pressed {
             self.buy_stage = match self.buy_stage {
                 BuyStage::Closed => BuyStage::ClassSelect,
-                BuyStage::ClassSelect | BuyStage::WeaponSelect(_) => BuyStage::Closed,
+                BuyStage::ClassSelect | BuyStage::WeaponSelect { .. } => BuyStage::Closed,
             };
         }
         self.was_buy_pressed = buy_pressed;
@@ -101,39 +98,53 @@ impl WeaponLoadout {
         match self.buy_stage {
             BuyStage::Closed => {}
             BuyStage::ClassSelect => {
-                self.buy_stage = match choice {
-                    1 => BuyStage::WeaponSelect(WeaponClass::Rifle),
-                    2 => BuyStage::WeaponSelect(WeaponClass::Smg),
-                    3 => BuyStage::WeaponSelect(WeaponClass::Sniper),
-                    _ => BuyStage::ClassSelect,
-                };
+                let classes = weapon_classes();
+                if let Some(class) = classes.get(choice - 1).copied() {
+                    self.buy_stage = BuyStage::WeaponSelect { class, page: 0 };
+                }
             }
-            BuyStage::WeaponSelect(class) => {
-                if let Some(weapon) = weapon_for_class_slot(class, choice) {
-                    if let Some(slot_idx) = PLAYER_LOADOUT.iter().position(|id| *id == weapon) {
-                        self.active_slot = slot_idx;
+            BuyStage::WeaponSelect { class, page } => {
+                let class_weapons = weapon_ids_for_class(class);
+                let page_start = page * WEAPON_PAGE_SIZE;
+                match choice {
+                    1..=3 => {
+                        let weapon_index = page_start + (choice - 1);
+                        if let Some(weapon) = class_weapons.get(weapon_index) {
+                            if let Some(slot_idx) =
+                                self.slots.iter().position(|slot| slot.id() == *weapon)
+                            {
+                                self.active_slot = slot_idx;
+                            }
+                            self.buy_stage = BuyStage::Closed;
+                        }
                     }
-                    self.buy_stage = BuyStage::Closed;
+                    4 => {
+                        if page > 0 {
+                            self.buy_stage = BuyStage::WeaponSelect {
+                                class,
+                                page: page - 1,
+                            };
+                        }
+                    }
+                    5 => {
+                        if page_start + WEAPON_PAGE_SIZE < class_weapons.len() {
+                            self.buy_stage = BuyStage::WeaponSelect {
+                                class,
+                                page: page + 1,
+                            };
+                        }
+                    }
+                    _ => {}
                 }
             }
         }
     }
 
-    pub fn buy_prompt(&self) -> Option<&'static str> {
+    pub fn buy_prompt(&self) -> Option<String> {
         match self.buy_stage {
             BuyStage::Closed => None,
-            BuyStage::ClassSelect => {
-                Some("BUY: choose class  1=Rifle  2=SMG  3=Sniper  (B cancel)")
-            }
-            BuyStage::WeaponSelect(WeaponClass::Rifle) => {
-                Some("Rifle: 1=AK-47  2=M4A1  3-5=empty  (B cancel)")
-            }
-            BuyStage::WeaponSelect(WeaponClass::Smg) => {
-                Some("SMG: 1=MP5  2=Uzi  3-5=empty  (B cancel)")
-            }
-            BuyStage::WeaponSelect(WeaponClass::Sniper) => {
-                Some("Sniper: 1=Sniper  2=DMR  3-5=empty  (B cancel)")
-            }
+            BuyStage::ClassSelect => Some(class_select_prompt()),
+            BuyStage::WeaponSelect { class, page } => Some(weapon_select_prompt(class, page)),
         }
     }
 
@@ -168,14 +179,46 @@ impl WeaponLoadout {
     }
 }
 
-fn weapon_for_class_slot(class: WeaponClass, slot: usize) -> Option<WeaponId> {
-    match (class, slot) {
-        (WeaponClass::Rifle, 1) => Some(WeaponId::Ak47),
-        (WeaponClass::Rifle, 2) => Some(WeaponId::M4a1),
-        (WeaponClass::Smg, 1) => Some(WeaponId::Mp5),
-        (WeaponClass::Smg, 2) => Some(WeaponId::Uzi),
-        (WeaponClass::Sniper, 1) => Some(WeaponId::Sniper),
-        (WeaponClass::Sniper, 2) => Some(WeaponId::Dmr),
-        _ => None,
+fn class_select_prompt() -> String {
+    let classes = weapon_classes();
+    let mut out = String::from("BUY: choose class");
+    for (idx, class) in classes.iter().take(5).enumerate() {
+        out.push_str(&format!("  {}={}", idx + 1, class.label()));
     }
+    out.push_str("  (B cancel)");
+    out
+}
+
+fn weapon_select_prompt(class: WeaponClass, page: usize) -> String {
+    let class_weapons = weapon_ids_for_class(class);
+    if class_weapons.is_empty() {
+        return format!("{}: no weapons found  (B cancel)", class.label());
+    }
+
+    let page_count = class_weapons.len().div_ceil(WEAPON_PAGE_SIZE);
+    let clamped_page = page.min(page_count.saturating_sub(1));
+    let page_start = clamped_page * WEAPON_PAGE_SIZE;
+    let page_num = clamped_page + 1;
+
+    let slot_name = |slot_index: usize| -> String {
+        class_weapons
+            .get(page_start + slot_index)
+            .map(|weapon| weapon.stats().name.to_string())
+            .unwrap_or_else(|| "---".to_string())
+    };
+
+    let can_prev = clamped_page > 0;
+    let can_next = page_start + WEAPON_PAGE_SIZE < class_weapons.len();
+
+    format!(
+        "{} p{}/{}: 1={}  2={}  3={}  4={}  5={}  (B cancel)",
+        class.label(),
+        page_num,
+        page_count,
+        slot_name(0),
+        slot_name(1),
+        slot_name(2),
+        if can_prev { "Prev" } else { "---" },
+        if can_next { "Next" } else { "---" },
+    )
 }

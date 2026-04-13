@@ -1,0 +1,17 @@
+{
+  "class": "Sniper",
+  "name": "MK14",
+  "visibility_range_px": 500.0,
+  "visibility_half_angle_deg": 30.0,
+  "aim_cone_render_range_px": 360.0,
+  "aim_base_half_angle_deg": 0.7,
+  "movement_spread_max_deg": 36.0,
+  "bullet_speed_px_per_sec": 970.0,
+  "bullet_damage": 2,
+  "recoil_per_shot_deg": 4.6,
+  "recoil_max_deg": 22.0,
+  "recoil_decay_deg_per_sec": 7.0,
+  "fire_rate_rps": 3.1,
+  "mag_size": 20,
+  "reload_time_secs": 2.7
+}

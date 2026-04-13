@@ -2,7 +2,7 @@
   "class": "Sniper",
   "name": "Sniper",
   "visibility_range_px": 620.0,
-  "visibility_half_angle_deg": 20.0,
+  "visibility_half_angle_deg": 55.0,
   "aim_cone_render_range_px": 450.0,
   "aim_base_half_angle_deg": 0.35,
   "movement_spread_max_deg": 80.0,

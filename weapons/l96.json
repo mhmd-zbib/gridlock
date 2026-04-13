@@ -1,0 +1,17 @@
+{
+  "class": "Sniper",
+  "name": "L96",
+  "visibility_range_px": 700.0,
+  "visibility_half_angle_deg": 22.0,
+  "aim_cone_render_range_px": 510.0,
+  "aim_base_half_angle_deg": 0.28,
+  "movement_spread_max_deg": 85.0,
+  "bullet_speed_px_per_sec": 1300.0,
+  "bullet_damage": 4,
+  "recoil_per_shot_deg": 9.5,
+  "recoil_max_deg": 36.0,
+  "recoil_decay_deg_per_sec": 4.8,
+  "fire_rate_rps": 0.9,
+  "mag_size": 5,
+  "reload_time_secs": 3.3
+}
