@@ -12,10 +12,11 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 use crate::core::world::ray::{cast_ray, wrap_angle};
+use crate::core::world::units::px_to_tiles;
 use crate::core::world::wall::Wall;
 use std::f32::consts::PI;
 
-pub const SCAN_RANGE: f32 = 230.0;
+pub const SCAN_RANGE: f32 = px_to_tiles(230.0);
 pub const SCAN_SECTORS: usize = 36;
 pub const GAP_OPEN_HIT: f32 = SCAN_RANGE * 0.70;
 pub const GAP_SIDE_BLOCK_HIT: f32 = SCAN_RANGE * 0.50;
@@ -40,7 +41,7 @@ pub fn detect_gap_sectors(hits: &[f32; SCAN_SECTORS]) -> [bool; SCAN_SECTORS] {
         let c = hits[i];
         let r = hits[(i + 1) % SCAN_SECTORS];
         let side_blocked = l < GAP_SIDE_BLOCK_HIT || r < GAP_SIDE_BLOCK_HIT;
-        let sudden_open = c > l + 32.0 || c > r + 32.0;
+        let sudden_open = c > l + px_to_tiles(32.0) || c > r + px_to_tiles(32.0);
         candidate[i] = c >= GAP_OPEN_HIT && side_blocked && sudden_open;
     }
     candidate

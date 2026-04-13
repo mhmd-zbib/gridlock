@@ -1,13 +1,14 @@
 use crate::core::entity::movement::{Movement, MovementInput};
+use crate::core::world::units::px_to_tiles;
 use crate::core::world::wall::Wall;
 use crate::input::InputState;
 
-const WALK_SPEED: f32 = 40.0;
-const NORMAL_SPEED: f32 = 100.0;
-pub const RUN_SPEED: f32 = 280.0;
+const WALK_SPEED: f32 = px_to_tiles(40.0);
+const NORMAL_SPEED: f32 = px_to_tiles(100.0);
+pub const RUN_SPEED: f32 = px_to_tiles(280.0);
 const SPRINT_BURST_SECS: f32 = 1.2;
 const SPRINT_COOLDOWN_SECS: f32 = 8.0;
-const PEEK_DISTANCE: f32 = 18.0;
+const PEEK_DISTANCE: f32 = px_to_tiles(18.0);
 
 pub struct LocomotionState {
     peek_origin: Option<(f32, f32)>,
@@ -121,7 +122,7 @@ fn clamped_peek_distance(
     half_size: f32,
     walls: &[Wall],
 ) -> f32 {
-    const PEEK_STEP: f32 = 0.5;
+    const PEEK_STEP: f32 = px_to_tiles(0.5);
     let mut safe_dist = 0.0;
     let mut d = 0.0;
     while d < max_dist {

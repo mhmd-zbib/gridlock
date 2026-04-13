@@ -5,11 +5,12 @@ use super::spawn::SpawnQueue;
 use super::systems::{projectile, spawn, visibility};
 use super::world::level::LevelData;
 use super::world::rooms::LevelRooms;
+use super::world::units::px_to_tiles;
 use super::world::wall::{self, Wall};
 use crate::input::InputState;
 
-const PLAYER_HALF: f32 = 10.0;
-const ENEMY_HALF: f32 = 8.0;
+const PLAYER_HALF: f32 = px_to_tiles(10.0);
+const ENEMY_HALF: f32 = px_to_tiles(8.0);
 const IMPACT_TTL: f32 = 0.15;
 
 pub struct ImpactMark {
@@ -45,8 +46,11 @@ pub struct Game {
 impl Game {
     pub fn new() -> Self {
         Self {
-            player: Player::new(400.0, 300.0),
-            enemies: vec![Enemy::new(100.0, 100.0), Enemy::new(700.0, 500.0)],
+            player: Player::new(px_to_tiles(400.0), px_to_tiles(300.0)),
+            enemies: vec![
+                Enemy::new(px_to_tiles(100.0), px_to_tiles(100.0)),
+                Enemy::new(px_to_tiles(700.0), px_to_tiles(500.0)),
+            ],
             bullets: Vec::new(),
             impacts: Vec::new(),
             walls: Vec::new(),
@@ -58,7 +62,7 @@ impl Game {
     pub fn load_level(&mut self, level: &LevelData, level_width: f32, level_height: f32) {
         self.player = match level.player_spawn {
             Some(sp) => Player::new(sp.x, sp.y),
-            None => Player::new(400.0, 300.0),
+            None => Player::new(px_to_tiles(400.0), px_to_tiles(300.0)),
         };
         self.enemies = level
             .enemies

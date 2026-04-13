@@ -1,4 +1,5 @@
 use super::ray::{cast_ray, wrap_angle};
+use super::units::px_to_tiles;
 use super::wall::Wall;
 
 // ---------------------------------------------------------------------------
@@ -26,8 +27,8 @@ pub const MOVEMENT_SPREAD_RISE_RATE: f32 = 3.0;
 /// Lower than rise so the cone lingers a moment after stopping — feels more physical.
 pub const MOVEMENT_SPREAD_FALL_RATE: f32 = 1.8;
 
-/// How far the aim-cone arc is drawn in pixels (visual only, not a bullet range cap).
-pub const DEFAULT_AIM_CONE_RENDER_RANGE: f32 = 180.0;
+/// How far the aim-cone arc is drawn in tiles (visual only, not a bullet range cap).
+pub const DEFAULT_AIM_CONE_RENDER_RANGE: f32 = px_to_tiles(180.0);
 
 // ---------------------------------------------------------------------------
 // AimCone
@@ -159,7 +160,7 @@ impl AimCone {
             ] {
                 let dx = cx - origin.0;
                 let dy = cy - origin.1;
-                if dx * dx + dy * dy < 1.0 {
+                if dx * dx + dy * dy < px_to_tiles(1.0) * px_to_tiles(1.0) {
                     continue;
                 }
                 let r = wrap_angle(dy.atan2(dx) - self.direction);

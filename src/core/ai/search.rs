@@ -12,11 +12,12 @@
 
 use crate::core::world::ray::wrap_angle;
 use crate::core::world::spatial::{self, SCAN_RANGE, SCAN_SECTORS};
+use crate::core::world::units::px_to_tiles;
 use crate::core::world::wall::Wall;
 use std::f32::consts::PI;
 
-const ARRIVE_RADIUS: f32 = 28.0;
-const ENV_REBUILD_DIST: f32 = 12.0;
+const ARRIVE_RADIUS: f32 = px_to_tiles(28.0);
+const ENV_REBUILD_DIST: f32 = px_to_tiles(12.0);
 const LOOK_TURN_SPEED: f32 = 4.8;
 const BASE_ATTENTION_TIME: f32 = 0.95;
 const MOVE_SCORE_THRESHOLD: f32 = 0.62;
@@ -187,7 +188,7 @@ impl SearchPlanner {
                 let dir = (center_angle.cos(), center_angle.sin());
                 let cluster_hit_avg =
                     cluster.iter().map(|i| hits[*i]).sum::<f32>() / cluster.len() as f32;
-                let travel = (cluster_hit_avg * 0.58).clamp(44.0, SCAN_RANGE * 0.82);
+                let travel = (cluster_hit_avg * 0.58).clamp(px_to_tiles(44.0), SCAN_RANGE * 0.82);
                 (pos.0 + dir.0 * travel, pos.1 + dir.1 * travel)
             })
             .collect()
@@ -490,7 +491,7 @@ impl SearchPlanner {
             let dir = (center_angle.cos(), center_angle.sin());
             let cluster_hit_avg =
                 cluster.iter().map(|i| hits[*i]).sum::<f32>() / cluster.len() as f32;
-            let travel = (cluster_hit_avg * 0.58).clamp(44.0, SCAN_RANGE * 0.82);
+            let travel = (cluster_hit_avg * 0.58).clamp(px_to_tiles(44.0), SCAN_RANGE * 0.82);
             let gap_pos = (pos.0 + dir.0 * travel, pos.1 + dir.1 * travel);
             let openness = self.normalized(cluster_hit_avg, SCAN_RANGE);
             let width_norm = (cluster.len() as f32 / (SCAN_SECTORS as f32 * 0.25)).clamp(0.0, 1.0);

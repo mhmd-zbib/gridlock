@@ -1,8 +1,9 @@
+use crate::core::world::units::px_to_tiles;
 use crate::core::world::wall::Wall;
 use std::collections::{HashSet, VecDeque};
 
-/// Grid cell size for occupancy / topology analysis (world pixels).
-const CELL_SIZE: f32 = 8.0;
+/// Grid cell size for occupancy / topology analysis (world tiles).
+const CELL_SIZE: f32 = px_to_tiles(8.0);
 /// Inflate blocked space by one cell so detected rooms are navigable for actors.
 const COLLISION_CLEARANCE_CELLS: i32 = 1;
 /// Ignore tiny enclosed pockets produced by discretization noise.
@@ -18,7 +19,7 @@ const DOOR_CLUSTER_MAX_AREA_CELLS: usize = 80;
 /// Separator walls around a doorway must continue this far.
 const DOOR_WALL_CONTINUATION_MIN_CELLS: i32 = 5;
 /// Merge nearby gap waypoints.
-const GAP_DEDUP_PX: f32 = 50.0;
+const GAP_DEDUP_PX: f32 = px_to_tiles(50.0);
 
 const ROOM_COLORS: [[f32; 4]; 6] = [
     [0.28, 0.52, 0.90, 0.12],
@@ -186,7 +187,7 @@ fn build_blocked_grid(walls: &[Wall], grid_w: i32, grid_h: i32) -> Vec<bool> {
         for gx in 0..grid_w {
             let wx = (gx as f32 + 0.5) * CELL_SIZE;
             let wy = (gy as f32 + 0.5) * CELL_SIZE;
-            if walls.iter().any(|w| w.overlaps(wx, wy, 1.0)) {
+            if walls.iter().any(|w| w.overlaps(wx, wy, px_to_tiles(1.0))) {
                 blocked[idx(grid_w, gx, gy)] = true;
             }
         }
@@ -709,10 +710,15 @@ fn neighbors8(x: i32, y: i32) -> [(i32, i32); 8] {
 #[cfg(test)]
 mod tests {
     use super::LevelRooms;
+    use crate::core::world::units::px_to_tiles;
     use crate::core::world::wall::Wall;
 
+    fn p(v: f32) -> f32 {
+        px_to_tiles(v)
+    }
+
     fn w(x: f32, y: f32, w: f32, h: f32) -> Wall {
-        Wall::new(x, y, w, h)
+        Wall::new(p(x), p(y), p(w), p(h))
     }
 
     #[test]
@@ -724,10 +730,10 @@ mod tests {
             w(224.0, 80.0, 16.0, 160.0),
         ];
 
-        let rooms = LevelRooms::compute(&walls, 400.0, 320.0);
+        let rooms = LevelRooms::compute(&walls, p(400.0), p(320.0));
         assert_eq!(rooms.rooms.len(), 1);
-        assert_eq!(rooms.find_room_at(160.0, 160.0), Some(0));
-        assert_eq!(rooms.find_room_at(40.0, 40.0), None);
+        assert_eq!(rooms.find_room_at(p(160.0), p(160.0)), Some(0));
+        assert_eq!(rooms.find_room_at(p(40.0), p(40.0)), None);
     }
 
     #[test]
@@ -743,11 +749,11 @@ mod tests {
             w(216.0, 160.0, 16.0, 80.0),
         ];
 
-        let rooms = LevelRooms::compute(&walls, 480.0, 320.0);
+        let rooms = LevelRooms::compute(&walls, p(480.0), p(320.0));
         assert_eq!(rooms.rooms.len(), 2);
 
-        let left = rooms.find_room_at(140.0, 150.0).expect("left room");
-        let right = rooms.find_room_at(300.0, 150.0).expect("right room");
+        let left = rooms.find_room_at(p(140.0), p(150.0)).expect("left room");
+        let right = rooms.find_room_at(p(300.0), p(150.0)).expect("right room");
         assert_ne!(left, right);
 
         let linked = rooms.gap_edges.iter().any(|g| {
@@ -766,9 +772,9 @@ mod tests {
             w(96.0, 224.0, 144.0, 16.0),
         ];
 
-        let rooms = LevelRooms::compute(&walls, 400.0, 320.0);
+        let rooms = LevelRooms::compute(&walls, p(400.0), p(320.0));
         assert_eq!(rooms.rooms.len(), 0);
-        assert_eq!(rooms.find_room_at(160.0, 180.0), None);
+        assert_eq!(rooms.find_room_at(p(160.0), p(180.0)), None);
     }
 
     #[test]
@@ -781,9 +787,9 @@ mod tests {
             w(224.0, 120.0, 16.0, 120.0),
         ];
 
-        let rooms = LevelRooms::compute(&walls, 400.0, 320.0);
+        let rooms = LevelRooms::compute(&walls, p(400.0), p(320.0));
         assert_eq!(rooms.rooms.len(), 1);
-        assert_eq!(rooms.find_room_at(160.0, 160.0), Some(0));
+        assert_eq!(rooms.find_room_at(p(160.0), p(160.0)), Some(0));
     }
 
     #[test]
@@ -798,11 +804,11 @@ mod tests {
             w(224.0, 144.0, 96.0, 16.0),
         ];
 
-        let rooms = LevelRooms::compute(&walls, 480.0, 320.0);
+        let rooms = LevelRooms::compute(&walls, p(480.0), p(320.0));
         assert_eq!(rooms.rooms.len(), 1);
 
-        let above_stub = rooms.find_room_at(176.0, 120.0).expect("upper area");
-        let below_stub = rooms.find_room_at(176.0, 200.0).expect("lower area");
+        let above_stub = rooms.find_room_at(p(176.0), p(120.0)).expect("upper area");
+        let below_stub = rooms.find_room_at(p(176.0), p(200.0)).expect("lower area");
         assert_eq!(above_stub, below_stub);
     }
 
@@ -818,11 +824,11 @@ mod tests {
             w(112.0, 144.0, 208.0, 16.0),
         ];
 
-        let rooms = LevelRooms::compute(&walls, 480.0, 320.0);
+        let rooms = LevelRooms::compute(&walls, p(480.0), p(320.0));
         assert_eq!(rooms.rooms.len(), 1);
 
-        let upper = rooms.find_room_at(176.0, 120.0).expect("upper area");
-        let lower = rooms.find_room_at(176.0, 200.0).expect("lower area");
+        let upper = rooms.find_room_at(p(176.0), p(120.0)).expect("upper area");
+        let lower = rooms.find_room_at(p(176.0), p(200.0)).expect("lower area");
         assert_eq!(upper, lower);
     }
 }

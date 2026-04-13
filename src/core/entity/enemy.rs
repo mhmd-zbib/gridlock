@@ -3,13 +3,14 @@ use super::movement::Movement;
 use crate::core::ai::brain::EnemyBrain;
 use crate::core::spawn::{SpawnQueue, SpawnRequest};
 use crate::core::world::sight::Sight;
+use crate::core::world::units::px_to_tiles;
 use crate::core::world::wall::{self, Wall};
 
 const MAX_HP: u32 = 3;
-const ENEMY_BULLET_SPEED: f32 = 600.0;
+const ENEMY_BULLET_SPEED: f32 = px_to_tiles(600.0);
 const ENEMY_BULLET_DAMAGE: u32 = 1;
 /// Must match ENEMY_HALF in game.rs — the collision half-extent used for push_out.
-const ENEMY_HALF: f32 = 8.0;
+const ENEMY_HALF: f32 = px_to_tiles(8.0);
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum EnemyKind {
@@ -46,7 +47,7 @@ impl Enemy {
         let brain = EnemyBrain::new((x, y), sight.direction);
         Self {
             kind,
-            movement: Movement::new(x, y, 90.0),
+            movement: Movement::new(x, y, px_to_tiles(90.0)),
             sight,
             visible_to_player: true,
             brain,
@@ -106,7 +107,7 @@ impl Enemy {
         let dx = target.0 - fx;
         let dy = target.1 - fy;
         let dist = dx.hypot(dy);
-        if dist < 1.0 {
+        if dist < px_to_tiles(1.0) {
             self.movement.velocity_frac = 0.0;
             return;
         }
@@ -139,11 +140,11 @@ impl Enemy {
         wall::resolve_all(&mut qx, &mut qy, ENEMY_HALF, walls);
         let y_progress = (qy - fy).abs();
 
-        if x_progress >= y_progress && x_progress > 0.5 {
+        if x_progress >= y_progress && x_progress > px_to_tiles(0.5) {
             self.movement.x = sx;
             self.movement.y = sy;
             self.movement.velocity_frac = (x_progress / step).min(1.0);
-        } else if y_progress > 0.5 {
+        } else if y_progress > px_to_tiles(0.5) {
             self.movement.x = qx;
             self.movement.y = qy;
             self.movement.velocity_frac = (y_progress / step).min(1.0);

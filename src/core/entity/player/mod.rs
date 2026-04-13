@@ -6,6 +6,7 @@ use crate::core::entity::movement::Movement;
 use crate::core::spawn::{SpawnQueue, SpawnRequest};
 use crate::core::world::aim_cone::AimCone;
 use crate::core::world::sight::Sight;
+use crate::core::world::units::px_to_tiles;
 use crate::core::world::wall::Wall;
 use crate::input::InputState;
 
@@ -23,7 +24,7 @@ pub struct Player {
 impl Player {
     pub fn new(x: f32, y: f32) -> Self {
         Self {
-            movement: Movement::new(x, y, 100.0),
+            movement: Movement::new(x, y, px_to_tiles(100.0)),
             sight: Sight::player(),
             aim_cone: AimCone::new(),
             locomotion: LocomotionState::new(),
@@ -67,7 +68,10 @@ impl Player {
             .step(dt, input, &mut self.movement, half_size, walls);
 
         let from = (self.movement.x, self.movement.y);
-        let to = (input.mouse_x as f32, input.mouse_y as f32);
+        let to = (
+            px_to_tiles(input.mouse_x as f32),
+            px_to_tiles(input.mouse_y as f32),
+        );
         self.sight.face(from, to, dt);
         self.aim_cone.direction = self.sight.direction;
 

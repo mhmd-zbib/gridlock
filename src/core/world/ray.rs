@@ -1,3 +1,4 @@
+use super::units::px_to_tiles;
 use super::wall::Wall;
 
 // ---------------------------------------------------------------------------
@@ -28,7 +29,7 @@ pub fn has_los(from: (f32, f32), to: (f32, f32), walls: &[Wall]) -> bool {
     let dir = (dx / len, dy / len);
     walls
         .iter()
-        .all(|w| ray_aabb(from, dir, w).map_or(true, |t| t <= 0.5 || t >= len))
+        .all(|w| ray_aabb(from, dir, w).map_or(true, |t| t <= px_to_tiles(0.5) || t >= len))
 }
 
 /// Walk a ray and return the distance to the first wall hit (or `max_dist`).
@@ -36,7 +37,7 @@ pub fn cast_ray(origin: (f32, f32), dir: (f32, f32), max_dist: f32, walls: &[Wal
     walls
         .iter()
         .filter_map(|w| ray_aabb(origin, dir, w))
-        .filter(|&t| t > 0.5)
+        .filter(|&t| t > px_to_tiles(0.5))
         .fold(max_dist, f32::min)
 }
 

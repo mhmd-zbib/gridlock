@@ -9,6 +9,7 @@ use crate::core::entity::enemy::EnemyKind;
 use crate::core::game::Game;
 use crate::core::world::level::LevelData;
 use crate::core::world::rooms::LevelRooms;
+use crate::core::world::units::{px_to_tiles, tiles_to_px};
 use crate::input::InputHandler;
 use crate::render::geometry::{GeoVertex, push_circle_fan, push_cone_fan};
 use crate::render::quad::QuadInstance;
@@ -197,7 +198,8 @@ impl App {
                     if let Some(path) = sel.selected_path() {
                         match LevelData::load(path) {
                             Ok(level) => {
-                                self.game.load_level(&level, sw, sh);
+                                self.game
+                                    .load_level(&level, px_to_tiles(sw), px_to_tiles(sh));
                                 return Some(AppState::Playing);
                             }
                             Err(e) => println!("[app] load error: {e}"),
@@ -229,7 +231,8 @@ impl App {
                     return Some(AppState::MainMenu(MainMenu::new()));
                 }
                 if f1 {
-                    self.game.load_level(&self.editor.level, sw, sh);
+                    self.game
+                        .load_level(&self.editor.level, px_to_tiles(sw), px_to_tiles(sh));
                     return Some(AppState::Playing);
                 }
                 None
@@ -258,7 +261,7 @@ impl App {
             AppState::MainMenu(menu) => menu.instances(sw, sh, mx, my),
             AppState::LevelSelect(sel) => sel.instances(sw, sh),
             AppState::Playing => play_quads(&self.game, self.debug_mode),
-            AppState::Editing => self.editor.instances(mx, my),
+            AppState::Editing => self.editor.instances(sw, sh, mx, my),
         }
     }
 
@@ -408,7 +411,11 @@ fn play_texts(sw: f32, sh: f32, game: &Game, debug: bool) -> Vec<TextSection> {
     out.push(ts!(
         px,
         py,
-        format!("[DEBUG]  spd:{:.0}  enemies:{}", spd, game.enemies.len()),
+        format!(
+            "[DEBUG]  spd:{:.2} tiles/s  enemies:{}",
+            spd,
+            game.enemies.len()
+        ),
         12.0,
         [0.9, 0.9, 0.2, 1.0]
     ));
@@ -514,15 +521,15 @@ fn editor_texts(sw: f32, sh: f32, editor: &Editor) -> Vec<TextSection> {
     let tool = match editor.tool {
         Tool::PlayerSpawn => "Player Spawn",
         Tool::Enemy => "Enemy",
-        Tool::Wall => "Wall (drag)",
+        Tool::Wall => "Wall (2-point, 0.1 tile)",
         Tool::TargetDummy => "Target Dummy",
         Tool::Breakable => "Breakable Wall (2-point)",
     };
-    let grid = if editor.grid_snap {
-        "Grid: ON"
-    } else {
-        "Grid: OFF"
-    };
+    let grid = format!(
+        "Snap: {}  Inner Grid: {}",
+        editor.active_snap_label(),
+        if editor.show_subgrid { "ON" } else { "OFF" }
+    );
     let breakables = editor.level.walls.iter().filter(|w| w.breakable).count();
     let solids = editor.level.walls.len().saturating_sub(breakables);
     let stats = format!(
@@ -539,7 +546,7 @@ fn editor_texts(sw: f32, sh: f32, editor: &Editor) -> Vec<TextSection> {
         ts!(
             6.0,
             sh - 38.0,
-            "1: Spawn   2: Enemy   3: Wall   4: Target   5: Breakable   G: Grid",
+            "1: Spawn   2: Enemy   3: Wall   4: Target   5: Breakable   G: Snap   H: Inner Grid",
             13.0,
             [0.55, 0.55, 0.55, 1.0]
         ),
@@ -558,12 +565,24 @@ fn editor_texts(sw: f32, sh: f32, editor: &Editor) -> Vec<TextSection> {
 // Play-mode quad builder
 // ---------------------------------------------------------------------------
 
+fn world_pos_to_screen(pos: (f32, f32)) -> (f32, f32) {
+    (tiles_to_px(pos.0), tiles_to_px(pos.1))
+}
+
+fn world_points_to_screen(points: Vec<[f32; 2]>) -> Vec<[f32; 2]> {
+    points
+        .into_iter()
+        .map(|p| [tiles_to_px(p[0]), tiles_to_px(p[1])])
+        .collect()
+}
+
 fn play_quads(game: &Game, debug: bool) -> Vec<QuadInstance> {
     let mut out = Vec::new();
     for w in &game.walls {
+        let center = world_pos_to_screen((w.x + w.w * 0.5, w.y + w.h * 0.5));
         out.push(QuadInstance {
-            center: [w.x + w.w * 0.5, w.y + w.h * 0.5],
-            half_size: [w.w * 0.5, w.h * 0.5],
+            center: [center.0, center.1],
+            half_size: [tiles_to_px(w.w * 0.5), tiles_to_px(w.h * 0.5)],
             color: if w.breakable {
                 [0.2, 0.8, 0.95, 1.0]
             } else {
@@ -571,8 +590,9 @@ fn play_quads(game: &Game, debug: bool) -> Vec<QuadInstance> {
             },
         });
     }
+    let player = world_pos_to_screen((game.player.movement.x, game.player.movement.y));
     out.push(QuadInstance {
-        center: [game.player.movement.x, game.player.movement.y],
+        center: [player.0, player.1],
         half_size: [10.0, 10.0],
         color: [1.0, 1.0, 1.0, 1.0],
     });
@@ -588,8 +608,9 @@ fn play_quads(game: &Game, debug: bool) -> Vec<QuadInstance> {
             (EnemyKind::TargetDummy, true) => [1.0, 0.85, 0.2, 1.0],
             (EnemyKind::TargetDummy, false) => [0.6, 0.5, 0.12, 0.55],
         };
+        let enemy = world_pos_to_screen((e.movement.x, e.movement.y));
         out.push(QuadInstance {
-            center: [e.movement.x, e.movement.y],
+            center: [enemy.0, enemy.1],
             half_size: [8.0, 8.0],
             color,
         });
@@ -599,6 +620,7 @@ fn play_quads(game: &Game, debug: bool) -> Vec<QuadInstance> {
 
             // Spawn anchor — blue dot.
             let anchor = e.brain.spawn_anchor();
+            let anchor = world_pos_to_screen(anchor);
             out.push(QuadInstance {
                 center: [anchor.0, anchor.1],
                 half_size: [4.0, 4.0],
@@ -607,6 +629,7 @@ fn play_quads(game: &Game, debug: bool) -> Vec<QuadInstance> {
 
             // Last known player position — magenta dot.
             if let Some(lk) = e.brain.awareness.last_known_pos() {
+                let lk = world_pos_to_screen(lk);
                 out.push(QuadInstance {
                     center: [lk.0, lk.1],
                     half_size: [5.0, 5.0],
@@ -616,6 +639,7 @@ fn play_quads(game: &Game, debug: bool) -> Vec<QuadInstance> {
 
             // Current move target — green dot.
             if let Some(mv) = e.brain.last_move_target {
+                let mv = world_pos_to_screen(mv);
                 out.push(QuadInstance {
                     center: [mv.0, mv.1],
                     half_size: [4.0, 4.0],
@@ -625,6 +649,7 @@ fn play_quads(game: &Game, debug: bool) -> Vec<QuadInstance> {
 
             // Gap waypoints — cyan dots.
             for gap in e.brain.debug_gaps(ep, &game.walls) {
+                let gap = world_pos_to_screen(gap);
                 out.push(QuadInstance {
                     center: [gap.0, gap.1],
                     half_size: [4.0, 4.0],
@@ -634,8 +659,9 @@ fn play_quads(game: &Game, debug: bool) -> Vec<QuadInstance> {
         }
     }
     for b in &game.bullets {
+        let bullet = world_pos_to_screen((b.x, b.y));
         out.push(QuadInstance {
-            center: [b.x, b.y],
+            center: [bullet.0, bullet.1],
             half_size: [3.0, 3.0],
             color: [1.0, 1.0, 0.0, 1.0],
         });
@@ -651,6 +677,7 @@ fn play_geo(game: &Game, debug: bool, _sw: f32, _sh: f32) -> Vec<GeoVertex> {
     let mut out = Vec::new();
     let walls = &game.walls;
     let player_pos = (game.player.movement.x, game.player.movement.y);
+    let player_pos_px = world_pos_to_screen(player_pos);
 
     // ── Level room / gap overlay (standalone, no enemy involvement) ───────────
     if debug {
@@ -659,18 +686,19 @@ fn play_geo(game: &Game, debug: bool, _sw: f32, _sh: f32) -> Vec<GeoVertex> {
     }
 
     // ── Player ────────────────────────────────────────────────────────────────
-    let circle = game.player.sight.circle_arc_pts(player_pos, walls, 64);
-    push_cone_fan(&mut out, player_pos, &circle, [0.3, 0.7, 1.0, 0.07]);
-    let arc = game.player.sight.cone_arc_pts(player_pos, walls, 60);
-    push_cone_fan(&mut out, player_pos, &arc, [0.3, 0.7, 1.0, 0.16]);
-    let aim_arc = game.player.aim_cone.cone_arc_pts(player_pos, walls, 16);
-    push_cone_fan(&mut out, player_pos, &aim_arc, [1.0, 0.6, 0.1, 0.45]);
+    let circle = world_points_to_screen(game.player.sight.circle_arc_pts(player_pos, walls, 64));
+    push_cone_fan(&mut out, player_pos_px, &circle, [0.3, 0.7, 1.0, 0.07]);
+    let arc = world_points_to_screen(game.player.sight.cone_arc_pts(player_pos, walls, 60));
+    push_cone_fan(&mut out, player_pos_px, &arc, [0.3, 0.7, 1.0, 0.16]);
+    let aim_arc = world_points_to_screen(game.player.aim_cone.cone_arc_pts(player_pos, walls, 16));
+    push_cone_fan(&mut out, player_pos_px, &aim_arc, [1.0, 0.6, 0.1, 0.45]);
 
     // Bullet impact marks.
     for impact in &game.impacts {
+        let impact_pos = world_pos_to_screen((impact.x, impact.y));
         push_circle_fan(
             &mut out,
-            (impact.x, impact.y),
+            impact_pos,
             5.0,
             [1.0, 0.95, 0.2, 0.22 * impact.alpha()],
             18,
@@ -687,13 +715,14 @@ fn play_geo(game: &Game, debug: bool, _sw: f32, _sh: f32) -> Vec<GeoVertex> {
             continue;
         }
         let ep = (e.movement.x, e.movement.y);
+        let ep_px = world_pos_to_screen(ep);
 
         // Nearby circle — dimmed when not visible to player.
         let circle_alpha = if visible { 0.05 } else { 0.03 };
         push_circle_fan(
             &mut out,
-            ep,
-            e.sight.circle_radius,
+            ep_px,
+            tiles_to_px(e.sight.circle_radius),
             [1.0, 0.3, 0.3, circle_alpha],
             36,
         );
@@ -707,8 +736,8 @@ fn play_geo(game: &Game, debug: bool, _sw: f32, _sh: f32) -> Vec<GeoVertex> {
         } else {
             [1.0, 0.85, 0.20, 0.14 * alpha_scale]
         };
-        let arc = e.sight.cone_arc_pts(ep, walls, 48);
-        push_cone_fan(&mut out, ep, &arc, cone_color);
+        let arc = world_points_to_screen(e.sight.cone_arc_pts(ep, walls, 48));
+        push_cone_fan(&mut out, ep_px, &arc, cone_color);
     }
 
     out
@@ -723,10 +752,10 @@ fn push_level_rooms_geo(out: &mut Vec<GeoVertex>, rooms: &LevelRooms) {
     // Draw each detected room as a rectangle.
     for room in &rooms.rooms {
         let color = room.color;
-        let x = room.x;
-        let y = room.y;
-        let x2 = room.x + room.w;
-        let y2 = room.y + room.h;
+        let x = tiles_to_px(room.x);
+        let y = tiles_to_px(room.y);
+        let x2 = tiles_to_px(room.x + room.w);
+        let y2 = tiles_to_px(room.y + room.h);
 
         // Two triangles to fill the rectangle.
         out.push(GeoVertex { pos: [x, y], color });
@@ -757,6 +786,7 @@ fn push_level_rooms_geo(out: &mut Vec<GeoVertex>, rooms: &LevelRooms) {
     let gap_col = [1.0, 0.75, 0.05, 0.90];
     const R: f32 = 5.0;
     for &(gx, gy) in &rooms.gaps {
+        let (gx, gy) = world_pos_to_screen((gx, gy));
         // Diamond = 4 points (N, E, S, W) → 2 triangles.
         let n_pt = [gx, gy - R];
         let e_pt = [gx + R, gy];

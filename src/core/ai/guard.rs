@@ -14,10 +14,11 @@
 
 use crate::core::world::ray::wrap_angle;
 use crate::core::world::spatial::{self, SCAN_RANGE, SCAN_SECTORS};
+use crate::core::world::units::px_to_tiles;
 use crate::core::world::wall::Wall;
 use std::f32::consts::PI;
 
-const ENV_REBUILD_DIST: f32 = 14.0;
+const ENV_REBUILD_DIST: f32 = px_to_tiles(14.0);
 /// Only track the two most important entrances.  More than two creates rapid
 /// cycling that feels like jitter rather than deliberate attention.
 const MAX_GAPS: usize = 2;
@@ -33,7 +34,7 @@ const CYCLE_BUDGET: f32 = 4.0; // seconds
 const PRIMARY_BOOST: f32 = 1.8;
 const THREAT_DIR_BOOST: f32 = 0.18;
 /// Tolerance for matching a gap to its previous position after rebuild.
-const GAP_CONTINUITY_DIST: f32 = 60.0;
+const GAP_CONTINUITY_DIST: f32 = px_to_tiles(60.0);
 const FALLBACK_SWEEP_RATE: f32 = 0.35; // rad/s
 const FALLBACK_SWEEP_AMP: f32 = 0.20; // radians
 
@@ -151,7 +152,7 @@ impl RoomGuard {
             let dir = (center_angle.cos(), center_angle.sin());
             let cluster_hit_avg =
                 cluster.iter().map(|i| hits[*i]).sum::<f32>() / cluster.len() as f32;
-            let travel = (cluster_hit_avg * 0.58).clamp(44.0, SCAN_RANGE * 0.82);
+            let travel = (cluster_hit_avg * 0.58).clamp(px_to_tiles(44.0), SCAN_RANGE * 0.82);
             let gap_pos = (pos.0 + dir.0 * travel, pos.1 + dir.1 * travel);
 
             let openness = (cluster_hit_avg / SCAN_RANGE).clamp(0.0, 1.0);

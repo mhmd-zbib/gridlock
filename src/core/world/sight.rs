@@ -1,4 +1,5 @@
 use super::ray::{cast_ray, has_los, wrap_angle};
+use super::units::px_to_tiles;
 use super::wall::Wall;
 
 // ---------------------------------------------------------------------------
@@ -10,7 +11,7 @@ pub struct Sight {
     pub direction: f32,
     /// Half-angle of the vision cone in radians.
     pub half_angle: f32,
-    /// How far the cone reaches in pixels.
+    /// How far the cone reaches in tiles.
     pub range: f32,
     /// Radius of the always-visible bubble around the entity.
     pub circle_radius: f32,
@@ -23,8 +24,8 @@ impl Sight {
         Self {
             direction: 0.0,
             half_angle: 40_f32.to_radians(),
-            range: 320.0,
-            circle_radius: 80.0,
+            range: px_to_tiles(320.0),
+            circle_radius: px_to_tiles(80.0),
             turn_speed: 12.0,
         }
     }
@@ -33,8 +34,8 @@ impl Sight {
         Self {
             direction: std::f32::consts::PI,
             half_angle: 38_f32.to_radians(),
-            range: 260.0,
-            circle_radius: 60.0,
+            range: px_to_tiles(260.0),
+            circle_radius: px_to_tiles(60.0),
             turn_speed: 6.0,
         }
     }
@@ -106,7 +107,7 @@ impl Sight {
             ] {
                 let dx = cx - origin.0;
                 let dy = cy - origin.1;
-                if dx * dx + dy * dy < 1.0 {
+                if dx * dx + dy * dy < px_to_tiles(1.0) * px_to_tiles(1.0) {
                     continue;
                 }
                 let a = dy.atan2(dx);
@@ -159,7 +160,7 @@ impl Sight {
             ] {
                 let dx = cx - origin.0;
                 let dy = cy - origin.1;
-                if dx * dx + dy * dy < 1.0 {
+                if dx * dx + dy * dy < px_to_tiles(1.0) * px_to_tiles(1.0) {
                     continue;
                 }
                 let r = wrap_angle(dy.atan2(dx) - self.direction);

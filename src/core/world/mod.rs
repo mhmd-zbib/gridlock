@@ -4,4 +4,5 @@ pub mod ray;
 pub mod rooms;
 pub mod sight;
 pub mod spatial;
+pub mod units;
 pub mod wall;

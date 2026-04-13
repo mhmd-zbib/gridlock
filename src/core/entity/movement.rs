@@ -14,7 +14,7 @@ pub struct MovementInput {
 pub struct Movement {
     pub x: f32,
     pub y: f32,
-    pub speed: f32, // pixels / second
+    pub speed: f32, // tiles / second
 
     /// Fraction of max speed this entity is currently moving at: 0.0 = still, 1.0 = full speed.
     /// Updated every call to `apply`. Diagonal movement counts as full speed (clamped to 1.0).

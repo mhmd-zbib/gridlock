@@ -1,15 +1,16 @@
 use crate::core::entity::weapon::{WeaponClass, WeaponStats};
+use crate::core::world::units::px_to_tiles;
 
 pub fn stats() -> WeaponStats {
     WeaponStats {
         class: WeaponClass::Rifle,
         name: "M4A1",
-        visibility_range: 360.0,
+        visibility_range: px_to_tiles(360.0),
         visibility_half_angle_deg: 38.0,
-        aim_cone_render_range: 260.0,
+        aim_cone_render_range: px_to_tiles(260.0),
         aim_base_half_angle_deg: 1.2,
         movement_spread_max_deg: 10.5,
-        bullet_speed: 840.0,
+        bullet_speed: px_to_tiles(840.0),
         bullet_damage: 1,
         recoil_per_shot_deg: 3.0,
         recoil_max_deg: 19.0,
