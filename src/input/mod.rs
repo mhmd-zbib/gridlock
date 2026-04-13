@@ -33,17 +33,21 @@ pub struct InputState {
     pub key_4: bool, // tool: target dummy
     pub key_5: bool, // editor tool: breakable wall
     pub key_6: bool, // editor tool: prop
+    pub key_7: bool, // editor tool: base map bounds
     pub key_q: bool, // editor: previous prop id
     pub key_e: bool, // editor: next prop id
     pub key_g: bool, // toggle grid snap
     pub key_h: bool, // toggle inner grid visibility
     pub key_l: bool, // load level
+    pub key_minus: bool,
+    pub key_equals: bool,
 
     // Mouse
     pub mouse_x: f64,
     pub mouse_y: f64,
     pub mouse_left: bool,
     pub mouse_right: bool,
+    pub mouse_wheel_y: f32, // transient, reset each frame
 }
 
 // ---------------------------------------------------------------------------
@@ -124,6 +128,9 @@ impl InputHandler {
                 "4" => self.state.key_4 = pressed,
                 "5" => self.state.key_5 = pressed,
                 "6" => self.state.key_6 = pressed,
+                "7" => self.state.key_7 = pressed,
+                "-" | "_" => self.state.key_minus = pressed,
+                "=" | "+" => self.state.key_equals = pressed,
                 "q" | "Q" => self.state.key_q = pressed,
                 "e" | "E" => self.state.key_e = pressed,
                 "g" | "G" => self.state.key_g = pressed,
@@ -146,5 +153,15 @@ impl InputHandler {
         }
     }
 
-    fn on_scroll(&self, _delta: &MouseScrollDelta) {}
+    fn on_scroll(&mut self, delta: &MouseScrollDelta) {
+        let amount = match delta {
+            MouseScrollDelta::LineDelta(_, y) => *y,
+            MouseScrollDelta::PixelDelta(pos) => (pos.y as f32) / 32.0,
+        };
+        self.state.mouse_wheel_y += amount;
+    }
+
+    pub fn end_frame(&mut self) {
+        self.state.mouse_wheel_y = 0.0;
+    }
 }

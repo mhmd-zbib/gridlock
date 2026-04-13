@@ -5,7 +5,7 @@ use super::entity::weapon::attachment::AttachmentCategory;
 use super::entity::weapon::{weapon_supports_attachment, weapon_supports_attachment_category};
 use super::spawn::SpawnQueue;
 use super::systems::{projectile, spawn, visibility};
-use super::world::level::LevelData;
+use super::world::level::{LevelBounds, LevelData};
 use super::world::prop::{self, ResolvedProp};
 use super::world::rooms::LevelRooms;
 use super::world::units::px_to_tiles;
@@ -44,6 +44,7 @@ pub struct Game {
     pub walls: Vec<Wall>,
     pub props: Vec<ResolvedProp>,
     pub rooms: LevelRooms,
+    pub level_bounds: Option<LevelBounds>,
     spawn_queue: SpawnQueue,
     player_loadout: PlayerLoadoutConfig,
 }
@@ -64,6 +65,7 @@ impl Game {
             walls: Vec::new(),
             props: Vec::new(),
             rooms: LevelRooms::default(),
+            level_bounds: None,
             spawn_queue: SpawnQueue::default(),
             player_loadout,
         }
@@ -114,9 +116,33 @@ impl Game {
         self.bullets = Vec::new();
         self.impacts = Vec::new();
         self.spawn_queue = SpawnQueue::default();
+        self.level_bounds = level.map_bounds;
+        clamp_actor_to_level_bounds(
+            &mut self.player.movement.x,
+            &mut self.player.movement.y,
+            PLAYER_HALF,
+            self.level_bounds,
+        );
+        for enemy in &mut self.enemies {
+            clamp_actor_to_level_bounds(
+                &mut enemy.movement.x,
+                &mut enemy.movement.y,
+                ENEMY_HALF,
+                self.level_bounds,
+            );
+        }
+
+        let room_w = match level.map_bounds {
+            Some(bounds) => (bounds.x + bounds.w).max(level_width),
+            None => level_width,
+        };
+        let room_h = match level.map_bounds {
+            Some(bounds) => (bounds.y + bounds.h).max(level_height),
+            None => level_height,
+        };
 
         // Compute rooms and gaps ONCE at level load (cached for debug rendering)
-        self.rooms = LevelRooms::compute(&self.walls, level_width, level_height);
+        self.rooms = LevelRooms::compute(&self.walls, room_w, room_h);
 
         println!(
             "[game] level loaded  enemies={}  targets={}  walls={}  props={}  collider_props={}  rooms={}  gaps={}  outside_cells={}",
@@ -141,6 +167,12 @@ impl Game {
             PLAYER_HALF,
             &self.walls,
         );
+        clamp_actor_to_level_bounds(
+            &mut self.player.movement.x,
+            &mut self.player.movement.y,
+            PLAYER_HALF,
+            self.level_bounds,
+        );
 
         let target = (self.player.movement.x, self.player.movement.y);
         for enemy in &mut self.enemies {
@@ -150,6 +182,12 @@ impl Game {
                 &mut enemy.movement.y,
                 ENEMY_HALF,
                 &self.walls,
+            );
+            clamp_actor_to_level_bounds(
+                &mut enemy.movement.x,
+                &mut enemy.movement.y,
+                ENEMY_HALF,
+                self.level_bounds,
             );
         }
 
@@ -170,6 +208,14 @@ impl Game {
             PLAYER_HALF,
         );
         self.enemies.retain(|e| e.hp > 0);
+        if let Some(bounds) = self.level_bounds {
+            self.bullets.retain(|b| {
+                b.x >= bounds.x
+                    && b.x <= bounds.x + bounds.w
+                    && b.y >= bounds.y
+                    && b.y <= bounds.y + bounds.h
+            });
+        }
         self.impacts.extend(
             impact_events
                 .into_iter()
@@ -181,6 +227,27 @@ impl Game {
         self.impacts.retain(|impact| impact.ttl > 0.0);
 
         spawn::flush_spawn_queue(&mut self.spawn_queue, &mut self.bullets, &mut self.enemies);
+    }
+}
+
+fn clamp_actor_to_level_bounds(x: &mut f32, y: &mut f32, half: f32, bounds: Option<LevelBounds>) {
+    let Some(bounds) = bounds else {
+        return;
+    };
+    let min_x = bounds.x + half;
+    let max_x = bounds.x + bounds.w - half;
+    let min_y = bounds.y + half;
+    let max_y = bounds.y + bounds.h - half;
+
+    if min_x <= max_x {
+        *x = x.clamp(min_x, max_x);
+    } else {
+        *x = bounds.x + bounds.w * 0.5;
+    }
+    if min_y <= max_y {
+        *y = y.clamp(min_y, max_y);
+    } else {
+        *y = bounds.y + bounds.h * 0.5;
     }
 }
 

@@ -9,6 +9,14 @@ pub struct Pos {
     pub y: f32,
 }
 
+#[derive(Serialize, Deserialize, Clone, Copy)]
+pub struct LevelBounds {
+    pub x: f32,
+    pub y: f32,
+    pub w: f32,
+    pub h: f32,
+}
+
 /// Everything the game needs to know to set up one level.
 /// Serialises to / deserialises from a single JSON file.
 ///
@@ -16,6 +24,7 @@ pub struct Pos {
 /// ```json
 /// {
 ///   "id": "level_01",
+///   "map_bounds": { "x": 0.0, "y": 0.0, "w": 24.0, "h": 14.0 },
 ///   "player_spawn": { "x": 6.25, "y": 4.6875 },
 ///   "enemies": [
 ///     { "x": 1.5625, "y": 1.5625 },
@@ -32,6 +41,8 @@ pub struct Pos {
 #[derive(Serialize, Deserialize, Clone)]
 pub struct LevelData {
     pub id: String,
+    #[serde(default)]
+    pub map_bounds: Option<LevelBounds>,
     /// `None` means no spawn defined yet (editor hasn't placed one).
     pub player_spawn: Option<Pos>,
     #[serde(default)]
@@ -48,6 +59,7 @@ impl Default for LevelData {
     fn default() -> Self {
         Self {
             id: "level_2".to_string(),
+            map_bounds: None,
             player_spawn: None,
             enemies: Vec::new(),
             target_enemies: Vec::new(),
@@ -88,6 +100,18 @@ fn validate_level_data(level: &LevelData) -> Result<(), Box<dyn std::error::Erro
             let err = std::io::Error::new(
                 std::io::ErrorKind::InvalidData,
                 format!("level prop id '{}' must be snake_case", prop.id),
+            );
+            return Err(Box::new(err));
+        }
+    }
+    if let Some(bounds) = level.map_bounds {
+        if bounds.w <= 0.0 || bounds.h <= 0.0 {
+            let err = std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                format!(
+                    "map_bounds must have positive size, got w={} h={}",
+                    bounds.w, bounds.h
+                ),
             );
             return Err(Box::new(err));
         }

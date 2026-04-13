@@ -3,11 +3,14 @@ use std::sync::Arc;
 use winit::application::ApplicationHandler;
 use winit::event::WindowEvent;
 use winit::event_loop::ActiveEventLoop;
-use winit::window::{Window, WindowId};
+use winit::window::{Fullscreen, Window, WindowId};
 
 use crate::core::entity::enemy::EnemyKind;
 use crate::core::entity::weapon::attachment::AttachmentCategory;
 use crate::core::game::Game;
+use crate::core::world::camera::{
+    CameraBehaviorState, CameraBounds, CameraStepInput, TacticalCamera,
+};
 use crate::core::world::level::LevelData;
 use crate::core::world::prop;
 use crate::core::world::rooms::LevelRooms;
@@ -55,6 +58,7 @@ pub struct App {
     wgpu_state: Option<State>,
     input: InputHandler,
     game: Game,
+    camera: TacticalCamera,
     game_loop: GameLoop,
     editor: Editor,
     app_state: AppState,
@@ -70,10 +74,13 @@ pub struct App {
 
 impl Default for App {
     fn default() -> Self {
+        let game = Game::new();
+        let player_pos = (game.player.movement.x, game.player.movement.y);
         Self {
             wgpu_state: None,
             input: InputHandler::new(),
-            game: Game::new(),
+            game,
+            camera: TacticalCamera::new(player_pos),
             game_loop: GameLoop::new(),
             editor: Editor::new(),
             app_state: AppState::MainMenu(MainMenu::new()),
@@ -95,7 +102,11 @@ impl ApplicationHandler for App {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         let window = Arc::new(
             event_loop
-                .create_window(Window::default_attributes().with_title("Shooting"))
+                .create_window(
+                    Window::default_attributes()
+                        .with_title("Shooting")
+                        .with_fullscreen(Some(Fullscreen::Borderless(None))),
+                )
                 .unwrap(),
         );
         self.wgpu_state = Some(pollster::block_on(State::new(window)));
@@ -151,6 +162,7 @@ impl ApplicationHandler for App {
                 self.prev_f1 = input.f1;
                 self.prev_f8 = input.f8;
                 self.prev_click = input.mouse_left;
+                self.input.end_frame();
 
                 window.request_redraw();
             }
@@ -219,6 +231,10 @@ impl App {
                             Ok(level) => {
                                 self.game
                                     .load_level(&level, px_to_tiles(sw), px_to_tiles(sh));
+                                self.camera.reset((
+                                    self.game.player.movement.x,
+                                    self.game.player.movement.y,
+                                ));
                                 return Some(AppState::Playing);
                             }
                             Err(e) => println!("[app] load error: {e}"),
@@ -230,8 +246,40 @@ impl App {
 
             AppState::Playing => {
                 let game = &mut self.game;
+                let camera = &mut self.camera;
                 let gl = &mut self.game_loop;
-                gl.tick(|dt| game.update(dt, input), || {});
+                let raw_input = input.clone();
+                let viewport_px = (sw, sh);
+                gl.tick(
+                    |dt| {
+                        let mouse_world = camera.screen_to_world(
+                            (raw_input.mouse_x as f32, raw_input.mouse_y as f32),
+                            viewport_px,
+                        );
+                        let mut world_input = raw_input.clone();
+                        world_input.mouse_x = tiles_to_px(mouse_world.0) as f64;
+                        world_input.mouse_y = tiles_to_px(mouse_world.1) as f64;
+
+                        game.update(dt, &world_input);
+
+                        let desired_state = if enemies_in_combat(&game.enemies) {
+                            CameraBehaviorState::Combat
+                        } else {
+                            CameraBehaviorState::Exploration
+                        };
+                        camera.update(CameraStepInput {
+                            dt,
+                            viewport_px,
+                            player_pos: (game.player.movement.x, game.player.movement.y),
+                            mouse_world,
+                            player_vision_range: game.player.sight.range,
+                            bounds: infer_world_bounds(game, px_to_tiles(sw), px_to_tiles(sh)),
+                            rooms: &game.rooms,
+                            desired_state,
+                        });
+                    },
+                    || {},
+                );
                 if esc {
                     return Some(AppState::MainMenu(MainMenu::new()));
                 }
@@ -253,6 +301,8 @@ impl App {
                 if f1 {
                     self.game
                         .load_level(&self.editor.level, px_to_tiles(sw), px_to_tiles(sh));
+                    self.camera
+                        .reset((self.game.player.movement.x, self.game.player.movement.y));
                     return Some(AppState::Playing);
                 }
                 None
@@ -266,7 +316,7 @@ impl App {
 
     fn build_geo(&self, sw: f32, sh: f32) -> Vec<GeoVertex> {
         if let AppState::Playing = &self.app_state {
-            play_geo(&self.game, self.debug_mode, sw, sh)
+            play_geo(&self.game, &self.camera, self.debug_mode, sw, sh)
         } else {
             Vec::new()
         }
@@ -281,7 +331,7 @@ impl App {
             AppState::MainMenu(menu) => menu.instances(sw, sh, mx, my),
             AppState::Loadout(loadout) => loadout.instances(sw, sh),
             AppState::LevelSelect(sel) => sel.instances(sw, sh),
-            AppState::Playing => play_quads(&self.game, self.debug_mode),
+            AppState::Playing => play_quads(&self.game, &self.camera, self.debug_mode, sw, sh),
             AppState::Editing => self.editor.instances(sw, sh, mx, my),
         }
     }
@@ -295,7 +345,7 @@ impl App {
             AppState::MainMenu(_) => main_menu_texts(sw, sh),
             AppState::Loadout(loadout) => loadout_texts(sw, sh, loadout),
             AppState::LevelSelect(sel) => level_select_texts(sw, sh, sel),
-            AppState::Playing => play_texts(sw, sh, &self.game, self.debug_mode),
+            AppState::Playing => play_texts(sw, sh, &self.game, &self.camera, self.debug_mode),
             AppState::Editing => editor_texts(sw, sh, &self.editor),
         }
     }
@@ -442,7 +492,13 @@ fn level_select_texts(sw: f32, sh: f32, sel: &LevelSelect) -> Vec<TextSection> {
     out
 }
 
-fn play_texts(sw: f32, sh: f32, game: &Game, debug: bool) -> Vec<TextSection> {
+fn play_texts(
+    sw: f32,
+    sh: f32,
+    game: &Game,
+    camera: &TacticalCamera,
+    debug: bool,
+) -> Vec<TextSection> {
     let _ = sh;
     let attachments_line = AttachmentCategory::all()
         .iter()
@@ -521,6 +577,31 @@ fn play_texts(sw: f32, sh: f32, game: &Game, debug: bool) -> Vec<TextSection> {
         None => "Room: ---".to_string(),
     };
     out.push(ts!(px, py, room_info, 11.0, [0.6, 0.9, 0.6, 1.0]));
+    py += lh + 2.0;
+
+    let camera_state = match camera.state() {
+        CameraBehaviorState::Combat => "combat",
+        CameraBehaviorState::PeekTension => "peek",
+        CameraBehaviorState::Exploration => "explore",
+    };
+    let cam_center = camera.center();
+    let cam_offset = camera.offset();
+    out.push(ts!(
+        px,
+        py,
+        format!(
+            "Cam: {}  center({:.2},{:.2})  off({:.2},{:.2})  room:{}  gap:{}",
+            camera_state,
+            cam_center.0,
+            cam_center.1,
+            cam_offset.0,
+            cam_offset.1,
+            if camera.in_room() { "Y" } else { "n" },
+            if camera.near_gap() { "Y" } else { "n" }
+        ),
+        10.0,
+        [0.62, 0.78, 0.98, 1.0]
+    ));
     py += lh + 2.0;
 
     for (i, e) in game.enemies.iter().enumerate() {
@@ -618,6 +699,7 @@ fn editor_texts(sw: f32, sh: f32, editor: &Editor) -> Vec<TextSection> {
         Tool::TargetDummy => "Target Dummy",
         Tool::Breakable => "Breakable Wall (2-point)",
         Tool::Prop => "Prop",
+        Tool::BaseMap => "Base Map (2-point bounds)",
     };
     let prop_info = match editor.selected_prop_asset() {
         Some(asset) => format!(
@@ -660,12 +742,17 @@ fn editor_texts(sw: f32, sh: f32, editor: &Editor) -> Vec<TextSection> {
     let breakables = editor.level.walls.iter().filter(|w| w.breakable).count();
     let solids = editor.level.walls.len().saturating_sub(breakables);
     let stats = format!(
-        "Enemies: {}  Targets: {}  Walls: {}  Breakables: {}  Props: {}",
+        "Enemies: {}  Targets: {}  Walls: {}  Breakables: {}  Props: {}  Map: {}  Zoom: {:.2}x",
         editor.level.enemies.len(),
         editor.level.target_enemies.len(),
         solids,
         breakables,
-        editor.level.props.len()
+        editor.level.props.len(),
+        match editor.level.map_bounds {
+            Some(b) => format!("{:.1}x{:.1}", b.w, b.h),
+            None => "--".to_string(),
+        },
+        editor.zoom
     );
     vec![
         ts!(8.0, 6.0, "LEVEL EDITOR", 18.0, [1.0, 0.7, 0.2, 1.0]),
@@ -676,14 +763,14 @@ fn editor_texts(sw: f32, sh: f32, editor: &Editor) -> Vec<TextSection> {
         ts!(
             6.0,
             sh - 38.0,
-            "1: Spawn   2: Enemy   3: Wall   4: Target   5: Breakable   6: Prop   Q/E: Prop Id",
+            "1: Spawn   2: Enemy   3: Wall   4: Target   5: Breakable   6: Prop   7: Base Map   Q/E: Prop Id",
             13.0,
             [0.55, 0.55, 0.55, 1.0]
         ),
         ts!(
             6.0,
             sh - 20.0,
-            "Left: place   Right: delete   F5: save   L: load   F1: play   Esc: menu",
+            "Left: place   Right: delete   Wheel or +/-: zoom   WASD/Arrows: pan   F5: save   L: load   F1: play   Esc: menu",
             13.0,
             [0.55, 0.55, 0.55, 1.0]
         ),
@@ -695,21 +782,51 @@ fn editor_texts(sw: f32, sh: f32, editor: &Editor) -> Vec<TextSection> {
 // Play-mode quad builder
 // ---------------------------------------------------------------------------
 
-fn world_pos_to_screen(pos: (f32, f32)) -> (f32, f32) {
-    (tiles_to_px(pos.0), tiles_to_px(pos.1))
+fn world_pos_to_screen(
+    camera: &TacticalCamera,
+    viewport_px: (f32, f32),
+    pos: (f32, f32),
+) -> (f32, f32) {
+    camera.world_to_screen(pos, viewport_px)
 }
 
-fn world_points_to_screen(points: Vec<[f32; 2]>) -> Vec<[f32; 2]> {
+fn world_points_to_screen(
+    camera: &TacticalCamera,
+    viewport_px: (f32, f32),
+    points: Vec<[f32; 2]>,
+) -> Vec<[f32; 2]> {
     points
         .into_iter()
-        .map(|p| [tiles_to_px(p[0]), tiles_to_px(p[1])])
+        .map(|p| {
+            let s = camera.world_to_screen((p[0], p[1]), viewport_px);
+            [s.0, s.1]
+        })
         .collect()
 }
 
-fn play_quads(game: &Game, debug: bool) -> Vec<QuadInstance> {
+fn play_quads(
+    game: &Game,
+    camera: &TacticalCamera,
+    debug: bool,
+    sw: f32,
+    sh: f32,
+) -> Vec<QuadInstance> {
+    let viewport_px = (sw, sh);
     let mut out = Vec::new();
+    if let Some(bounds) = game.level_bounds {
+        let center = world_pos_to_screen(
+            camera,
+            viewport_px,
+            (bounds.x + bounds.w * 0.5, bounds.y + bounds.h * 0.5),
+        );
+        out.push(QuadInstance {
+            center: [center.0, center.1],
+            half_size: [tiles_to_px(bounds.w * 0.5), tiles_to_px(bounds.h * 0.5)],
+            color: [0.07, 0.07, 0.11, 1.0],
+        });
+    }
     for w in &game.walls {
-        let center = world_pos_to_screen((w.x + w.w * 0.5, w.y + w.h * 0.5));
+        let center = world_pos_to_screen(camera, viewport_px, (w.x + w.w * 0.5, w.y + w.h * 0.5));
         out.push(QuadInstance {
             center: [center.0, center.1],
             half_size: [tiles_to_px(w.w * 0.5), tiles_to_px(w.h * 0.5)],
@@ -721,7 +838,7 @@ fn play_quads(game: &Game, debug: bool) -> Vec<QuadInstance> {
         });
     }
     for prop_instance in &game.props {
-        let center = world_pos_to_screen((prop_instance.x, prop_instance.y));
+        let center = world_pos_to_screen(camera, viewport_px, (prop_instance.x, prop_instance.y));
         out.push(QuadInstance {
             center: [center.0, center.1],
             half_size: [
@@ -731,7 +848,11 @@ fn play_quads(game: &Game, debug: bool) -> Vec<QuadInstance> {
             color: prop::asset_color(&prop_instance.id, prop_instance.is_collider, 1.0),
         });
     }
-    let player = world_pos_to_screen((game.player.movement.x, game.player.movement.y));
+    let player = world_pos_to_screen(
+        camera,
+        viewport_px,
+        (game.player.movement.x, game.player.movement.y),
+    );
     out.push(QuadInstance {
         center: [player.0, player.1],
         half_size: [10.0, 10.0],
@@ -749,7 +870,7 @@ fn play_quads(game: &Game, debug: bool) -> Vec<QuadInstance> {
             (EnemyKind::TargetDummy, true) => [1.0, 0.85, 0.2, 1.0],
             (EnemyKind::TargetDummy, false) => [0.6, 0.5, 0.12, 0.55],
         };
-        let enemy = world_pos_to_screen((e.movement.x, e.movement.y));
+        let enemy = world_pos_to_screen(camera, viewport_px, (e.movement.x, e.movement.y));
         out.push(QuadInstance {
             center: [enemy.0, enemy.1],
             half_size: [8.0, 8.0],
@@ -761,7 +882,7 @@ fn play_quads(game: &Game, debug: bool) -> Vec<QuadInstance> {
 
             // Spawn anchor — blue dot.
             let anchor = e.brain.spawn_anchor();
-            let anchor = world_pos_to_screen(anchor);
+            let anchor = world_pos_to_screen(camera, viewport_px, anchor);
             out.push(QuadInstance {
                 center: [anchor.0, anchor.1],
                 half_size: [4.0, 4.0],
@@ -770,7 +891,7 @@ fn play_quads(game: &Game, debug: bool) -> Vec<QuadInstance> {
 
             // Last known player position — magenta dot.
             if let Some(lk) = e.brain.awareness.last_known_pos() {
-                let lk = world_pos_to_screen(lk);
+                let lk = world_pos_to_screen(camera, viewport_px, lk);
                 out.push(QuadInstance {
                     center: [lk.0, lk.1],
                     half_size: [5.0, 5.0],
@@ -780,7 +901,7 @@ fn play_quads(game: &Game, debug: bool) -> Vec<QuadInstance> {
 
             // Current move target — green dot.
             if let Some(mv) = e.brain.last_move_target {
-                let mv = world_pos_to_screen(mv);
+                let mv = world_pos_to_screen(camera, viewport_px, mv);
                 out.push(QuadInstance {
                     center: [mv.0, mv.1],
                     half_size: [4.0, 4.0],
@@ -790,7 +911,7 @@ fn play_quads(game: &Game, debug: bool) -> Vec<QuadInstance> {
 
             // Gap waypoints — cyan dots.
             for gap in e.brain.debug_gaps(ep, &game.walls) {
-                let gap = world_pos_to_screen(gap);
+                let gap = world_pos_to_screen(camera, viewport_px, gap);
                 out.push(QuadInstance {
                     center: [gap.0, gap.1],
                     half_size: [4.0, 4.0],
@@ -800,7 +921,7 @@ fn play_quads(game: &Game, debug: bool) -> Vec<QuadInstance> {
         }
     }
     for b in &game.bullets {
-        let bullet = world_pos_to_screen((b.x, b.y));
+        let bullet = world_pos_to_screen(camera, viewport_px, (b.x, b.y));
         out.push(QuadInstance {
             center: [bullet.0, bullet.1],
             half_size: [3.0, 3.0],
@@ -814,29 +935,42 @@ fn play_quads(game: &Game, debug: bool) -> Vec<QuadInstance> {
 // Play-mode sight-cone geometry builder
 // ---------------------------------------------------------------------------
 
-fn play_geo(game: &Game, debug: bool, _sw: f32, _sh: f32) -> Vec<GeoVertex> {
+fn play_geo(game: &Game, camera: &TacticalCamera, debug: bool, sw: f32, sh: f32) -> Vec<GeoVertex> {
+    let viewport_px = (sw, sh);
     let mut out = Vec::new();
     let walls = &game.walls;
     let player_pos = (game.player.movement.x, game.player.movement.y);
-    let player_pos_px = world_pos_to_screen(player_pos);
+    let player_pos_px = world_pos_to_screen(camera, viewport_px, player_pos);
 
     // ── Level room / gap overlay (standalone, no enemy involvement) ───────────
     if debug {
         // Use cached rooms from level load (no per-frame recomputation)
-        push_level_rooms_geo(&mut out, &game.rooms);
+        push_level_rooms_geo(&mut out, &game.rooms, camera, viewport_px);
     }
 
     // ── Player ────────────────────────────────────────────────────────────────
-    let circle = world_points_to_screen(game.player.sight.circle_arc_pts(player_pos, walls, 64));
+    let circle = world_points_to_screen(
+        camera,
+        viewport_px,
+        game.player.sight.circle_arc_pts(player_pos, walls, 64),
+    );
     push_cone_fan(&mut out, player_pos_px, &circle, [0.3, 0.7, 1.0, 0.07]);
-    let arc = world_points_to_screen(game.player.sight.cone_arc_pts(player_pos, walls, 60));
+    let arc = world_points_to_screen(
+        camera,
+        viewport_px,
+        game.player.sight.cone_arc_pts(player_pos, walls, 60),
+    );
     push_cone_fan(&mut out, player_pos_px, &arc, [0.3, 0.7, 1.0, 0.16]);
-    let aim_arc = world_points_to_screen(game.player.aim_cone.cone_arc_pts(player_pos, walls, 16));
+    let aim_arc = world_points_to_screen(
+        camera,
+        viewport_px,
+        game.player.aim_cone.cone_arc_pts(player_pos, walls, 16),
+    );
     push_cone_fan(&mut out, player_pos_px, &aim_arc, [1.0, 0.6, 0.1, 0.45]);
 
     // Bullet impact marks.
     for impact in &game.impacts {
-        let impact_pos = world_pos_to_screen((impact.x, impact.y));
+        let impact_pos = world_pos_to_screen(camera, viewport_px, (impact.x, impact.y));
         push_circle_fan(
             &mut out,
             impact_pos,
@@ -856,7 +990,7 @@ fn play_geo(game: &Game, debug: bool, _sw: f32, _sh: f32) -> Vec<GeoVertex> {
             continue;
         }
         let ep = (e.movement.x, e.movement.y);
-        let ep_px = world_pos_to_screen(ep);
+        let ep_px = world_pos_to_screen(camera, viewport_px, ep);
 
         // Nearby circle — dimmed when not visible to player.
         let circle_alpha = if visible { 0.05 } else { 0.03 };
@@ -877,7 +1011,7 @@ fn play_geo(game: &Game, debug: bool, _sw: f32, _sh: f32) -> Vec<GeoVertex> {
         } else {
             [1.0, 0.85, 0.20, 0.14 * alpha_scale]
         };
-        let arc = world_points_to_screen(e.sight.cone_arc_pts(ep, walls, 48));
+        let arc = world_points_to_screen(camera, viewport_px, e.sight.cone_arc_pts(ep, walls, 48));
         push_cone_fan(&mut out, ep_px, &arc, cone_color);
     }
 
@@ -889,14 +1023,17 @@ fn play_geo(game: &Game, debug: bool, _sw: f32, _sh: f32) -> Vec<GeoVertex> {
 /// Draw detected rooms and gaps:
 ///  - Each room is drawn as a semi-transparent rectangle with its assigned color.
 ///  - Deduplicated gap waypoints are drawn as small filled diamonds.
-fn push_level_rooms_geo(out: &mut Vec<GeoVertex>, rooms: &LevelRooms) {
+fn push_level_rooms_geo(
+    out: &mut Vec<GeoVertex>,
+    rooms: &LevelRooms,
+    camera: &TacticalCamera,
+    viewport_px: (f32, f32),
+) {
     // Draw each detected room as a rectangle.
     for room in &rooms.rooms {
         let color = room.color;
-        let x = tiles_to_px(room.x);
-        let y = tiles_to_px(room.y);
-        let x2 = tiles_to_px(room.x + room.w);
-        let y2 = tiles_to_px(room.y + room.h);
+        let (x, y) = world_pos_to_screen(camera, viewport_px, (room.x, room.y));
+        let (x2, y2) = world_pos_to_screen(camera, viewport_px, (room.x + room.w, room.y + room.h));
 
         // Two triangles to fill the rectangle.
         out.push(GeoVertex { pos: [x, y], color });
@@ -927,7 +1064,7 @@ fn push_level_rooms_geo(out: &mut Vec<GeoVertex>, rooms: &LevelRooms) {
     let gap_col = [1.0, 0.75, 0.05, 0.90];
     const R: f32 = 5.0;
     for &(gx, gy) in &rooms.gaps {
-        let (gx, gy) = world_pos_to_screen((gx, gy));
+        let (gx, gy) = world_pos_to_screen(camera, viewport_px, (gx, gy));
         // Diamond = 4 points (N, E, S, W) → 2 triangles.
         let n_pt = [gx, gy - R];
         let e_pt = [gx + R, gy];
@@ -958,4 +1095,62 @@ fn push_level_rooms_geo(out: &mut Vec<GeoVertex>, rooms: &LevelRooms) {
             color: gap_col,
         });
     }
+}
+
+fn enemies_in_combat(enemies: &[crate::core::entity::enemy::Enemy]) -> bool {
+    enemies
+        .iter()
+        .any(|enemy| enemy.kind == EnemyKind::Shooter && enemy.brain.awareness.in_combat())
+}
+
+fn infer_world_bounds(game: &Game, fallback_w: f32, fallback_h: f32) -> CameraBounds {
+    if let Some(bounds) = game.level_bounds {
+        // Give camera headroom past authored map bounds so edge movement
+        // doesn't feel like a hard sticky clamp.
+        const MAP_BOUNDS_CAMERA_PADDING: f32 = px_to_tiles(256.0);
+        return CameraBounds::from_min_max(
+            bounds.x - MAP_BOUNDS_CAMERA_PADDING,
+            bounds.y - MAP_BOUNDS_CAMERA_PADDING,
+            bounds.x + bounds.w + MAP_BOUNDS_CAMERA_PADDING,
+            bounds.y + bounds.h + MAP_BOUNDS_CAMERA_PADDING,
+        );
+    }
+
+    const EDGE_PADDING: f32 = px_to_tiles(128.0);
+    let mut min_x = 0.0_f32;
+    let mut min_y = 0.0_f32;
+    let mut max_x = fallback_w.max(game.player.movement.x);
+    let mut max_y = fallback_h.max(game.player.movement.y);
+
+    let mut include_point = |x: f32, y: f32| {
+        min_x = min_x.min(x);
+        min_y = min_y.min(y);
+        max_x = max_x.max(x);
+        max_y = max_y.max(y);
+    };
+
+    include_point(game.player.movement.x, game.player.movement.y);
+    for enemy in &game.enemies {
+        include_point(enemy.movement.x, enemy.movement.y);
+    }
+    for wall in &game.walls {
+        include_point(wall.x, wall.y);
+        include_point(wall.x + wall.w, wall.y + wall.h);
+    }
+    for prop_instance in &game.props {
+        include_point(
+            prop_instance.x - prop_instance.width * 0.5,
+            prop_instance.y - prop_instance.height * 0.5,
+        );
+        include_point(
+            prop_instance.x + prop_instance.width * 0.5,
+            prop_instance.y + prop_instance.height * 0.5,
+        );
+    }
+
+    min_x = (min_x - EDGE_PADDING).min(0.0);
+    min_y = (min_y - EDGE_PADDING).min(0.0);
+    max_x = (max_x + EDGE_PADDING).max(fallback_w);
+    max_y = (max_y + EDGE_PADDING).max(fallback_h);
+    CameraBounds::from_min_max(min_x, min_y, max_x, max_y)
 }

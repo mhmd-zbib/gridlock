@@ -1,4 +1,4 @@
-use crate::core::world::level::{LevelData, Pos};
+use crate::core::world::level::{LevelBounds, LevelData, Pos};
 use crate::core::world::prop::{self, LevelProp, PropAssetDef};
 use crate::core::world::units::{px_to_tiles, tiles_to_px};
 use crate::core::world::wall::Wall;
@@ -20,6 +20,7 @@ pub enum Tool {
     TargetDummy, // key 4 — yellow
     Breakable,   // key 5 — cyan, 2-point thin breakable wall
     Prop,        // key 6 — id-backed prop
+    BaseMap,     // key 7 — 2-point map bounds rectangle
 }
 
 // ---------------------------------------------------------------------------
@@ -35,6 +36,11 @@ const EDGE_STEP: f32 = TILE_GRID / SUBGRID_DIVISIONS as f32;
 const GRID_LINE_THICKNESS: f32 = px_to_tiles(1.0);
 const GRID_LINE_ALPHA: f32 = 0.16;
 const SUBGRID_LINE_ALPHA: f32 = 0.08;
+const EDITOR_MIN_ZOOM: f32 = 0.35;
+const EDITOR_MAX_ZOOM: f32 = 3.5;
+const EDITOR_KEY_ZOOM_STEP: f32 = 1.04;
+const EDITOR_WHEEL_ZOOM_STEP: f32 = 0.12;
+const EDITOR_PAN_STEP_PX: f32 = 20.0;
 
 #[derive(Clone, Copy, PartialEq)]
 pub enum SnapMode {
@@ -85,14 +91,18 @@ pub struct Editor {
     pub level: LevelData,
     pub snap_mode: SnapMode,
     pub show_subgrid: bool,
+    pub zoom: f32,
     prop_assets: Vec<PropAssetDef>,
     selected_prop_asset: usize,
     edges: HashMap<EdgeKey, EdgeCell>,
+    view_origin: (f32, f32),
 
     /// First point for two-click wall placement.
     wall_start: Option<(f32, f32)>,
     /// First point for two-click breakable placement.
     breakable_start: Option<(f32, f32)>,
+    /// First point for two-click base map bounds.
+    base_map_start: Option<(f32, f32)>,
 
     // Edge detection
     prev_left: bool,
@@ -105,6 +115,7 @@ pub struct Editor {
     prev_key_4: bool,
     prev_key_5: bool,
     prev_key_6: bool,
+    prev_key_7: bool,
     prev_key_q: bool,
     prev_key_e: bool,
     prev_key_g: bool,
@@ -119,11 +130,14 @@ impl Editor {
             level: LevelData::default(),
             snap_mode: SnapMode::Edge,
             show_subgrid: true,
+            zoom: 1.0,
             prop_assets,
             selected_prop_asset: 0,
             edges: HashMap::new(),
+            view_origin: (0.0, 0.0),
             wall_start: None,
             breakable_start: None,
+            base_map_start: None,
             prev_left: false,
             prev_right: false,
             prev_f5: false,
@@ -134,6 +148,7 @@ impl Editor {
             prev_key_4: false,
             prev_key_5: false,
             prev_key_6: false,
+            prev_key_7: false,
             prev_key_q: false,
             prev_key_e: false,
             prev_key_g: false,
@@ -160,9 +175,78 @@ impl Editor {
         self.selected_prop_asset
     }
 
+    fn screen_to_world(&self, sx: f32, sy: f32) -> (f32, f32) {
+        (
+            self.view_origin.0 + px_to_tiles(sx) / self.zoom,
+            self.view_origin.1 + px_to_tiles(sy) / self.zoom,
+        )
+    }
+
+    fn world_to_screen(&self, wx: f32, wy: f32) -> (f32, f32) {
+        (
+            tiles_to_px(wx - self.view_origin.0) * self.zoom,
+            tiles_to_px(wy - self.view_origin.1) * self.zoom,
+        )
+    }
+
+    fn world_len_to_screen(&self, world_len: f32) -> f32 {
+        tiles_to_px(world_len).abs() * self.zoom
+    }
+
+    fn world_quad(
+        &self,
+        center: (f32, f32),
+        half_size: (f32, f32),
+        color: [f32; 4],
+    ) -> QuadInstance {
+        let (cx, cy) = self.world_to_screen(center.0, center.1);
+        QuadInstance {
+            center: [cx, cy],
+            half_size: [
+                self.world_len_to_screen(half_size.0),
+                self.world_len_to_screen(half_size.1),
+            ],
+            color,
+        }
+    }
+
     pub fn update(&mut self, input: &InputState) {
-        let raw_mx = px_to_tiles(input.mouse_x as f32);
-        let raw_my = px_to_tiles(input.mouse_y as f32);
+        let mouse_px = (input.mouse_x as f32, input.mouse_y as f32);
+
+        let mut zoom_factor = 1.0_f32;
+        if input.key_equals {
+            zoom_factor *= EDITOR_KEY_ZOOM_STEP;
+        }
+        if input.key_minus {
+            zoom_factor /= EDITOR_KEY_ZOOM_STEP;
+        }
+        if input.mouse_wheel_y != 0.0 {
+            zoom_factor *= (1.0 + input.mouse_wheel_y * EDITOR_WHEEL_ZOOM_STEP).max(0.2);
+        }
+        if (zoom_factor - 1.0).abs() > f32::EPSILON {
+            let world_before = self.screen_to_world(mouse_px.0, mouse_px.1);
+            self.zoom = (self.zoom * zoom_factor).clamp(EDITOR_MIN_ZOOM, EDITOR_MAX_ZOOM);
+            self.view_origin = (
+                world_before.0 - px_to_tiles(mouse_px.0) / self.zoom,
+                world_before.1 - px_to_tiles(mouse_px.1) / self.zoom,
+            );
+        }
+
+        let pan_step_world = px_to_tiles(EDITOR_PAN_STEP_PX) / self.zoom.max(0.001);
+        if input.left {
+            self.view_origin.0 -= pan_step_world;
+        }
+        if input.right {
+            self.view_origin.0 += pan_step_world;
+        }
+        if input.up {
+            self.view_origin.1 -= pan_step_world;
+        }
+        if input.down {
+            self.view_origin.1 += pan_step_world;
+        }
+
+        let (raw_mx, raw_my) = self.screen_to_world(mouse_px.0, mouse_px.1);
         let snap_mode = effective_snap_mode(self.tool, self.snap_mode);
         let (mx, my) = snap_point(raw_mx, raw_my, snap_mode);
 
@@ -174,18 +258,21 @@ impl Editor {
             self.tool = Tool::PlayerSpawn;
             self.wall_start = None;
             self.breakable_start = None;
+            self.base_map_start = None;
             println!("[editor] tool → player spawn  (1)");
         }
         if input.key_2 && !self.prev_key_2 {
             self.tool = Tool::Enemy;
             self.wall_start = None;
             self.breakable_start = None;
+            self.base_map_start = None;
             println!("[editor] tool → enemy  (2)");
         }
         if input.key_3 && !self.prev_key_3 {
             self.tool = Tool::Wall;
             self.wall_start = None;
             self.breakable_start = None;
+            self.base_map_start = None;
             println!(
                 "[editor] tool → wall  (3) — click 2 points, 0.1-tile thick, right-click to cancel/delete"
             );
@@ -194,12 +281,14 @@ impl Editor {
             self.tool = Tool::TargetDummy;
             self.wall_start = None;
             self.breakable_start = None;
+            self.base_map_start = None;
             println!("[editor] tool → target dummy  (4)");
         }
         if input.key_5 && !self.prev_key_5 {
             self.tool = Tool::Breakable;
             self.wall_start = None;
             self.breakable_start = None;
+            self.base_map_start = None;
             println!(
                 "[editor] tool → breakable wall  (5) — click 2 points, right-click to cancel/delete"
             );
@@ -208,8 +297,18 @@ impl Editor {
             self.tool = Tool::Prop;
             self.wall_start = None;
             self.breakable_start = None;
+            self.base_map_start = None;
             println!("[editor] tool → prop  (6)");
             self.announce_selected_prop_asset();
+        }
+        if input.key_7 && !self.prev_key_7 {
+            self.tool = Tool::BaseMap;
+            self.wall_start = None;
+            self.breakable_start = None;
+            self.base_map_start = None;
+            println!(
+                "[editor] tool → base map  (7) — click 2 corners to set map bounds, right-click to cancel/clear"
+            );
         }
 
         // --- grid snap toggle ---
@@ -274,6 +373,24 @@ impl Editor {
                     }
                 }
             }
+            Tool::BaseMap => {
+                if just_pressed {
+                    if let Some(start) = self.base_map_start.take() {
+                        if let Some(bounds) = bounds_from_points(start, (mx, my)) {
+                            self.level.map_bounds = Some(bounds);
+                            println!(
+                                "[editor] base map set  origin=({:.2},{:.2})  size={:.2}x{:.2}",
+                                bounds.x, bounds.y, bounds.w, bounds.h
+                            );
+                        } else {
+                            println!("[editor] base map ignored: rectangle too small");
+                        }
+                    } else {
+                        self.base_map_start = Some((mx, my));
+                        println!("[editor] base map: first corner set at ({mx:.2}, {my:.2})");
+                    }
+                }
+            }
             _ => {
                 if just_pressed {
                     self.place(mx, my);
@@ -287,6 +404,14 @@ impl Editor {
                 println!("[editor] wall placement cancelled");
             } else if self.tool == Tool::Breakable && self.breakable_start.take().is_some() {
                 println!("[editor] breakable wall placement cancelled");
+            } else if self.tool == Tool::BaseMap && self.base_map_start.take().is_some() {
+                println!("[editor] base map placement cancelled");
+            } else if self.tool == Tool::BaseMap {
+                if self.level.map_bounds.take().is_some() {
+                    println!("[editor] base map cleared");
+                } else {
+                    println!("[editor] no base map to clear");
+                }
             } else {
                 self.delete_at(raw_mx, raw_my);
             }
@@ -311,6 +436,7 @@ impl Editor {
         self.prev_key_4 = input.key_4;
         self.prev_key_5 = input.key_5;
         self.prev_key_6 = input.key_6;
+        self.prev_key_7 = input.key_7;
         self.prev_key_q = input.key_q;
         self.prev_key_e = input.key_e;
         self.prev_key_g = input.key_g;
@@ -354,7 +480,7 @@ impl Editor {
                     self.level.props.len()
                 );
             }
-            Tool::Wall | Tool::Breakable => {} // handled via two-point placement
+            Tool::Wall | Tool::Breakable | Tool::BaseMap => {} // handled via two-point placement
         }
     }
 
@@ -421,11 +547,12 @@ impl Editor {
     pub fn save(&self, path: &str) {
         match self.level.save(path) {
             Ok(_) => println!(
-                "[editor] saved   → {path}  enemies={} targets={} walls={} props={}",
+                "[editor] saved   → {path}  enemies={} targets={} walls={} props={}  map={}",
                 self.level.enemies.len(),
                 self.level.target_enemies.len(),
                 self.level.walls.len(),
-                self.level.props.len()
+                self.level.props.len(),
+                map_bounds_label(self.level.map_bounds)
             ),
             Err(e) => println!("[editor] save error: {e}"),
         }
@@ -435,12 +562,13 @@ impl Editor {
         match LevelData::load(path) {
             Ok(data) => {
                 println!(
-                    "[editor] loaded  ← {path}  enemies={}  targets={}  walls={}  breakables={}  props={}",
+                    "[editor] loaded  ← {path}  enemies={}  targets={}  walls={}  breakables={}  props={}  map={}",
                     data.enemies.len(),
                     data.target_enemies.len(),
                     data.walls.len(),
                     count_breakables(&data),
-                    data.props.len()
+                    data.props.len(),
+                    map_bounds_label(data.map_bounds)
                 );
                 self.level = data;
                 self.rebuild_edges_from_walls();
@@ -458,69 +586,82 @@ impl Editor {
         mouse_x: f32,
         mouse_y: f32,
     ) -> Vec<QuadInstance> {
-        let mouse_x = px_to_tiles(mouse_x);
-        let mouse_y = px_to_tiles(mouse_y);
+        let (mouse_x, mouse_y) = self.screen_to_world(mouse_x, mouse_y);
         let snap_mode = effective_snap_mode(self.tool, self.snap_mode);
         let (mx, my) = snap_point(mouse_x, mouse_y, snap_mode);
 
         let mut out = Vec::new();
-        append_grid_lines(&mut out, screen_w, screen_h, self.show_subgrid);
+        append_grid_lines(
+            &mut out,
+            screen_w,
+            screen_h,
+            self.show_subgrid,
+            self.view_origin,
+            self.zoom,
+        );
+
+        if let Some(bounds) = self.level.map_bounds {
+            push_bounds_fill(
+                &mut out,
+                bounds,
+                [0.10, 0.16, 0.26, 0.16],
+                [0.16, 0.42, 0.95, 0.72],
+                self.view_origin,
+                self.zoom,
+            );
+        }
 
         // Walls — brownish gray
         for w in &self.level.walls {
-            out.push(QuadInstance {
-                center: [tiles_to_px(w.x + w.w * 0.5), tiles_to_px(w.y + w.h * 0.5)],
-                half_size: [tiles_to_px(w.w * 0.5), tiles_to_px(w.h * 0.5)],
-                color: if w.breakable {
+            out.push(self.world_quad(
+                (w.x + w.w * 0.5, w.y + w.h * 0.5),
+                (w.w * 0.5, w.h * 0.5),
+                if w.breakable {
                     [0.2, 0.8, 0.95, 1.0]
                 } else {
                     [0.45, 0.4, 0.35, 1.0]
                 },
-            });
+            ));
         }
 
         // Props
         for prop in &self.level.props {
             let (half_w, half_h, is_collider) = match self.find_prop_asset(&prop.id) {
-                Some(asset) => (
-                    tiles_to_px(asset.width * 0.5),
-                    tiles_to_px(asset.height * 0.5),
-                    asset.is_collider,
-                ),
-                None => (6.0, 6.0, false),
+                Some(asset) => (asset.width * 0.5, asset.height * 0.5, asset.is_collider),
+                None => (px_to_tiles(6.0), px_to_tiles(6.0), false),
             };
-            out.push(QuadInstance {
-                center: [tiles_to_px(prop.x), tiles_to_px(prop.y)],
-                half_size: [half_w, half_h],
-                color: prop::asset_color(&prop.id, is_collider, 1.0),
-            });
+            out.push(self.world_quad(
+                (prop.x, prop.y),
+                (half_w, half_h),
+                prop::asset_color(&prop.id, is_collider, 1.0),
+            ));
         }
 
         // Player spawn — green
         if let Some(sp) = self.level.player_spawn {
-            out.push(QuadInstance {
-                center: [tiles_to_px(sp.x), tiles_to_px(sp.y)],
-                half_size: [10.0, 10.0],
-                color: [0.2, 1.0, 0.2, 1.0],
-            });
+            out.push(self.world_quad(
+                (sp.x, sp.y),
+                (px_to_tiles(10.0), px_to_tiles(10.0)),
+                [0.2, 1.0, 0.2, 1.0],
+            ));
         }
 
         // Enemies — red
         for e in &self.level.enemies {
-            out.push(QuadInstance {
-                center: [tiles_to_px(e.x), tiles_to_px(e.y)],
-                half_size: [8.0, 8.0],
-                color: [1.0, 0.2, 0.2, 1.0],
-            });
+            out.push(self.world_quad(
+                (e.x, e.y),
+                (px_to_tiles(8.0), px_to_tiles(8.0)),
+                [1.0, 0.2, 0.2, 1.0],
+            ));
         }
 
         // Target dummies — yellow
         for e in &self.level.target_enemies {
-            out.push(QuadInstance {
-                center: [tiles_to_px(e.x), tiles_to_px(e.y)],
-                half_size: [8.0, 8.0],
-                color: [1.0, 0.85, 0.2, 1.0],
-            });
+            out.push(self.world_quad(
+                (e.x, e.y),
+                (px_to_tiles(8.0), px_to_tiles(8.0)),
+                [1.0, 0.85, 0.2, 1.0],
+            ));
         }
 
         // Ghost preview
@@ -528,74 +669,91 @@ impl Editor {
             Tool::Wall => {
                 if let Some(start) = self.wall_start {
                     for w in preview_edge_walls(start, (mx, my), snap_mode, false) {
-                        out.push(QuadInstance {
-                            center: [tiles_to_px(w.x + w.w * 0.5), tiles_to_px(w.y + w.h * 0.5)],
-                            half_size: [tiles_to_px(w.w * 0.5), tiles_to_px(w.h * 0.5)],
-                            color: [0.45, 0.4, 0.35, 0.45],
-                        });
+                        out.push(self.world_quad(
+                            (w.x + w.w * 0.5, w.y + w.h * 0.5),
+                            (w.w * 0.5, w.h * 0.5),
+                            [0.45, 0.4, 0.35, 0.45],
+                        ));
                     }
                 } else {
-                    out.push(QuadInstance {
-                        center: [tiles_to_px(mx), tiles_to_px(my)],
-                        half_size: [3.0, 3.0],
-                        color: [0.45, 0.4, 0.35, 0.5],
-                    });
+                    out.push(self.world_quad(
+                        (mx, my),
+                        (px_to_tiles(3.0), px_to_tiles(3.0)),
+                        [0.45, 0.4, 0.35, 0.5],
+                    ));
                 }
             }
             Tool::Breakable => {
                 if let Some(start) = self.breakable_start {
                     for w in preview_edge_walls(start, (mx, my), snap_mode, true) {
-                        out.push(QuadInstance {
-                            center: [tiles_to_px(w.x + w.w * 0.5), tiles_to_px(w.y + w.h * 0.5)],
-                            half_size: [tiles_to_px(w.w * 0.5), tiles_to_px(w.h * 0.5)],
-                            color: [0.2, 0.8, 0.95, 0.45],
-                        });
+                        out.push(self.world_quad(
+                            (w.x + w.w * 0.5, w.y + w.h * 0.5),
+                            (w.w * 0.5, w.h * 0.5),
+                            [0.2, 0.8, 0.95, 0.45],
+                        ));
                     }
                 } else {
-                    out.push(QuadInstance {
-                        center: [tiles_to_px(mx), tiles_to_px(my)],
-                        half_size: [3.0, 3.0],
-                        color: [0.2, 0.8, 0.95, 0.5],
-                    });
+                    out.push(self.world_quad(
+                        (mx, my),
+                        (px_to_tiles(3.0), px_to_tiles(3.0)),
+                        [0.2, 0.8, 0.95, 0.5],
+                    ));
                 }
             }
             Tool::PlayerSpawn => {
-                out.push(QuadInstance {
-                    center: [tiles_to_px(mx), tiles_to_px(my)],
-                    half_size: [10.0, 10.0],
-                    color: [0.2, 1.0, 0.2, 0.35],
-                });
+                out.push(self.world_quad(
+                    (mx, my),
+                    (px_to_tiles(10.0), px_to_tiles(10.0)),
+                    [0.2, 1.0, 0.2, 0.35],
+                ));
             }
             Tool::Enemy => {
-                out.push(QuadInstance {
-                    center: [tiles_to_px(mx), tiles_to_px(my)],
-                    half_size: [8.0, 8.0],
-                    color: [1.0, 0.2, 0.2, 0.35],
-                });
+                out.push(self.world_quad(
+                    (mx, my),
+                    (px_to_tiles(8.0), px_to_tiles(8.0)),
+                    [1.0, 0.2, 0.2, 0.35],
+                ));
             }
             Tool::TargetDummy => {
-                out.push(QuadInstance {
-                    center: [tiles_to_px(mx), tiles_to_px(my)],
-                    half_size: [8.0, 8.0],
-                    color: [1.0, 0.85, 0.2, 0.35],
-                });
+                out.push(self.world_quad(
+                    (mx, my),
+                    (px_to_tiles(8.0), px_to_tiles(8.0)),
+                    [1.0, 0.85, 0.2, 0.35],
+                ));
             }
             Tool::Prop => {
                 if let Some(asset) = self.selected_prop_definition() {
-                    out.push(QuadInstance {
-                        center: [tiles_to_px(mx), tiles_to_px(my)],
-                        half_size: [
-                            tiles_to_px(asset.width * 0.5),
-                            tiles_to_px(asset.height * 0.5),
-                        ],
-                        color: prop::asset_color(&asset.id, asset.is_collider, 0.45),
-                    });
+                    out.push(self.world_quad(
+                        (mx, my),
+                        (asset.width * 0.5, asset.height * 0.5),
+                        prop::asset_color(&asset.id, asset.is_collider, 0.45),
+                    ));
                 } else {
-                    out.push(QuadInstance {
-                        center: [tiles_to_px(mx), tiles_to_px(my)],
-                        half_size: [5.0, 5.0],
-                        color: [0.95, 0.2, 0.2, 0.5],
-                    });
+                    out.push(self.world_quad(
+                        (mx, my),
+                        (px_to_tiles(5.0), px_to_tiles(5.0)),
+                        [0.95, 0.2, 0.2, 0.5],
+                    ));
+                }
+            }
+            Tool::BaseMap => {
+                if let Some(start) = self.base_map_start {
+                    if let Some(bounds) = bounds_from_points(start, (mx, my)) {
+                        push_bounds_fill(
+                            &mut out,
+                            bounds,
+                            [0.12, 0.22, 0.36, 0.28],
+                            [0.35, 0.65, 1.0, 0.86],
+                            self.view_origin,
+                            self.zoom,
+                        );
+                    }
+                } else {
+                    out.push(self.world_quad(
+                        (mx, my),
+                        (px_to_tiles(4.0), px_to_tiles(4.0)),
+                        [0.35, 0.65, 1.0, 0.55],
+                    ));
                 }
             }
         }
@@ -1022,69 +1180,151 @@ fn count_breakables(level: &LevelData) -> usize {
     level.walls.iter().filter(|w| w.breakable).count()
 }
 
+fn bounds_from_points(a: (f32, f32), b: (f32, f32)) -> Option<LevelBounds> {
+    let min_x = a.0.min(b.0);
+    let min_y = a.1.min(b.1);
+    let max_x = a.0.max(b.0);
+    let max_y = a.1.max(b.1);
+    let w = max_x - min_x;
+    let h = max_y - min_y;
+    if w < EDGE_STEP || h < EDGE_STEP {
+        return None;
+    }
+    Some(LevelBounds {
+        x: min_x,
+        y: min_y,
+        w,
+        h,
+    })
+}
+
+fn map_bounds_label(bounds: Option<LevelBounds>) -> String {
+    match bounds {
+        Some(b) => format!("({:.2},{:.2}) {:.2}x{:.2}", b.x, b.y, b.w, b.h),
+        None => "none".to_string(),
+    }
+}
+
+fn push_bounds_fill(
+    out: &mut Vec<QuadInstance>,
+    bounds: LevelBounds,
+    fill_color: [f32; 4],
+    border_color: [f32; 4],
+    view_origin: (f32, f32),
+    zoom: f32,
+) {
+    let scale = tiles_to_px(1.0) * zoom;
+    let x = (bounds.x - view_origin.0) * scale;
+    let y = (bounds.y - view_origin.1) * scale;
+    let w = bounds.w * scale;
+    let h = bounds.h * scale;
+    let center_x = x + w * 0.5;
+    let center_y = y + h * 0.5;
+    let border = 1.5;
+
+    out.push(QuadInstance {
+        center: [center_x, center_y],
+        half_size: [w * 0.5, h * 0.5],
+        color: fill_color,
+    });
+
+    out.push(QuadInstance {
+        center: [center_x, y + border * 0.5],
+        half_size: [w * 0.5, border * 0.5],
+        color: border_color,
+    });
+    out.push(QuadInstance {
+        center: [center_x, y + h - border * 0.5],
+        half_size: [w * 0.5, border * 0.5],
+        color: border_color,
+    });
+    out.push(QuadInstance {
+        center: [x + border * 0.5, center_y],
+        half_size: [border * 0.5, h * 0.5],
+        color: border_color,
+    });
+    out.push(QuadInstance {
+        center: [x + w - border * 0.5, center_y],
+        half_size: [border * 0.5, h * 0.5],
+        color: border_color,
+    });
+}
+
 fn append_grid_lines(
     out: &mut Vec<QuadInstance>,
     screen_w: f32,
     screen_h: f32,
     show_subgrid: bool,
+    view_origin: (f32, f32),
+    zoom: f32,
 ) {
     let major_color = [0.85, 0.85, 0.95, GRID_LINE_ALPHA];
     let sub_color = [0.90, 0.90, 1.00, SUBGRID_LINE_ALPHA];
     let half_w = screen_w * 0.5;
     let half_h = screen_h * 0.5;
-    let half_thickness = tiles_to_px(GRID_LINE_THICKNESS) * 0.5;
+    let half_thickness = (tiles_to_px(GRID_LINE_THICKNESS) * zoom).clamp(1.0, 2.5) * 0.5;
     let sub_half_thickness = half_thickness;
-    let grid_step = tiles_to_px(TILE_GRID);
-    let sub_step = grid_step / SUBGRID_DIVISIONS as f32;
+    let px_per_tile = tiles_to_px(1.0) * zoom;
+    let view_w_tiles = px_to_tiles(screen_w) / zoom.max(0.001);
+    let view_h_tiles = px_to_tiles(screen_h) / zoom.max(0.001);
 
-    let mut x = 0.0;
-    while x <= screen_w {
+    let start_col = (view_origin.0 / TILE_GRID).floor() as i32;
+    let end_col = ((view_origin.0 + view_w_tiles) / TILE_GRID).ceil() as i32;
+    for col in start_col..=end_col {
+        let world_x = col as f32 * TILE_GRID;
+        let sx = (world_x - view_origin.0) * px_per_tile;
         out.push(QuadInstance {
-            center: [x, half_h],
+            center: [sx, half_h],
             half_size: [half_thickness, half_h],
             color: major_color,
         });
-        x += grid_step;
     }
 
-    let mut y = 0.0;
-    while y <= screen_h {
+    let start_row = (view_origin.1 / TILE_GRID).floor() as i32;
+    let end_row = ((view_origin.1 + view_h_tiles) / TILE_GRID).ceil() as i32;
+    for row in start_row..=end_row {
+        let world_y = row as f32 * TILE_GRID;
+        let sy = (world_y - view_origin.1) * px_per_tile;
         out.push(QuadInstance {
-            center: [half_w, y],
+            center: [half_w, sy],
             half_size: [half_w, half_thickness],
             color: major_color,
         });
-        y += grid_step;
     }
 
     if show_subgrid {
-        // Draw inner tile subdivisions (excluding major tile edges).
-        let mut sub_x = sub_step;
-        let mut ix: usize = 1;
-        while sub_x <= screen_w {
-            if ix % SUBGRID_DIVISIONS != 0 {
+        let sub_step_world = TILE_GRID / SUBGRID_DIVISIONS as f32;
+        let sub_step_px = sub_step_world * px_per_tile;
+        if sub_step_px >= 4.0 {
+            let start_sub_col = (view_origin.0 / sub_step_world).floor() as i32;
+            let end_sub_col = ((view_origin.0 + view_w_tiles) / sub_step_world).ceil() as i32;
+            for idx in start_sub_col..=end_sub_col {
+                if idx.rem_euclid(SUBGRID_DIVISIONS as i32) == 0 {
+                    continue;
+                }
+                let world_x = idx as f32 * sub_step_world;
+                let sx = (world_x - view_origin.0) * px_per_tile;
                 out.push(QuadInstance {
-                    center: [sub_x, half_h],
+                    center: [sx, half_h],
                     half_size: [sub_half_thickness, half_h],
                     color: sub_color,
                 });
             }
-            sub_x += sub_step;
-            ix += 1;
-        }
 
-        let mut sub_y = sub_step;
-        let mut iy: usize = 1;
-        while sub_y <= screen_h {
-            if iy % SUBGRID_DIVISIONS != 0 {
+            let start_sub_row = (view_origin.1 / sub_step_world).floor() as i32;
+            let end_sub_row = ((view_origin.1 + view_h_tiles) / sub_step_world).ceil() as i32;
+            for idx in start_sub_row..=end_sub_row {
+                if idx.rem_euclid(SUBGRID_DIVISIONS as i32) == 0 {
+                    continue;
+                }
+                let world_y = idx as f32 * sub_step_world;
+                let sy = (world_y - view_origin.1) * px_per_tile;
                 out.push(QuadInstance {
-                    center: [half_w, sub_y],
+                    center: [half_w, sy],
                     half_size: [half_w, sub_half_thickness],
                     color: sub_color,
                 });
             }
-            sub_y += sub_step;
-            iy += 1;
         }
     }
 }
