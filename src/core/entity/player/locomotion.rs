@@ -10,9 +10,10 @@ const SPRINT_BURST_SECS: f32 = 1.2;
 const SPRINT_COOLDOWN_SECS: f32 = 8.0;
 const PEEK_DISTANCE: f32 = px_to_tiles(18.0);
 
+const PEEK_LERP_SPEED: f32 = 12.0; // higher = faster slide to position
+
 pub struct LocomotionState {
     peek_origin: Option<(f32, f32)>,
-    was_peeking: bool,
     sprint_time_left: f32,
     sprint_cooldown_left: f32,
 }
@@ -21,7 +22,6 @@ impl LocomotionState {
     pub fn new() -> Self {
         Self {
             peek_origin: None,
-            was_peeking: false,
             sprint_time_left: SPRINT_BURST_SECS,
             sprint_cooldown_left: 0.0,
         }
@@ -74,30 +74,16 @@ impl LocomotionState {
             0.0
         };
         let has_dir = px != 0.0 || py != 0.0;
+
+        // Latch origin the moment peek is first pressed.
         if input.peek && self.peek_origin.is_none() {
             self.peek_origin = Some((movement.x, movement.y));
         }
-        let is_peeking = input.peek && has_dir;
 
-        if is_peeking {
-            let origin = self.peek_origin.unwrap_or((movement.x, movement.y));
-            let len = (px * px + py * py).sqrt();
-            let dir = (px / len, py / len);
-            let dist = clamped_peek_distance(origin, dir, PEEK_DISTANCE, half_size, walls);
-            movement.x = origin.0 + dir.0 * dist;
-            movement.y = origin.1 + dir.1 * dist;
-            movement.velocity_frac = 0.0;
-            self.was_peeking = true;
-        } else {
-            if self.was_peeking && !has_dir {
-                if let Some(origin) = self.peek_origin {
-                    movement.x = origin.0;
-                    movement.y = origin.1;
-                }
-            }
-            self.was_peeking = false;
-
-            if !input.peek {
+        if let Some(origin) = self.peek_origin {
+            // Peek key released while still holding a direction → exit peek
+            // immediately and resume walking from the current position.
+            if !input.peek && has_dir {
                 self.peek_origin = None;
                 movement.apply(
                     MovementInput {
@@ -108,9 +94,45 @@ impl LocomotionState {
                     },
                     dt,
                 );
-            } else {
-                movement.velocity_frac = 0.0;
+                return;
             }
+
+            // Determine target position.
+            let (target_x, target_y) = if input.peek && has_dir {
+                let len = (px * px + py * py).sqrt();
+                let dir = (px / len, py / len);
+                let dist = clamped_peek_distance(origin, dir, PEEK_DISTANCE, half_size, walls);
+                (origin.0 + dir.0 * dist, origin.1 + dir.1 * dist)
+            } else {
+                origin
+            };
+
+            // Smooth slide with no overshoot.
+            let alpha = (PEEK_LERP_SPEED * dt).min(1.0);
+            movement.x += (target_x - movement.x) * alpha;
+            movement.y += (target_y - movement.y) * alpha;
+            movement.velocity_frac = 0.0;
+
+            // Once fully returned to origin, exit peek mode.
+            if !input.peek {
+                let dx = movement.x - origin.0;
+                let dy = movement.y - origin.1;
+                if dx * dx + dy * dy < 1.0e-6 {
+                    movement.x = origin.0;
+                    movement.y = origin.1;
+                    self.peek_origin = None;
+                }
+            }
+        } else {
+            movement.apply(
+                MovementInput {
+                    up: input.up,
+                    down: input.down,
+                    left: input.left,
+                    right: input.right,
+                },
+                dt,
+            );
         }
     }
 }
