@@ -1,0 +1,11 @@
+{
+  "id": "fast_mag",
+  "category": "Magazine",
+  "name": "Fast Mag",
+  "effects": {
+    "handling": {
+      "reload_time_mult": 0.82,
+      "mag_size_mult": 0.88
+    }
+  }
+}

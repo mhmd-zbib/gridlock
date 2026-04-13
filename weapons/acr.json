@@ -1,6 +1,15 @@
 {
+  "id": "acr",
   "class": "Rifle",
   "name": "ACR",
+  "attachments": {
+    "optic": ["red_dot", "holo_sight"],
+    "barrel": ["suppressor"],
+    "grip": ["vertical_grip", "angled_grip"],
+    "magazine": ["extended_mag", "fast_mag"],
+    "stock": ["light_stock"],
+    "underbarrel": ["laser_pointer"]
+  },
   "visibility_range_px": 350.0,
   "visibility_half_angle_deg": 41.0,
   "aim_cone_render_range_px": 245.0,

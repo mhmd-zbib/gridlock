@@ -1,0 +1,16 @@
+{
+  "id": "laser_pointer",
+  "category": "Underbarrel",
+  "name": "Laser Pointer",
+  "effects": {
+    "accuracy": {
+      "hip_fire_spread_mult": 0.78
+    },
+    "utility": {
+      "ping_visibility_mult": 1.15
+    },
+    "stealth": {
+      "minimap_signature_mult": 1.1
+    }
+  }
+}

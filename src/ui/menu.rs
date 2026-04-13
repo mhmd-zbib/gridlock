@@ -38,12 +38,14 @@ impl Button {
 
 pub enum MenuChoice {
     Play,
+    Loadout,
     Editor,
 }
 
-/// Two large coloured buttons, laid out relative to the window size.
+/// Three large coloured buttons, laid out relative to the window size.
 ///
 /// Green  (top)    → Play
+/// Blue   (middle) → Loadout
 /// Orange (bottom) → Level Editor
 pub struct MainMenu;
 
@@ -51,44 +53,61 @@ impl MainMenu {
     pub fn new() -> Self {
         println!("[menu] MAIN MENU");
         println!("[menu]   green  → PLAY GAME");
+        println!("[menu]   blue   → LOADOUT");
         println!("[menu]   orange → LEVEL EDITOR");
         println!("[menu]   click a button to continue");
         Self
     }
 
-    fn buttons(sw: f32, sh: f32) -> (Button, Button) {
+    fn buttons(sw: f32, sh: f32) -> [Button; 3] {
         let bw = sw * 0.40;
-        let bh = sh * 0.12;
+        let bh = sh * 0.10;
         let cx = sw * 0.5 - bw * 0.5;
+        let gap = sh * 0.05;
         let play = Button {
             x: cx,
-            y: sh * 0.35,
+            y: sh * 0.28,
             w: bw,
             h: bh,
             color: [0.12, 0.50, 0.12, 1.0],
             color_hover: [0.18, 0.80, 0.18, 1.0],
         };
+        let loadout = Button {
+            x: cx,
+            y: play.y + bh + gap,
+            w: bw,
+            h: bh,
+            color: [0.08, 0.28, 0.60, 1.0],
+            color_hover: [0.14, 0.44, 0.92, 1.0],
+        };
         let editor = Button {
             x: cx,
-            y: sh * 0.55,
+            y: loadout.y + bh + gap,
             w: bw,
             h: bh,
             color: [0.55, 0.30, 0.05, 1.0],
             color_hover: [0.85, 0.50, 0.10, 1.0],
         };
-        (play, editor)
+        [play, loadout, editor]
     }
 
     pub fn instances(&self, sw: f32, sh: f32, mx: f32, my: f32) -> Vec<QuadInstance> {
-        let (play, editor) = Self::buttons(sw, sh);
-        vec![play.instance(mx, my), editor.instance(mx, my)]
+        let [play, loadout, editor] = Self::buttons(sw, sh);
+        vec![
+            play.instance(mx, my),
+            loadout.instance(mx, my),
+            editor.instance(mx, my),
+        ]
     }
 
     /// Returns the chosen action if the click lands on a button.
     pub fn click(&self, sw: f32, sh: f32, mx: f32, my: f32) -> Option<MenuChoice> {
-        let (play, editor) = Self::buttons(sw, sh);
+        let [play, loadout, editor] = Self::buttons(sw, sh);
         if play.contains(mx, my) {
             return Some(MenuChoice::Play);
+        }
+        if loadout.contains(mx, my) {
+            return Some(MenuChoice::Loadout);
         }
         if editor.contains(mx, my) {
             return Some(MenuChoice::Editor);

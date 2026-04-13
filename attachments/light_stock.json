@@ -1,0 +1,16 @@
+{
+  "id": "light_stock",
+  "category": "Stock",
+  "name": "Light Stock",
+  "effects": {
+    "handling": {
+      "ads_time_mult": 0.88
+    },
+    "recoil": {
+      "vertical_recoil_mult": 1.12
+    },
+    "mobility": {
+      "ads_move_speed_mult": 1.08
+    }
+  }
+}

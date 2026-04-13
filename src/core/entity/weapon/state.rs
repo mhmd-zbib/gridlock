@@ -23,10 +23,6 @@ impl WeaponState {
         self.id.stats()
     }
 
-    pub fn id(&self) -> WeaponId {
-        self.id
-    }
-
     pub fn ammo_in_mag(&self) -> u32 {
         self.rounds_in_mag
     }
@@ -36,33 +32,50 @@ impl WeaponState {
     }
 
     pub fn tick(&mut self, dt: f32) {
+        self.tick_with_stats(self.stats(), dt);
+    }
+
+    pub fn tick_with_stats(&mut self, stats: WeaponStats, dt: f32) {
         self.shot_cooldown_left = (self.shot_cooldown_left - dt).max(0.0);
 
         if self.reload_left > 0.0 {
             self.reload_left = (self.reload_left - dt).max(0.0);
             if self.reload_left <= 0.0 {
-                self.rounds_in_mag = self.stats().mag_size;
+                self.rounds_in_mag = stats.mag_size;
             }
         }
+        self.rounds_in_mag = self.rounds_in_mag.min(stats.mag_size);
     }
 
     pub fn try_start_reload(&mut self) -> bool {
-        if self.is_reloading() || self.rounds_in_mag == self.stats().mag_size {
+        self.try_start_reload_with_stats(self.stats())
+    }
+
+    pub fn try_start_reload_with_stats(&mut self, stats: WeaponStats) -> bool {
+        if self.is_reloading() || self.rounds_in_mag == stats.mag_size {
             return false;
         }
-        self.reload_left = self.stats().reload_time_secs;
+        self.reload_left = stats.reload_time_secs;
         true
     }
 
     pub fn try_fire(&mut self) -> bool {
+        self.try_fire_with_stats(self.stats())
+    }
+
+    pub fn try_fire_with_stats(&mut self, stats: WeaponStats) -> bool {
         if self.is_reloading() || self.shot_cooldown_left > 0.0 || self.rounds_in_mag == 0 {
             return false;
         }
 
-        let fire_rate = self.stats().fire_rate_rps.max(0.01);
+        let fire_rate = stats.fire_rate_rps.max(0.01);
         self.rounds_in_mag -= 1;
         self.shot_cooldown_left = 1.0 / fire_rate;
         true
+    }
+
+    pub fn clamp_mag_size(&mut self, mag_size: u32) {
+        self.rounds_in_mag = self.rounds_in_mag.min(mag_size.max(1));
     }
 }
 

@@ -19,7 +19,7 @@ pub enum Tool {
     Wall,        // key 3 — brown, 2-point thin wall
     TargetDummy, // key 4 — yellow
     Breakable,   // key 5 — cyan, 2-point thin breakable wall
-    Prop,        // key 6 — asset-backed prop
+    Prop,        // key 6 — id-backed prop
 }
 
 // ---------------------------------------------------------------------------
@@ -339,18 +339,18 @@ impl Editor {
             }
             Tool::Prop => {
                 let Some(asset) = self.selected_prop_definition() else {
-                    println!("[editor] no prop assets found in assets/props/*.json");
+                    println!("[editor] no prop ids found in assets/props/*.json");
                     return;
                 };
-                let asset_id = asset.asset.clone();
+                let prop_id = asset.id.clone();
                 self.level.props.push(LevelProp {
                     x,
                     y,
-                    asset: asset_id.clone(),
+                    id: prop_id.clone(),
                 });
                 println!(
                     "[editor] prop '{}' ({x:.2}, {y:.2})  total={}",
-                    asset_id,
+                    prop_id,
                     self.level.props.len()
                 );
             }
@@ -383,7 +383,7 @@ impl Editor {
             let removed = self.level.props.remove(idx);
             println!(
                 "[editor] prop '{}' removed  remaining={}",
-                removed.asset,
+                removed.id,
                 self.level.props.len()
             );
             return;
@@ -481,7 +481,7 @@ impl Editor {
 
         // Props
         for prop in &self.level.props {
-            let (half_w, half_h, is_collider) = match self.find_prop_asset(&prop.asset) {
+            let (half_w, half_h, is_collider) = match self.find_prop_asset(&prop.id) {
                 Some(asset) => (
                     tiles_to_px(asset.width * 0.5),
                     tiles_to_px(asset.height * 0.5),
@@ -492,7 +492,7 @@ impl Editor {
             out.push(QuadInstance {
                 center: [tiles_to_px(prop.x), tiles_to_px(prop.y)],
                 half_size: [half_w, half_h],
-                color: prop::asset_color(&prop.asset, is_collider, 1.0),
+                color: prop::asset_color(&prop.id, is_collider, 1.0),
             });
         }
 
@@ -588,7 +588,7 @@ impl Editor {
                             tiles_to_px(asset.width * 0.5),
                             tiles_to_px(asset.height * 0.5),
                         ],
-                        color: prop::asset_color(&asset.asset, asset.is_collider, 0.45),
+                        color: prop::asset_color(&asset.id, asset.is_collider, 0.45),
                     });
                 } else {
                     out.push(QuadInstance {
@@ -611,15 +611,13 @@ impl Editor {
         self.prop_assets.get(self.selected_prop_asset)
     }
 
-    fn find_prop_asset(&self, asset_id: &str) -> Option<&PropAssetDef> {
-        self.prop_assets
-            .iter()
-            .find(|asset| asset.asset == asset_id)
+    fn find_prop_asset(&self, id: &str) -> Option<&PropAssetDef> {
+        self.prop_assets.iter().find(|asset| asset.id == id)
     }
 
     fn cycle_prop_asset(&mut self, dir: i32) {
         if self.prop_assets.is_empty() {
-            println!("[editor] no prop assets found in assets/props/*.json");
+            println!("[editor] no prop ids found in assets/props/*.json");
             return;
         }
         let len = self.prop_assets.len() as i32;
@@ -631,8 +629,8 @@ impl Editor {
     fn announce_selected_prop_asset(&self) {
         if let Some(asset) = self.selected_prop_definition() {
             println!(
-                "[editor] prop asset → '{}'  ({}/{})  size={:.2}x{:.2}  collider={}",
-                asset.asset,
+                "[editor] prop id → '{}'  ({}/{})  size={:.2}x{:.2}  collider={}",
+                asset.id,
                 self.selected_prop_asset + 1,
                 self.prop_assets.len(),
                 asset.width,
@@ -640,7 +638,7 @@ impl Editor {
                 if asset.is_collider { "yes" } else { "no" }
             );
         } else {
-            println!("[editor] no prop assets found in assets/props/*.json");
+            println!("[editor] no prop ids found in assets/props/*.json");
         }
     }
 

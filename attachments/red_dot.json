@@ -1,0 +1,13 @@
+{
+  "id": "red_dot",
+  "category": "Optic",
+  "name": "Red Dot",
+  "effects": {
+    "accuracy": {
+      "first_shot_spread_mult": 0.9
+    },
+    "handling": {
+      "ads_time_mult": 1.04
+    }
+  }
+}

@@ -21,7 +21,7 @@ pub struct InputState {
     pub reload: bool,
     pub escape: bool,
     pub enter: bool,
-    pub key_b: bool, // open/cancel buy menu
+    pub key_b: bool, // reserved
 
     // Editor
     pub f1: bool,    // toggle editor mode
@@ -31,10 +31,10 @@ pub struct InputState {
     pub key_2: bool, // tool: enemy
     pub key_3: bool, // tool: wall
     pub key_4: bool, // tool: target dummy
-    pub key_5: bool, // buy menu choice / editor tool: breakable wall
+    pub key_5: bool, // editor tool: breakable wall
     pub key_6: bool, // editor tool: prop
-    pub key_q: bool, // editor: previous prop asset
-    pub key_e: bool, // editor: next prop asset
+    pub key_q: bool, // editor: previous prop id
+    pub key_e: bool, // editor: next prop id
     pub key_g: bool, // toggle grid snap
     pub key_h: bool, // toggle inner grid visibility
     pub key_l: bool, // load level

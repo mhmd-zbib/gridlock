@@ -1,6 +1,8 @@
 use super::entity::bullet::Bullet;
 use super::entity::enemy::Enemy;
-use super::entity::player::Player;
+use super::entity::player::{Player, PlayerLoadoutConfig};
+use super::entity::weapon::attachment::AttachmentCategory;
+use super::entity::weapon::{weapon_supports_attachment, weapon_supports_attachment_category};
 use super::spawn::SpawnQueue;
 use super::systems::{projectile, spawn, visibility};
 use super::world::level::LevelData;
@@ -43,12 +45,16 @@ pub struct Game {
     pub props: Vec<ResolvedProp>,
     pub rooms: LevelRooms,
     spawn_queue: SpawnQueue,
+    player_loadout: PlayerLoadoutConfig,
 }
 
 impl Game {
     pub fn new() -> Self {
+        let player_loadout = PlayerLoadoutConfig::default();
+        let mut player = Player::new(px_to_tiles(400.0), px_to_tiles(300.0));
+        player.apply_loadout(&player_loadout);
         Self {
-            player: Player::new(px_to_tiles(400.0), px_to_tiles(300.0)),
+            player,
             enemies: vec![
                 Enemy::new(px_to_tiles(100.0), px_to_tiles(100.0)),
                 Enemy::new(px_to_tiles(700.0), px_to_tiles(500.0)),
@@ -59,7 +65,19 @@ impl Game {
             props: Vec::new(),
             rooms: LevelRooms::default(),
             spawn_queue: SpawnQueue::default(),
+            player_loadout,
         }
+    }
+
+    pub fn set_player_loadout(&mut self, loadout: PlayerLoadoutConfig) {
+        let mut sanitized = loadout;
+        sanitize_loadout_for_weapon(&mut sanitized);
+        self.player_loadout = sanitized;
+        self.player.apply_loadout(&self.player_loadout);
+    }
+
+    pub fn player_loadout(&self) -> PlayerLoadoutConfig {
+        self.player_loadout.clone()
     }
 
     pub fn load_level(&mut self, level: &LevelData, level_width: f32, level_height: f32) {
@@ -67,6 +85,8 @@ impl Game {
             Some(sp) => Player::new(sp.x, sp.y),
             None => Player::new(px_to_tiles(400.0), px_to_tiles(300.0)),
         };
+        sanitize_loadout_for_weapon(&mut self.player_loadout);
+        self.player.apply_loadout(&self.player_loadout);
         self.enemies = level
             .enemies
             .iter()
@@ -161,5 +181,19 @@ impl Game {
         self.impacts.retain(|impact| impact.ttl > 0.0);
 
         spawn::flush_spawn_queue(&mut self.spawn_queue, &mut self.bullets, &mut self.enemies);
+    }
+}
+
+fn sanitize_loadout_for_weapon(loadout: &mut PlayerLoadoutConfig) {
+    for category in AttachmentCategory::all() {
+        if weapon_supports_attachment_category(loadout.weapon, *category) {
+            if let Some(attachment) = loadout.attachments.get(*category)
+                && !weapon_supports_attachment(loadout.weapon, attachment)
+            {
+                loadout.attachments.unequip(*category);
+            }
+        } else {
+            loadout.attachments.unequip(*category);
+        }
     }
 }

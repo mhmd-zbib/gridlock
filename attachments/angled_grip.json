@@ -1,0 +1,14 @@
+{
+  "id": "angled_grip",
+  "category": "Grip",
+  "name": "Angled Grip",
+  "effects": {
+    "recoil": {
+      "horizontal_recoil_mult": 0.8,
+      "vertical_recoil_mult": 1.06
+    },
+    "accuracy": {
+      "first_shot_spread_mult": 0.92
+    }
+  }
+}

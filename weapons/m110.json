@@ -1,6 +1,13 @@
 {
+  "id": "m110",
   "class": "Sniper",
   "name": "M110",
+  "attachments": {
+    "optic": ["red_dot", "holo_sight"],
+    "barrel": ["suppressor"],
+    "magazine": ["extended_mag", "fast_mag"],
+    "stock": ["light_stock"]
+  },
   "visibility_range_px": 560.0,
   "visibility_half_angle_deg": 27.0,
   "aim_cone_render_range_px": 390.0,

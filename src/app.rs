@@ -6,6 +6,7 @@ use winit::event_loop::ActiveEventLoop;
 use winit::window::{Window, WindowId};
 
 use crate::core::entity::enemy::EnemyKind;
+use crate::core::entity::weapon::attachment::AttachmentCategory;
 use crate::core::game::Game;
 use crate::core::world::level::LevelData;
 use crate::core::world::prop;
@@ -19,6 +20,7 @@ use crate::render::text::TextSection;
 use crate::timing::GameLoop;
 use crate::ui::editor::{Editor, Tool};
 use crate::ui::level_select::LevelSelect;
+use crate::ui::loadout::LoadoutMenu;
 use crate::ui::menu::{MainMenu, MenuChoice};
 
 macro_rules! ts {
@@ -39,6 +41,7 @@ macro_rules! ts {
 
 enum AppState {
     MainMenu(MainMenu),
+    Loadout(LoadoutMenu),
     LevelSelect(LevelSelect),
     Playing,
     Editing,
@@ -182,11 +185,25 @@ impl App {
                             sel.refresh();
                             return Some(AppState::LevelSelect(sel));
                         }
+                        MenuChoice::Loadout => {
+                            return Some(AppState::Loadout(LoadoutMenu::new(
+                                &self.game.player_loadout(),
+                            )));
+                        }
                         MenuChoice::Editor => {
                             self.editor.refresh_prop_assets();
                             return Some(AppState::Editing);
                         }
                     }
+                }
+                None
+            }
+
+            AppState::Loadout(menu) => {
+                menu.update(input);
+                self.game.set_player_loadout(menu.selected_config());
+                if esc || enter {
+                    return Some(AppState::MainMenu(MainMenu::new()));
                 }
                 None
             }
@@ -262,6 +279,7 @@ impl App {
     fn build_quads(&self, sw: f32, sh: f32, mx: f32, my: f32) -> Vec<QuadInstance> {
         match &self.app_state {
             AppState::MainMenu(menu) => menu.instances(sw, sh, mx, my),
+            AppState::Loadout(loadout) => loadout.instances(sw, sh),
             AppState::LevelSelect(sel) => sel.instances(sw, sh),
             AppState::Playing => play_quads(&self.game, self.debug_mode),
             AppState::Editing => self.editor.instances(sw, sh, mx, my),
@@ -275,6 +293,7 @@ impl App {
     fn build_texts(&self, sw: f32, sh: f32, _mx: f32, _my: f32) -> Vec<TextSection> {
         match &self.app_state {
             AppState::MainMenu(_) => main_menu_texts(sw, sh),
+            AppState::Loadout(loadout) => loadout_texts(sw, sh, loadout),
             AppState::LevelSelect(sel) => level_select_texts(sw, sh, sel),
             AppState::Playing => play_texts(sw, sh, &self.game, self.debug_mode),
             AppState::Editing => editor_texts(sw, sh, &self.editor),
@@ -288,6 +307,10 @@ impl App {
 
 fn main_menu_texts(sw: f32, sh: f32) -> Vec<TextSection> {
     let cx = sw * 0.5;
+    let bh = sh * 0.10;
+    let y_play = sh * 0.28 + bh * 0.26;
+    let y_loadout = sh * 0.43 + bh * 0.26;
+    let y_editor = sh * 0.58 + bh * 0.26;
     vec![
         ts!(
             cx - 160.0,
@@ -296,21 +319,84 @@ fn main_menu_texts(sw: f32, sh: f32) -> Vec<TextSection> {
             48.0,
             [1.0, 1.0, 1.0, 1.0]
         ),
-        ts!(
-            cx - 68.0,
-            sh * 0.35 + sh * 0.12 * 0.28,
-            "PLAY GAME",
-            28.0,
-            [0.0, 0.0, 0.0, 1.0]
-        ),
+        ts!(cx - 68.0, y_play, "PLAY GAME", 28.0, [0.0, 0.0, 0.0, 1.0]),
+        ts!(cx - 62.0, y_loadout, "LOADOUT", 28.0, [0.0, 0.0, 0.0, 1.0]),
         ts!(
             cx - 92.0,
-            sh * 0.55 + sh * 0.12 * 0.28,
+            y_editor,
             "LEVEL EDITOR",
             28.0,
             [0.0, 0.0, 0.0, 1.0]
         ),
     ]
+}
+
+fn loadout_texts(sw: f32, sh: f32, loadout: &LoadoutMenu) -> Vec<TextSection> {
+    let mut out = vec![
+        ts!(
+            sw * 0.5 - 145.0,
+            sh * 0.10,
+            "LOADOUT BUILDER",
+            42.0,
+            [1.0, 1.0, 1.0, 1.0]
+        ),
+        ts!(
+            sw * 0.5 - 220.0,
+            sh * 0.88,
+            "Up/Down: row   Left/Right: option   Enter/Esc: back",
+            15.0,
+            [0.55, 0.55, 0.55, 1.0]
+        ),
+    ];
+
+    let bw = sw * 0.64;
+    let bh = (sh * 0.55 / 7.0).min(48.0);
+    let gap = 8.0;
+    let start_y = sh * 0.24;
+    let text_x = sw * 0.5 - bw * 0.5 + 16.0;
+
+    let weapon_line = format!(
+        "Weapon: {} ({})",
+        loadout.selected_weapon_name(),
+        loadout.selected_weapon_class_label()
+    );
+    out.push(ts!(
+        text_x,
+        start_y + (bh - 18.0) * 0.5,
+        weapon_line,
+        20.0,
+        if loadout.selected_row() == 0 {
+            [0.05, 0.05, 0.05, 1.0]
+        } else {
+            [0.82, 0.82, 0.82, 1.0]
+        }
+    ));
+
+    for (idx, category) in AttachmentCategory::all().iter().enumerate() {
+        let row = idx + 1;
+        let row_y = start_y + row as f32 * (bh + gap);
+        let supported = loadout.selected_weapon_supports(*category);
+        let line = format!(
+            "{}: {}",
+            category.label(),
+            loadout.selected_attachment_name(*category)
+        );
+        out.push(ts!(
+            text_x,
+            row_y + (bh - 18.0) * 0.5,
+            line,
+            20.0,
+            if !supported {
+                [0.45, 0.18, 0.18, 1.0]
+            } else if loadout.selected_row() == row {
+                [0.05, 0.05, 0.05, 1.0]
+            } else {
+                [0.82, 0.82, 0.82, 1.0]
+            }
+        ));
+    }
+
+    out
 }
 
 fn level_select_texts(sw: f32, sh: f32, sel: &LevelSelect) -> Vec<TextSection> {
@@ -336,12 +422,8 @@ fn level_select_texts(sw: f32, sh: f32, sel: &LevelSelect) -> Vec<TextSection> {
     let start_y = sh * 0.20;
     let lx = sw * 0.5 - sw * 0.55 * 0.5 + 8.0;
 
-    for (i, path) in sel.levels.iter().enumerate() {
-        let name = path
-            .file_stem()
-            .and_then(|s| s.to_str())
-            .unwrap_or("?")
-            .to_string();
+    for (i, level) in sel.levels.iter().enumerate() {
+        let name = level.id.clone();
         let row_y = start_y + i as f32 * (bh + gap);
         let ty = row_y + (bh - 18.0) * 0.5;
         let color = if i == sel.selected {
@@ -362,6 +444,17 @@ fn level_select_texts(sw: f32, sh: f32, sel: &LevelSelect) -> Vec<TextSection> {
 
 fn play_texts(sw: f32, sh: f32, game: &Game, debug: bool) -> Vec<TextSection> {
     let _ = sh;
+    let attachments_line = AttachmentCategory::all()
+        .iter()
+        .map(|category| {
+            format!(
+                "{}={}",
+                category.label(),
+                game.player.attachment_name_for(*category).unwrap_or("-")
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("  ");
     let mut out = vec![
         ts!(
             8.0,
@@ -374,7 +467,7 @@ fn play_texts(sw: f32, sh: f32, game: &Game, debug: bool) -> Vec<TextSection> {
             8.0,
             22.0,
             format!(
-                "{} ({})  ammo: {}/{}{}   R: reload   B: buy (1..3 class, 1..3 pick, 4/5 page)",
+                "{} ({})  ammo: {}/{}{}   R: reload",
                 game.player.weapon_name(),
                 game.player.weapon_class_label(),
                 game.player.ammo_in_mag(),
@@ -388,6 +481,7 @@ fn play_texts(sw: f32, sh: f32, game: &Game, debug: bool) -> Vec<TextSection> {
             13.0,
             [0.5, 0.5, 0.5, 1.0]
         ),
+        ts!(8.0, 38.0, attachments_line, 13.0, [0.45, 0.45, 0.45, 1.0]),
         ts!(
             sw - 170.0,
             6.0,
@@ -396,10 +490,6 @@ fn play_texts(sw: f32, sh: f32, game: &Game, debug: bool) -> Vec<TextSection> {
             [0.35, 0.35, 0.35, 1.0]
         ),
     ];
-
-    if let Some(prompt) = game.player.weapon_buy_prompt() {
-        out.push(ts!(8.0, 38.0, prompt, 13.0, [0.92, 0.85, 0.35, 1.0]));
-    }
 
     if !debug {
         return out;
@@ -531,18 +621,18 @@ fn editor_texts(sw: f32, sh: f32, editor: &Editor) -> Vec<TextSection> {
     };
     let prop_info = match editor.selected_prop_asset() {
         Some(asset) => format!(
-            "Prop Asset: {} ({}/{})  {:.2}x{:.2}  collider:{}",
-            asset.asset,
+            "Prop Id: {} ({}/{})  {:.2}x{:.2}  collider:{}",
+            asset.id,
             editor.selected_prop_asset_index() + 1,
             editor.prop_assets().len(),
             asset.width,
             asset.height,
             if asset.is_collider { "yes" } else { "no" }
         ),
-        None => "Prop Asset: (none found in assets/props/*.json)".to_string(),
+        None => "Prop Id: (none found in assets/props/*.json)".to_string(),
     };
     let assets_line = if editor.prop_assets().is_empty() {
-        "Assets: (none)".to_string()
+        "Prop Ids: (none)".to_string()
     } else {
         let mut labels: Vec<String> = editor
             .prop_assets()
@@ -551,16 +641,16 @@ fn editor_texts(sw: f32, sh: f32, editor: &Editor) -> Vec<TextSection> {
             .take(6)
             .map(|(idx, asset)| {
                 if idx == editor.selected_prop_asset_index() {
-                    format!("[{}]", asset.asset)
+                    format!("[{}]", asset.id)
                 } else {
-                    asset.asset.clone()
+                    asset.id.clone()
                 }
             })
             .collect();
         if editor.prop_assets().len() > 6 {
             labels.push(format!("+{}", editor.prop_assets().len() - 6));
         }
-        format!("Assets: {}", labels.join("  "))
+        format!("Prop Ids: {}", labels.join("  "))
     };
     let grid = format!(
         "Snap: {}  Inner Grid: {}",
@@ -586,7 +676,7 @@ fn editor_texts(sw: f32, sh: f32, editor: &Editor) -> Vec<TextSection> {
         ts!(
             6.0,
             sh - 38.0,
-            "1: Spawn   2: Enemy   3: Wall   4: Target   5: Breakable   6: Prop   Q/E: Asset",
+            "1: Spawn   2: Enemy   3: Wall   4: Target   5: Breakable   6: Prop   Q/E: Prop Id",
             13.0,
             [0.55, 0.55, 0.55, 1.0]
         ),
@@ -638,7 +728,7 @@ fn play_quads(game: &Game, debug: bool) -> Vec<QuadInstance> {
                 tiles_to_px(prop_instance.width * 0.5),
                 tiles_to_px(prop_instance.height * 0.5),
             ],
-            color: prop::asset_color(&prop_instance.asset, prop_instance.is_collider, 1.0),
+            color: prop::asset_color(&prop_instance.id, prop_instance.is_collider, 1.0),
         });
     }
     let player = world_pos_to_screen((game.player.movement.x, game.player.movement.y));

@@ -1,0 +1,13 @@
+{
+  "id": "vertical_grip",
+  "category": "Grip",
+  "name": "Vertical Grip",
+  "effects": {
+    "recoil": {
+      "vertical_recoil_mult": 0.82
+    },
+    "mobility": {
+      "ads_move_speed_mult": 0.95
+    }
+  }
+}

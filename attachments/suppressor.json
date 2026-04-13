@@ -1,0 +1,16 @@
+{
+  "id": "suppressor",
+  "category": "Barrel",
+  "name": "Suppressor",
+  "effects": {
+    "stealth": {
+      "shot_sound_radius_mult": 0.65,
+      "minimap_signature_mult": 0.0,
+      "muzzle_flash_mult": 0.85
+    },
+    "power": {
+      "damage_falloff_range_mult": 0.9,
+      "bullet_velocity_mult": 0.95
+    }
+  }
+}

@@ -1,6 +1,14 @@
 {
+  "id": "bizon",
   "class": "Smg",
   "name": "Bizon",
+  "attachments": {
+    "optic": ["red_dot", "holo_sight"],
+    "barrel": ["suppressor"],
+    "magazine": ["extended_mag", "fast_mag"],
+    "stock": ["light_stock"],
+    "underbarrel": ["laser_pointer"]
+  },
   "visibility_range_px": 245.0,
   "visibility_half_angle_deg": 43.0,
   "aim_cone_render_range_px": 140.0,

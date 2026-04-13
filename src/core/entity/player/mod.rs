@@ -3,6 +3,8 @@ mod locomotion;
 
 use super::bullet::BulletOwner;
 use crate::core::entity::movement::Movement;
+use crate::core::entity::weapon::attachment::{AttachmentCategory, AttachmentLoadout};
+use crate::core::entity::weapon::{WeaponId, all_weapon_ids};
 use crate::core::spawn::{SpawnQueue, SpawnRequest};
 use crate::core::world::aim_cone::AimCone;
 use crate::core::world::sight::Sight;
@@ -19,6 +21,25 @@ pub struct Player {
     pub aim_cone: AimCone,
     locomotion: LocomotionState,
     loadout: WeaponLoadout,
+}
+
+#[derive(Clone)]
+pub struct PlayerLoadoutConfig {
+    pub weapon: WeaponId,
+    pub attachments: AttachmentLoadout,
+}
+
+impl Default for PlayerLoadoutConfig {
+    fn default() -> Self {
+        let all = all_weapon_ids();
+        let Some(first_weapon) = all.first().copied() else {
+            panic!("weapon catalog is empty");
+        };
+        Self {
+            weapon: first_weapon,
+            attachments: AttachmentLoadout::default(),
+        }
+    }
 }
 
 impl Player {
@@ -52,8 +73,13 @@ impl Player {
         self.loadout.is_reloading()
     }
 
-    pub fn weapon_buy_prompt(&self) -> Option<String> {
-        self.loadout.buy_prompt()
+    pub fn attachment_name_for(&self, category: AttachmentCategory) -> Option<&'static str> {
+        self.loadout.attachment_name_for(category)
+    }
+
+    pub fn apply_loadout(&mut self, config: &PlayerLoadoutConfig) {
+        self.loadout.set_weapon(config.weapon);
+        self.loadout.set_attachments(config.attachments.clone());
     }
 
     pub fn update(
@@ -76,7 +102,6 @@ impl Player {
         self.aim_cone.direction = self.sight.direction;
 
         self.loadout.tick(dt);
-        self.loadout.update_selection(input);
         self.loadout.update_reload_input(input.reload);
         self.loadout.auto_reload_if_dry_trigger(input.shoot);
 

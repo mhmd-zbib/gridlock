@@ -1,6 +1,13 @@
 {
+  "id": "mk14",
   "class": "Sniper",
   "name": "MK14",
+  "attachments": {
+    "optic": ["red_dot", "holo_sight"],
+    "barrel": ["suppressor"],
+    "magazine": ["extended_mag", "fast_mag"],
+    "stock": ["light_stock"]
+  },
   "visibility_range_px": 500.0,
   "visibility_half_angle_deg": 30.0,
   "aim_cone_render_range_px": 360.0,

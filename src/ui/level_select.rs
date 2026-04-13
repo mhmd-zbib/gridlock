@@ -1,9 +1,15 @@
 use std::path::PathBuf;
 
+use crate::core::world::level::LevelData;
 use crate::render::quad::QuadInstance;
 
+pub struct LevelEntry {
+    pub path: PathBuf,
+    pub id: String,
+}
+
 pub struct LevelSelect {
-    pub levels: Vec<PathBuf>,
+    pub levels: Vec<LevelEntry>,
     pub selected: usize,
 
     // Edge-detection for keyboard navigation.
@@ -41,17 +47,19 @@ impl LevelSelect {
                 self.selected -= 1;
             }
             println!(
-                "[select] ↑  [{}] {}",
+                "[select] ↑  [{}] {} ({})",
                 self.selected,
-                self.levels[self.selected].display()
+                self.levels[self.selected].id,
+                self.levels[self.selected].path.display()
             );
         }
         if down && !self.prev_down && !self.levels.is_empty() {
             self.selected = (self.selected + 1) % self.levels.len();
             println!(
-                "[select] ↓  [{}] {}",
+                "[select] ↓  [{}] {} ({})",
                 self.selected,
-                self.levels[self.selected].display()
+                self.levels[self.selected].id,
+                self.levels[self.selected].path.display()
             );
         }
         self.prev_up = up;
@@ -59,7 +67,7 @@ impl LevelSelect {
     }
 
     pub fn selected_path(&self) -> Option<&str> {
-        self.levels.get(self.selected)?.to_str()
+        self.levels.get(self.selected)?.path.to_str()
     }
 
     /// Stacked row of level rectangles.
@@ -116,12 +124,12 @@ impl LevelSelect {
         }
         for (i, p) in self.levels.iter().enumerate() {
             let mark = if i == self.selected { "→" } else { " " };
-            println!("[select]   {mark} [{}] {}", i, p.display());
+            println!("[select]   {mark} [{}] {} ({})", i, p.id, p.path.display());
         }
     }
 }
 
-fn scan() -> Vec<PathBuf> {
+fn scan() -> Vec<LevelEntry> {
     let Ok(dir) = std::fs::read_dir("levels") else {
         return Vec::new();
     };
@@ -131,5 +139,16 @@ fn scan() -> Vec<PathBuf> {
         .filter(|p| p.extension().and_then(|s| s.to_str()) == Some("json"))
         .collect();
     paths.sort();
-    paths
+
+    let mut levels = Vec::new();
+    for path in paths {
+        let Some(path_str) = path.to_str() else {
+            continue;
+        };
+        match LevelData::load(path_str) {
+            Ok(level) => levels.push(LevelEntry { path, id: level.id }),
+            Err(e) => println!("[select] skipping '{}' ({e})", path.display()),
+        }
+    }
+    levels
 }

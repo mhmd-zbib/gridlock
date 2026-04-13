@@ -15,7 +15,7 @@ pub struct Pos {
 /// Example file:
 /// ```json
 /// {
-///   "name": "level_01",
+///   "id": "level_01",
 ///   "player_spawn": { "x": 6.25, "y": 4.6875 },
 ///   "enemies": [
 ///     { "x": 1.5625, "y": 1.5625 },
@@ -25,13 +25,13 @@ pub struct Pos {
 ///     { "x": 7.8125, "y": 4.6875 }
 ///   ],
 ///   "props": [
-///     { "x": 5.0, "y": 4.0, "asset": "crate_01" }
+///     { "x": 5.0, "y": 4.0, "id": "crate_01" }
 ///   ]
 /// }
 /// ```
-#[derive(Serialize, Deserialize, Clone, Default)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct LevelData {
-    pub name: String,
+    pub id: String,
     /// `None` means no spawn defined yet (editor hasn't placed one).
     pub player_spawn: Option<Pos>,
     #[serde(default)]
@@ -44,17 +44,67 @@ pub struct LevelData {
     pub props: Vec<LevelProp>,
 }
 
+impl Default for LevelData {
+    fn default() -> Self {
+        Self {
+            id: "level_2".to_string(),
+            player_spawn: None,
+            enemies: Vec::new(),
+            target_enemies: Vec::new(),
+            walls: Vec::new(),
+            props: Vec::new(),
+        }
+    }
+}
+
 impl LevelData {
     pub fn load(path: &str) -> Result<Self, Box<dyn std::error::Error>> {
         let text = std::fs::read_to_string(path)?;
-        Ok(serde_json::from_str(&text)?)
+        let data: Self = serde_json::from_str(&text)?;
+        validate_level_data(&data)?;
+        Ok(data)
     }
 
     pub fn save(&self, path: &str) -> Result<(), Box<dyn std::error::Error>> {
+        validate_level_data(self)?;
         if let Some(dir) = std::path::Path::new(path).parent() {
             std::fs::create_dir_all(dir)?;
         }
         std::fs::write(path, serde_json::to_string_pretty(self)?)?;
         Ok(())
     }
+}
+
+fn validate_level_data(level: &LevelData) -> Result<(), Box<dyn std::error::Error>> {
+    if !is_snake_case_id(&level.id) {
+        let err = std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            format!("level id '{}' must be snake_case", level.id),
+        );
+        return Err(Box::new(err));
+    }
+    for prop in &level.props {
+        if !is_snake_case_id(&prop.id) {
+            let err = std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                format!("level prop id '{}' must be snake_case", prop.id),
+            );
+            return Err(Box::new(err));
+        }
+    }
+    Ok(())
+}
+
+fn is_snake_case_id(id: &str) -> bool {
+    if id.is_empty() {
+        return false;
+    }
+    let mut chars = id.chars();
+    let Some(first) = chars.next() else {
+        return false;
+    };
+    if !first.is_ascii_lowercase() {
+        return false;
+    }
+    chars.all(|ch| ch.is_ascii_lowercase() || ch.is_ascii_digit() || ch == '_')
 }

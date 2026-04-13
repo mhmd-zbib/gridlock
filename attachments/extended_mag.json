@@ -1,0 +1,11 @@
+{
+  "id": "extended_mag",
+  "category": "Magazine",
+  "name": "Extended Mag",
+  "effects": {
+    "handling": {
+      "mag_size_mult": 1.2,
+      "reload_time_mult": 1.12
+    }
+  }
+}

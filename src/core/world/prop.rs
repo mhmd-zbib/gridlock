@@ -4,20 +4,22 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 /// A prop placement stored inside level JSON.
-/// `asset` must match one entry from `assets/props/*.json`.
+/// `id` must match one entry from `assets/props/*.json`.
 #[derive(Serialize, Deserialize, Clone, Default)]
 pub struct LevelProp {
     pub x: f32,
     pub y: f32,
-    pub asset: String,
+    #[serde(alias = "asset")]
+    pub id: String,
 }
 
 /// One placeable prop definition loaded from an asset JSON file.
 #[derive(Serialize, Deserialize, Clone)]
 pub struct PropAssetDef {
+    #[serde(alias = "asset")]
+    pub id: String,
     pub width: f32,
     pub height: f32,
-    pub asset: String,
     #[serde(default, alias = "is collider", alias = "isCollider")]
     pub is_collider: bool,
 }
@@ -28,7 +30,7 @@ pub struct ResolvedProp {
     pub y: f32,
     pub width: f32,
     pub height: f32,
-    pub asset: String,
+    pub id: String,
     pub is_collider: bool,
 }
 
@@ -55,14 +57,14 @@ pub fn load_assets() -> Vec<PropAssetDef> {
         }
     }
 
-    out.sort_by(|a, b| a.asset.cmp(&b.asset));
+    out.sort_by(|a, b| a.id.cmp(&b.id));
 
     let mut seen = HashSet::new();
     out.retain(|def| {
-        if seen.insert(def.asset.clone()) {
+        if seen.insert(def.id.clone()) {
             true
         } else {
-            println!("[props] duplicate asset id '{}' ignored", def.asset);
+            println!("[props] duplicate prop id '{}' ignored", def.id);
             false
         }
     });
@@ -73,13 +75,13 @@ pub fn resolve_level_props(
     level_props: &[LevelProp],
     assets: &[PropAssetDef],
 ) -> Vec<ResolvedProp> {
-    let by_asset: HashMap<&str, &PropAssetDef> =
-        assets.iter().map(|def| (def.asset.as_str(), def)).collect();
+    let by_id: HashMap<&str, &PropAssetDef> =
+        assets.iter().map(|def| (def.id.as_str(), def)).collect();
     let mut out = Vec::with_capacity(level_props.len());
 
     for prop in level_props {
-        let Some(def) = by_asset.get(prop.asset.as_str()) else {
-            println!("[props] level references unknown asset '{}'", prop.asset);
+        let Some(def) = by_id.get(prop.id.as_str()) else {
+            println!("[props] level references unknown prop id '{}'", prop.id);
             continue;
         };
         out.push(ResolvedProp {
@@ -87,7 +89,7 @@ pub fn resolve_level_props(
             y: prop.y,
             width: def.width,
             height: def.height,
-            asset: def.asset.clone(),
+            id: def.id.clone(),
             is_collider: def.is_collider,
         });
     }
@@ -95,9 +97,9 @@ pub fn resolve_level_props(
     out
 }
 
-pub fn asset_color(asset: &str, is_collider: bool, alpha: f32) -> [f32; 4] {
+pub fn asset_color(id: &str, is_collider: bool, alpha: f32) -> [f32; 4] {
     let mut hash: u32 = 0x811C9DC5;
-    for b in asset.bytes() {
+    for b in id.bytes() {
         hash ^= b as u32;
         hash = hash.wrapping_mul(0x01000193);
     }
@@ -142,8 +144,16 @@ fn load_asset_file(path: &Path) -> Option<PropAssetDef> {
         return None;
     };
 
-    if parsed.asset.trim().is_empty() {
-        println!("[props] '{}' has empty 'asset' value", path.display());
+    if parsed.id.trim().is_empty() {
+        println!("[props] '{}' has empty 'id' value", path.display());
+        return None;
+    }
+    if !is_snake_case_id(&parsed.id) {
+        println!(
+            "[props] '{}' has non-snake-case id '{}'",
+            path.display(),
+            parsed.id
+        );
         return None;
     }
     if parsed.width <= 0.0 || parsed.height <= 0.0 {
@@ -156,4 +166,18 @@ fn load_asset_file(path: &Path) -> Option<PropAssetDef> {
         return None;
     }
     Some(parsed)
+}
+
+fn is_snake_case_id(id: &str) -> bool {
+    if id.is_empty() {
+        return false;
+    }
+    let mut chars = id.chars();
+    let Some(first) = chars.next() else {
+        return false;
+    };
+    if !first.is_ascii_lowercase() {
+        return false;
+    }
+    chars.all(|ch| ch.is_ascii_lowercase() || ch.is_ascii_digit() || ch == '_')
 }
