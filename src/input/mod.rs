@@ -32,6 +32,9 @@ pub struct InputState {
     pub key_3: bool, // tool: wall
     pub key_4: bool, // tool: target dummy
     pub key_5: bool, // buy menu choice / editor tool: breakable wall
+    pub key_6: bool, // editor tool: prop
+    pub key_q: bool, // editor: previous prop asset
+    pub key_e: bool, // editor: next prop asset
     pub key_g: bool, // toggle grid snap
     pub key_h: bool, // toggle inner grid visibility
     pub key_l: bool, // load level
@@ -120,6 +123,9 @@ impl InputHandler {
                 "3" => self.state.key_3 = pressed,
                 "4" => self.state.key_4 = pressed,
                 "5" => self.state.key_5 = pressed,
+                "6" => self.state.key_6 = pressed,
+                "q" | "Q" => self.state.key_q = pressed,
+                "e" | "E" => self.state.key_e = pressed,
                 "g" | "G" => self.state.key_g = pressed,
                 "h" | "H" => self.state.key_h = pressed,
                 "l" | "L" => self.state.key_l = pressed,

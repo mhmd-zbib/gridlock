@@ -1,4 +1,5 @@
 use crate::core::world::level::{LevelData, Pos};
+use crate::core::world::prop::{self, LevelProp, PropAssetDef};
 use crate::core::world::units::{px_to_tiles, tiles_to_px};
 use crate::core::world::wall::Wall;
 use crate::input::InputState;
@@ -18,6 +19,7 @@ pub enum Tool {
     Wall,        // key 3 — brown, 2-point thin wall
     TargetDummy, // key 4 — yellow
     Breakable,   // key 5 — cyan, 2-point thin breakable wall
+    Prop,        // key 6 — asset-backed prop
 }
 
 // ---------------------------------------------------------------------------
@@ -83,6 +85,8 @@ pub struct Editor {
     pub level: LevelData,
     pub snap_mode: SnapMode,
     pub show_subgrid: bool,
+    prop_assets: Vec<PropAssetDef>,
+    selected_prop_asset: usize,
     edges: HashMap<EdgeKey, EdgeCell>,
 
     /// First point for two-click wall placement.
@@ -100,17 +104,23 @@ pub struct Editor {
     prev_key_3: bool,
     prev_key_4: bool,
     prev_key_5: bool,
+    prev_key_6: bool,
+    prev_key_q: bool,
+    prev_key_e: bool,
     prev_key_g: bool,
     prev_key_h: bool,
 }
 
 impl Editor {
     pub fn new() -> Self {
+        let prop_assets = prop::load_assets();
         Self {
             tool: Tool::default(),
             level: LevelData::default(),
             snap_mode: SnapMode::Edge,
             show_subgrid: true,
+            prop_assets,
+            selected_prop_asset: 0,
             edges: HashMap::new(),
             wall_start: None,
             breakable_start: None,
@@ -123,9 +133,31 @@ impl Editor {
             prev_key_3: false,
             prev_key_4: false,
             prev_key_5: false,
+            prev_key_6: false,
+            prev_key_q: false,
+            prev_key_e: false,
             prev_key_g: false,
             prev_key_h: false,
         }
+    }
+
+    pub fn refresh_prop_assets(&mut self) {
+        self.prop_assets = prop::load_assets();
+        if self.selected_prop_asset >= self.prop_assets.len() {
+            self.selected_prop_asset = 0;
+        }
+    }
+
+    pub fn prop_assets(&self) -> &[PropAssetDef] {
+        &self.prop_assets
+    }
+
+    pub fn selected_prop_asset(&self) -> Option<&PropAssetDef> {
+        self.selected_prop_definition()
+    }
+
+    pub fn selected_prop_asset_index(&self) -> usize {
+        self.selected_prop_asset
     }
 
     pub fn update(&mut self, input: &InputState) {
@@ -172,6 +204,13 @@ impl Editor {
                 "[editor] tool → breakable wall  (5) — click 2 points, right-click to cancel/delete"
             );
         }
+        if input.key_6 && !self.prev_key_6 {
+            self.tool = Tool::Prop;
+            self.wall_start = None;
+            self.breakable_start = None;
+            println!("[editor] tool → prop  (6)");
+            self.announce_selected_prop_asset();
+        }
 
         // --- grid snap toggle ---
         if input.key_g && !self.prev_key_g {
@@ -184,6 +223,14 @@ impl Editor {
                 "[editor] inner grid {}",
                 if self.show_subgrid { "ON" } else { "OFF" }
             );
+        }
+        if self.tool == Tool::Prop {
+            if input.key_q && !self.prev_key_q {
+                self.cycle_prop_asset(-1);
+            }
+            if input.key_e && !self.prev_key_e {
+                self.cycle_prop_asset(1);
+            }
         }
 
         // --- place ---
@@ -263,6 +310,9 @@ impl Editor {
         self.prev_key_3 = input.key_3;
         self.prev_key_4 = input.key_4;
         self.prev_key_5 = input.key_5;
+        self.prev_key_6 = input.key_6;
+        self.prev_key_q = input.key_q;
+        self.prev_key_e = input.key_e;
         self.prev_key_g = input.key_g;
         self.prev_key_h = input.key_h;
     }
@@ -287,6 +337,23 @@ impl Editor {
                     self.level.target_enemies.len()
                 );
             }
+            Tool::Prop => {
+                let Some(asset) = self.selected_prop_definition() else {
+                    println!("[editor] no prop assets found in assets/props/*.json");
+                    return;
+                };
+                let asset_id = asset.asset.clone();
+                self.level.props.push(LevelProp {
+                    x,
+                    y,
+                    asset: asset_id.clone(),
+                });
+                println!(
+                    "[editor] prop '{}' ({x:.2}, {y:.2})  total={}",
+                    asset_id,
+                    self.level.props.len()
+                );
+            }
             Tool::Wall | Tool::Breakable => {} // handled via two-point placement
         }
     }
@@ -306,6 +373,18 @@ impl Editor {
                 "[editor] {label} removed  remaining={}  breakables={}",
                 self.level.walls.len(),
                 count_breakables(&self.level)
+            );
+            return;
+        }
+
+        // Props — delete nearest center within radius.
+        const PROP_REMOVE_RADIUS: f32 = px_to_tiles(20.0);
+        if let Some(idx) = self.nearest_prop_idx(x, y, PROP_REMOVE_RADIUS) {
+            let removed = self.level.props.remove(idx);
+            println!(
+                "[editor] prop '{}' removed  remaining={}",
+                removed.asset,
+                self.level.props.len()
             );
             return;
         }
@@ -341,7 +420,13 @@ impl Editor {
 
     pub fn save(&self, path: &str) {
         match self.level.save(path) {
-            Ok(_) => println!("[editor] saved   → {path}"),
+            Ok(_) => println!(
+                "[editor] saved   → {path}  enemies={} targets={} walls={} props={}",
+                self.level.enemies.len(),
+                self.level.target_enemies.len(),
+                self.level.walls.len(),
+                self.level.props.len()
+            ),
             Err(e) => println!("[editor] save error: {e}"),
         }
     }
@@ -350,11 +435,12 @@ impl Editor {
         match LevelData::load(path) {
             Ok(data) => {
                 println!(
-                    "[editor] loaded  ← {path}  enemies={}  targets={}  walls={}  breakables={}",
+                    "[editor] loaded  ← {path}  enemies={}  targets={}  walls={}  breakables={}  props={}",
                     data.enemies.len(),
                     data.target_enemies.len(),
                     data.walls.len(),
-                    count_breakables(&data)
+                    count_breakables(&data),
+                    data.props.len()
                 );
                 self.level = data;
                 self.rebuild_edges_from_walls();
@@ -390,6 +476,23 @@ impl Editor {
                 } else {
                     [0.45, 0.4, 0.35, 1.0]
                 },
+            });
+        }
+
+        // Props
+        for prop in &self.level.props {
+            let (half_w, half_h, is_collider) = match self.find_prop_asset(&prop.asset) {
+                Some(asset) => (
+                    tiles_to_px(asset.width * 0.5),
+                    tiles_to_px(asset.height * 0.5),
+                    asset.is_collider,
+                ),
+                None => (6.0, 6.0, false),
+            };
+            out.push(QuadInstance {
+                center: [tiles_to_px(prop.x), tiles_to_px(prop.y)],
+                half_size: [half_w, half_h],
+                color: prop::asset_color(&prop.asset, is_collider, 1.0),
             });
         }
 
@@ -477,6 +580,24 @@ impl Editor {
                     color: [1.0, 0.85, 0.2, 0.35],
                 });
             }
+            Tool::Prop => {
+                if let Some(asset) = self.selected_prop_definition() {
+                    out.push(QuadInstance {
+                        center: [tiles_to_px(mx), tiles_to_px(my)],
+                        half_size: [
+                            tiles_to_px(asset.width * 0.5),
+                            tiles_to_px(asset.height * 0.5),
+                        ],
+                        color: prop::asset_color(&asset.asset, asset.is_collider, 0.45),
+                    });
+                } else {
+                    out.push(QuadInstance {
+                        center: [tiles_to_px(mx), tiles_to_px(my)],
+                        half_size: [5.0, 5.0],
+                        color: [0.95, 0.2, 0.2, 0.5],
+                    });
+                }
+            }
         }
 
         out
@@ -484,6 +605,54 @@ impl Editor {
 
     pub fn active_snap_label(&self) -> &'static str {
         effective_snap_mode(self.tool, self.snap_mode).label()
+    }
+
+    fn selected_prop_definition(&self) -> Option<&PropAssetDef> {
+        self.prop_assets.get(self.selected_prop_asset)
+    }
+
+    fn find_prop_asset(&self, asset_id: &str) -> Option<&PropAssetDef> {
+        self.prop_assets
+            .iter()
+            .find(|asset| asset.asset == asset_id)
+    }
+
+    fn cycle_prop_asset(&mut self, dir: i32) {
+        if self.prop_assets.is_empty() {
+            println!("[editor] no prop assets found in assets/props/*.json");
+            return;
+        }
+        let len = self.prop_assets.len() as i32;
+        let next = (self.selected_prop_asset as i32 + dir).rem_euclid(len);
+        self.selected_prop_asset = next as usize;
+        self.announce_selected_prop_asset();
+    }
+
+    fn announce_selected_prop_asset(&self) {
+        if let Some(asset) = self.selected_prop_definition() {
+            println!(
+                "[editor] prop asset → '{}'  ({}/{})  size={:.2}x{:.2}  collider={}",
+                asset.asset,
+                self.selected_prop_asset + 1,
+                self.prop_assets.len(),
+                asset.width,
+                asset.height,
+                if asset.is_collider { "yes" } else { "no" }
+            );
+        } else {
+            println!("[editor] no prop assets found in assets/props/*.json");
+        }
+    }
+
+    fn nearest_prop_idx(&self, x: f32, y: f32, max_dist: f32) -> Option<usize> {
+        self.level
+            .props
+            .iter()
+            .enumerate()
+            .map(|(idx, prop)| (idx, dist(prop.x, prop.y, x, y)))
+            .filter(|(_, d)| *d < max_dist)
+            .min_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(Ordering::Equal))
+            .map(|(idx, _)| idx)
     }
 
     fn add_edge_path(

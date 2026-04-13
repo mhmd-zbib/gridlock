@@ -204,5 +204,27 @@
       "h": 0.75
     }
   ],
-  "target_enemies": []
+  "target_enemies": [],
+  "props": [
+    {
+      "x": 5.5,
+      "y": 2.5,
+      "asset": "crate_01"
+    },
+    {
+      "x": 6.5,
+      "y": 5.5,
+      "asset": "table_01"
+    },
+    {
+      "x": 3.5,
+      "y": 9.25,
+      "asset": "plant_01"
+    },
+    {
+      "x": 9.5,
+      "y": 6.75,
+      "asset": "barrier_01"
+    }
+  ]
 }

@@ -1,5 +1,6 @@
 pub mod aim_cone;
 pub mod level;
+pub mod prop;
 pub mod ray;
 pub mod rooms;
 pub mod sight;

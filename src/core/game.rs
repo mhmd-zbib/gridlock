@@ -4,6 +4,7 @@ use super::entity::player::Player;
 use super::spawn::SpawnQueue;
 use super::systems::{projectile, spawn, visibility};
 use super::world::level::LevelData;
+use super::world::prop::{self, ResolvedProp};
 use super::world::rooms::LevelRooms;
 use super::world::units::px_to_tiles;
 use super::world::wall::{self, Wall};
@@ -39,6 +40,7 @@ pub struct Game {
     pub bullets: Vec<Bullet>,
     pub impacts: Vec<ImpactMark>,
     pub walls: Vec<Wall>,
+    pub props: Vec<ResolvedProp>,
     pub rooms: LevelRooms,
     spawn_queue: SpawnQueue,
 }
@@ -54,6 +56,7 @@ impl Game {
             bullets: Vec::new(),
             impacts: Vec::new(),
             walls: Vec::new(),
+            props: Vec::new(),
             rooms: LevelRooms::default(),
             spawn_queue: SpawnQueue::default(),
         }
@@ -75,7 +78,19 @@ impl Game {
                     .map(|p| Enemy::target_dummy(p.x, p.y)),
             )
             .collect();
+
+        let prop_assets = prop::load_assets();
+        self.props = prop::resolve_level_props(&level.props, &prop_assets);
         self.walls = level.walls.clone();
+        let collider_props = self.props.iter().filter(|p| p.is_collider).count();
+        for prop in self.props.iter().filter(|p| p.is_collider) {
+            self.walls.push(Wall::new(
+                prop.x - prop.width * 0.5,
+                prop.y - prop.height * 0.5,
+                prop.width,
+                prop.height,
+            ));
+        }
         self.bullets = Vec::new();
         self.impacts = Vec::new();
         self.spawn_queue = SpawnQueue::default();
@@ -84,10 +99,12 @@ impl Game {
         self.rooms = LevelRooms::compute(&self.walls, level_width, level_height);
 
         println!(
-            "[game] level loaded  enemies={}  targets={}  walls={}  rooms={}  gaps={}  outside_cells={}",
+            "[game] level loaded  enemies={}  targets={}  walls={}  props={}  collider_props={}  rooms={}  gaps={}  outside_cells={}",
             self.enemies.len(),
             level.target_enemies.len(),
             self.walls.len(),
+            self.props.len(),
+            collider_props,
             self.rooms.rooms.len(),
             self.rooms.gaps.len(),
             self.rooms.outside_cells

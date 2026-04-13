@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use super::wall::Wall;
+use super::{prop::LevelProp, wall::Wall};
 
 /// A 2-D position stored in the level file.
 #[derive(Serialize, Deserialize, Clone, Copy, Default)]
@@ -23,6 +23,9 @@ pub struct Pos {
 ///   ],
 ///   "target_enemies": [
 ///     { "x": 7.8125, "y": 4.6875 }
+///   ],
+///   "props": [
+///     { "x": 5.0, "y": 4.0, "asset": "crate_01" }
 ///   ]
 /// }
 /// ```
@@ -37,6 +40,8 @@ pub struct LevelData {
     pub target_enemies: Vec<Pos>,
     #[serde(default)]
     pub walls: Vec<Wall>,
+    #[serde(default)]
+    pub props: Vec<LevelProp>,
 }
 
 impl LevelData {

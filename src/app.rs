@@ -8,6 +8,7 @@ use winit::window::{Window, WindowId};
 use crate::core::entity::enemy::EnemyKind;
 use crate::core::game::Game;
 use crate::core::world::level::LevelData;
+use crate::core::world::prop;
 use crate::core::world::rooms::LevelRooms;
 use crate::core::world::units::{px_to_tiles, tiles_to_px};
 use crate::input::InputHandler;
@@ -182,6 +183,7 @@ impl App {
                             return Some(AppState::LevelSelect(sel));
                         }
                         MenuChoice::Editor => {
+                            self.editor.refresh_prop_assets();
                             return Some(AppState::Editing);
                         }
                     }
@@ -217,6 +219,7 @@ impl App {
                     return Some(AppState::MainMenu(MainMenu::new()));
                 }
                 if f1 {
+                    self.editor.refresh_prop_assets();
                     return Some(AppState::Editing);
                 }
                 if input.f8 && !self.prev_f8 {
@@ -524,6 +527,40 @@ fn editor_texts(sw: f32, sh: f32, editor: &Editor) -> Vec<TextSection> {
         Tool::Wall => "Wall (2-point, 0.1 tile)",
         Tool::TargetDummy => "Target Dummy",
         Tool::Breakable => "Breakable Wall (2-point)",
+        Tool::Prop => "Prop",
+    };
+    let prop_info = match editor.selected_prop_asset() {
+        Some(asset) => format!(
+            "Prop Asset: {} ({}/{})  {:.2}x{:.2}  collider:{}",
+            asset.asset,
+            editor.selected_prop_asset_index() + 1,
+            editor.prop_assets().len(),
+            asset.width,
+            asset.height,
+            if asset.is_collider { "yes" } else { "no" }
+        ),
+        None => "Prop Asset: (none found in assets/props/*.json)".to_string(),
+    };
+    let assets_line = if editor.prop_assets().is_empty() {
+        "Assets: (none)".to_string()
+    } else {
+        let mut labels: Vec<String> = editor
+            .prop_assets()
+            .iter()
+            .enumerate()
+            .take(6)
+            .map(|(idx, asset)| {
+                if idx == editor.selected_prop_asset_index() {
+                    format!("[{}]", asset.asset)
+                } else {
+                    asset.asset.clone()
+                }
+            })
+            .collect();
+        if editor.prop_assets().len() > 6 {
+            labels.push(format!("+{}", editor.prop_assets().len() - 6));
+        }
+        format!("Assets: {}", labels.join("  "))
     };
     let grid = format!(
         "Snap: {}  Inner Grid: {}",
@@ -533,20 +570,23 @@ fn editor_texts(sw: f32, sh: f32, editor: &Editor) -> Vec<TextSection> {
     let breakables = editor.level.walls.iter().filter(|w| w.breakable).count();
     let solids = editor.level.walls.len().saturating_sub(breakables);
     let stats = format!(
-        "Enemies: {}  Targets: {}  Walls: {}  Breakables: {}",
+        "Enemies: {}  Targets: {}  Walls: {}  Breakables: {}  Props: {}",
         editor.level.enemies.len(),
         editor.level.target_enemies.len(),
         solids,
-        breakables
+        breakables,
+        editor.level.props.len()
     );
     vec![
         ts!(8.0, 6.0, "LEVEL EDITOR", 18.0, [1.0, 0.7, 0.2, 1.0]),
         ts!(8.0, 28.0, tool, 15.0, [1.0, 1.0, 1.0, 1.0]),
         ts!(8.0, 46.0, grid, 13.0, [0.6, 0.6, 0.6, 1.0]),
+        ts!(8.0, 64.0, prop_info, 13.0, [0.6, 0.7, 0.9, 1.0]),
+        ts!(8.0, 82.0, assets_line, 13.0, [0.58, 0.65, 0.86, 1.0]),
         ts!(
             6.0,
             sh - 38.0,
-            "1: Spawn   2: Enemy   3: Wall   4: Target   5: Breakable   G: Snap   H: Inner Grid",
+            "1: Spawn   2: Enemy   3: Wall   4: Target   5: Breakable   6: Prop   Q/E: Asset",
             13.0,
             [0.55, 0.55, 0.55, 1.0]
         ),
@@ -588,6 +628,17 @@ fn play_quads(game: &Game, debug: bool) -> Vec<QuadInstance> {
             } else {
                 [0.45, 0.4, 0.35, 1.0]
             },
+        });
+    }
+    for prop_instance in &game.props {
+        let center = world_pos_to_screen((prop_instance.x, prop_instance.y));
+        out.push(QuadInstance {
+            center: [center.0, center.1],
+            half_size: [
+                tiles_to_px(prop_instance.width * 0.5),
+                tiles_to_px(prop_instance.height * 0.5),
+            ],
+            color: prop::asset_color(&prop_instance.asset, prop_instance.is_collider, 1.0),
         });
     }
     let player = world_pos_to_screen((game.player.movement.x, game.player.movement.y));
