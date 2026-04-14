@@ -1,0 +1,232 @@
+/// Full game-state snapshot sent from server → client every tick.
+///
+/// Wire layout (big-endian):
+///   [tick: u32] [timestamp: u32]
+///   [self_state: 4 B]
+///   [player_count: u8] [players: player_count × 14 B]
+///   [bullet_count: u8] [bullets: bullet_count × 20 B]
+///   [sound_count:  u8] [sounds:  sound_count  × 10 B]
+///   [match_state: 4 B]
+///
+/// Maximum wire size with reasonable counts (64 players, 32 bullets, 16 sounds):
+///   8 + 4 + 1 + 64×14 + 1 + 32×20 + 1 + 16×10 + 4 = 1,795 B
+/// Keep player/bullet/sound counts small to stay under the 1 400 B MTU ceiling.
+#[derive(Debug, Clone)]
+pub struct ServerPacket {
+    /// Server authoritative tick counter; monotonically increasing.
+    pub tick: u32,
+
+    /// The `ClientPacket::timestamp` of the most-recently processed input from
+    /// this client, echoed back for RTT measurement.
+    pub timestamp: u32,
+
+    /// State specific to the receiving client's own player.
+    pub me: SelfState,
+
+    /// All other visible players (does **not** include the receiving client).
+    pub players: Vec<PlayerState>,
+
+    /// Projectile traces resolved this tick (for hit-scan / visual feedback).
+    pub bullets: Vec<BulletEvent>,
+
+    /// Spatial sound events the client should play.
+    pub sounds: Vec<SoundEvent>,
+
+    /// Current match metadata.
+    pub match_state: MatchState,
+}
+
+// ── SelfState ─────────────────────────────────────────────────────────────────
+
+/// The local player's authoritative state (4 bytes on the wire).
+///
+/// Wire layout: [health: u8] [ammo: u8] [reload_progress: u8] [movement_state: u8]
+#[derive(Debug, Clone, Copy, Default)]
+pub struct SelfState {
+    /// Current health; `0` means dead.
+    pub health: u8,
+
+    /// Rounds remaining in the active magazine.
+    pub ammo: u8,
+
+    /// Reload progress: `0` = not reloading, `255` = fully complete.
+    /// Derived from `WeaponState::reload_left / reload_time * 255`.
+    pub reload_progress: u8,
+
+    /// Packed locomotion + action flags; see [`MovementState`].
+    pub movement_state: MovementState,
+}
+
+// ── PlayerState ───────────────────────────────────────────────────────────────
+
+/// One remote player's state (14 bytes on the wire).
+///
+/// Wire layout: [id: u16] [x: f32] [y: f32] [rotation: u16] [movement_state: u8] [weapon: u8]
+#[derive(Debug, Clone, Copy)]
+pub struct PlayerState {
+    /// Server-assigned player identifier (`0` is reserved / invalid).
+    pub id: u16,
+
+    /// World-space position X in tiles.
+    pub x: f32,
+
+    /// World-space position Y in tiles.
+    pub y: f32,
+
+    /// Aim direction compressed to `[0, 65535]` (same encoding as
+    /// `ClientPacket::rotation`).
+    pub rotation: u16,
+
+    /// Packed locomotion flags; see [`MovementState`].
+    pub movement_state: MovementState,
+
+    /// Index into the server's weapon catalogue (`WeaponId` cast to `u8`).
+    pub weapon: u8,
+}
+
+// ── BulletEvent ───────────────────────────────────────────────────────────────
+
+/// A hitscan trace resolved this tick (20 bytes on the wire).
+///
+/// Wire layout:
+///   [shooter_id: u16] [from_x: f32] [from_y: f32]
+///   [to_x: f32] [to_y: f32] [hit_player_id: u16]
+#[derive(Debug, Clone, Copy)]
+pub struct BulletEvent {
+    /// `PlayerState::id` of the shooter (`0` = environment / unknown).
+    pub shooter_id: u16,
+
+    /// Muzzle position X in tiles.
+    pub from_x: f32,
+
+    /// Muzzle position Y in tiles.
+    pub from_y: f32,
+
+    /// Impact (or max-range) position X in tiles.
+    pub to_x: f32,
+
+    /// Impact (or max-range) position Y in tiles.
+    pub to_y: f32,
+
+    /// Victim's `PlayerState::id`; `0` means the shot missed all players.
+    pub hit_player_id: u16,
+}
+
+// ── SoundEvent ────────────────────────────────────────────────────────────────
+
+/// A spatial audio event the client should play (10 bytes on the wire).
+///
+/// Wire layout: [kind: u8] [x: f32] [y: f32] [intensity: u8]
+#[derive(Debug, Clone, Copy)]
+pub struct SoundEvent {
+    /// Sound category; see [`SoundKind`].
+    pub kind: SoundKind,
+
+    /// World-space position X in tiles.
+    pub x: f32,
+
+    /// World-space position Y in tiles.
+    pub y: f32,
+
+    /// Volume/falloff hint in `[0, 255]`; maps to `shot_sound_radius` etc.
+    pub intensity: u8,
+}
+
+// ── MatchState ────────────────────────────────────────────────────────────────
+
+/// Match-level metadata (4 bytes on the wire).
+///
+/// Wire layout: [timer: u16] [score_team1: u8] [score_team2: u8]
+#[derive(Debug, Clone, Copy, Default)]
+pub struct MatchState {
+    /// Remaining match time in seconds; `0` means the round has ended.
+    pub timer: u16,
+
+    /// Current score for team 1.
+    pub score_team1: u8,
+
+    /// Current score for team 2.
+    pub score_team2: u8,
+}
+
+// ── MovementState ─────────────────────────────────────────────────────────────
+
+/// Bitfield shared by [`SelfState::movement_state`] and
+/// [`PlayerState::movement_state`] (1 byte on the wire).
+///
+/// ```text
+/// bit 0 : RUNNING
+/// bit 1 : WALKING
+/// bit 2 : PEEKING
+/// bit 3 : RELOADING
+/// bits 4-7 : reserved
+/// ```
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct MovementState(pub u8);
+
+impl MovementState {
+    const RUNNING: u8 = 1 << 0;
+    const WALKING: u8 = 1 << 1;
+    const PEEKING: u8 = 1 << 2;
+    const RELOADING: u8 = 1 << 3;
+
+    pub fn is_running(self) -> bool {
+        self.0 & Self::RUNNING != 0
+    }
+    pub fn is_walking(self) -> bool {
+        self.0 & Self::WALKING != 0
+    }
+    pub fn is_peeking(self) -> bool {
+        self.0 & Self::PEEKING != 0
+    }
+    pub fn is_reloading(self) -> bool {
+        self.0 & Self::RELOADING != 0
+    }
+
+    pub fn set_running(&mut self, v: bool) {
+        self.set_bit(Self::RUNNING, v);
+    }
+    pub fn set_walking(&mut self, v: bool) {
+        self.set_bit(Self::WALKING, v);
+    }
+    pub fn set_peeking(&mut self, v: bool) {
+        self.set_bit(Self::PEEKING, v);
+    }
+    pub fn set_reloading(&mut self, v: bool) {
+        self.set_bit(Self::RELOADING, v);
+    }
+
+    fn set_bit(&mut self, bit: u8, v: bool) {
+        if v {
+            self.0 |= bit;
+        } else {
+            self.0 &= !bit;
+        }
+    }
+}
+
+// ── SoundKind ─────────────────────────────────────────────────────────────────
+
+/// Discriminant for [`SoundEvent::kind`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
+pub enum SoundKind {
+    Gunshot = 0,
+    Reload = 1,
+    Footstep = 2,
+    Hit = 3,
+    Death = 4,
+}
+
+impl SoundKind {
+    pub fn from_u8(v: u8) -> Option<Self> {
+        match v {
+            0 => Some(Self::Gunshot),
+            1 => Some(Self::Reload),
+            2 => Some(Self::Footstep),
+            3 => Some(Self::Hit),
+            4 => Some(Self::Death),
+            _ => None,
+        }
+    }
+}

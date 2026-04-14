@@ -9,6 +9,9 @@ pub enum BulletOwner {
 pub struct Bullet {
     pub x: f32,
     pub y: f32,
+    /// World-space position where this bullet was spawned (muzzle position).
+    pub origin_x: f32,
+    pub origin_y: f32,
     vx: f32,
     vy: f32,
     pub damage: u32,
@@ -30,6 +33,8 @@ impl Bullet {
         Self {
             x,
             y,
+            origin_x: x,
+            origin_y: y,
             vx: dir_x * speed,
             vy: dir_y * speed,
             damage,

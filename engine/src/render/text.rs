@@ -482,7 +482,6 @@ fn load_font_bytes() -> Vec<u8> {
     ];
     for &path in candidates {
         if let Ok(data) = std::fs::read(path) {
-            println!("[text] font loaded from {path}");
             return data;
         }
     }

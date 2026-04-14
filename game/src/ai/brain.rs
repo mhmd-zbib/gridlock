@@ -21,7 +21,7 @@ use crate::world::wall::Wall;
 
 const SHOOT_INTERVAL: f32 = 2.2;
 const SWEEP_AMP: f32 = 0.75;
-const AI_STATE_LOG: bool = true;
+const AI_STATE_LOG: bool = false;
 const AI_TICK_LOG_INTERVAL: f32 = 0.60;
 
 // ─────────────────────────────────────────────────────────────────────────────

@@ -3,8 +3,12 @@ use crate::entity::enemy::Enemy;
 use crate::world::wall::Wall;
 
 pub struct ImpactEvent {
+    /// Impact position (where the bullet stopped).
     pub x: f32,
     pub y: f32,
+    /// Muzzle position (where the bullet was spawned).
+    pub origin_x: f32,
+    pub origin_y: f32,
 }
 
 pub fn step_projectiles(
@@ -32,6 +36,8 @@ pub fn step_projectiles(
             impacts.push(ImpactEvent {
                 x: bullet.x,
                 y: bullet.y,
+                origin_x: bullet.origin_x,
+                origin_y: bullet.origin_y,
             });
             continue;
         }
@@ -48,6 +54,8 @@ pub fn step_projectiles(
                         impacts.push(ImpactEvent {
                             x: bullet.x,
                             y: bullet.y,
+                            origin_x: bullet.origin_x,
+                            origin_y: bullet.origin_y,
                         });
                         break;
                     }
@@ -62,6 +70,8 @@ pub fn step_projectiles(
                     impacts.push(ImpactEvent {
                         x: bullet.x,
                         y: bullet.y,
+                        origin_x: bullet.origin_x,
+                        origin_y: bullet.origin_y,
                     });
                 }
             }

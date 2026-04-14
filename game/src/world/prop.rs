@@ -39,10 +39,6 @@ pub fn load_assets() -> Vec<PropAssetDef> {
         return Vec::new();
     };
     let Ok(entries) = fs::read_dir(&dir) else {
-        println!(
-            "[props] failed to read prop assets directory '{}'",
-            dir.display()
-        );
         return Vec::new();
     };
 
@@ -61,12 +57,7 @@ pub fn load_assets() -> Vec<PropAssetDef> {
 
     let mut seen = HashSet::new();
     out.retain(|def| {
-        if seen.insert(def.id.clone()) {
-            true
-        } else {
-            println!("[props] duplicate prop id '{}' ignored", def.id);
-            false
-        }
+        seen.insert(def.id.clone())
     });
     out
 }
@@ -81,7 +72,6 @@ pub fn resolve_level_props(
 
     for prop in level_props {
         let Some(def) = by_id.get(prop.id.as_str()) else {
-            println!("[props] level references unknown prop id '{}'", prop.id);
             continue;
         };
         out.push(ResolvedProp {
@@ -136,33 +126,19 @@ fn resolve_assets_dir() -> Option<PathBuf> {
 
 fn load_asset_file(path: &Path) -> Option<PropAssetDef> {
     let Ok(json) = fs::read_to_string(path) else {
-        println!("[props] failed to read '{}'", path.display());
         return None;
     };
     let Ok(parsed) = serde_json::from_str::<PropAssetDef>(&json) else {
-        println!("[props] invalid json '{}'", path.display());
         return None;
     };
 
     if parsed.id.trim().is_empty() {
-        println!("[props] '{}' has empty 'id' value", path.display());
         return None;
     }
     if !is_snake_case_id(&parsed.id) {
-        println!(
-            "[props] '{}' has non-snake-case id '{}'",
-            path.display(),
-            parsed.id
-        );
         return None;
     }
     if parsed.width <= 0.0 || parsed.height <= 0.0 {
-        println!(
-            "[props] '{}' has invalid size (width={}, height={})",
-            path.display(),
-            parsed.width,
-            parsed.height
-        );
         return None;
     }
     Some(parsed)

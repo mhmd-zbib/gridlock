@@ -1,12 +1,14 @@
-use super::entity::bullet::Bullet;
+use super::entity::bullet::{Bullet, BulletOwner};
 use super::entity::enemy::Enemy;
 use super::entity::player::{Player, PlayerLoadoutConfig};
 use super::entity::weapon::attachment::AttachmentCategory;
 use super::entity::weapon::{weapon_supports_attachment, weapon_supports_attachment_category};
-use super::spawn::SpawnQueue;
-use super::systems::{projectile, spawn, visibility};
+use super::spawn::{SpawnQueue, SpawnRequest};
+use super::systems::{projectile, visibility};
+pub use super::systems::projectile::ImpactEvent;
 use super::world::level::{LevelBounds, LevelData};
 use super::world::prop::{self, ResolvedProp};
+use super::world::ray::cast_ray;
 use super::world::rooms::LevelRooms;
 use super::world::units::px_to_tiles;
 use super::world::wall::{self, Wall};
@@ -47,6 +49,10 @@ pub struct Game {
     pub level_bounds: Option<LevelBounds>,
     spawn_queue: SpawnQueue,
     player_loadout: PlayerLoadoutConfig,
+    /// Bullet traces resolved this tick (origin → impact). Consumed by callers
+    /// that need to report hits over the network. Cleared at the start of each
+    /// `update()` call.
+    bullet_traces: Vec<ImpactEvent>,
 }
 
 impl Game {
@@ -68,6 +74,7 @@ impl Game {
             level_bounds: None,
             spawn_queue: SpawnQueue::default(),
             player_loadout,
+            bullet_traces: Vec::new(),
         }
     }
 
@@ -107,7 +114,7 @@ impl Game {
         for wall in &mut self.walls {
             wall.init_segments();
         }
-        let collider_props = self.props.iter().filter(|p| p.is_collider).count();
+        let _collider_props = self.props.iter().filter(|p| p.is_collider).count();
         for prop in self.props.iter().filter(|p| p.is_collider) {
             self.walls.push(Wall::new(
                 prop.x - prop.width * 0.5,
@@ -119,6 +126,7 @@ impl Game {
         self.bullets = Vec::new();
         self.impacts = Vec::new();
         self.spawn_queue = SpawnQueue::default();
+        self.bullet_traces = Vec::new();
         self.level_bounds = level.map_bounds;
         clamp_actor_to_level_bounds(
             &mut self.player.movement.x,
@@ -146,21 +154,19 @@ impl Game {
 
         // Compute rooms and gaps ONCE at level load (cached for debug rendering)
         self.rooms = LevelRooms::compute(&self.walls, room_w, room_h);
+    }
 
-        println!(
-            "[game] level loaded  enemies={}  targets={}  walls={}  props={}  collider_props={}  rooms={}  gaps={}  outside_cells={}",
-            self.enemies.len(),
-            level.target_enemies.len(),
-            self.walls.len(),
-            self.props.len(),
-            collider_props,
-            self.rooms.rooms.len(),
-            self.rooms.gaps.len(),
-            self.rooms.outside_cells
-        );
+    /// Drain the bullet traces accumulated during the last `update()` call.
+    ///
+    /// Each entry represents one bullet that terminated this tick (wall hit or
+    /// entity hit), with its muzzle origin and impact position.  The server
+    /// calls this after `update()` to build `BulletEvent`s for the snapshot.
+    pub fn take_bullet_traces(&mut self) -> Vec<ImpactEvent> {
+        std::mem::take(&mut self.bullet_traces)
     }
 
     pub fn update(&mut self, dt: f32, input: &InputState) {
+        self.bullet_traces.clear();
         // --- entity updates ---
         self.player
             .update(dt, input, &self.walls, PLAYER_HALF, &mut self.spawn_queue);
@@ -219,17 +225,37 @@ impl Game {
                     && b.y <= bounds.y + bounds.h
             });
         }
-        self.impacts.extend(
-            impact_events
-                .into_iter()
-                .map(|hit| ImpactMark::new(hit.x, hit.y)),
-        );
+        // Impact marks for local visual feedback (wall/enemy hits).
+        self.impacts.extend(impact_events.iter().map(|hit| ImpactMark::new(hit.x, hit.y)));
         for impact in &mut self.impacts {
             impact.ttl -= dt;
         }
         self.impacts.retain(|impact| impact.ttl > 0.0);
 
-        spawn::flush_spawn_queue(&mut self.spawn_queue, &mut self.bullets, &mut self.enemies);
+        // Flush spawn queue.  For player bullets, immediately raycast the full
+        // trajectory so the server can report a BulletEvent in the same tick
+        // the shot was fired — no need to wait for the projectile to physically
+        // reach a wall.
+        const BULLET_MAX_RANGE: f32 = px_to_tiles(1500.0);
+        for req in self.spawn_queue.drain() {
+            match req {
+                SpawnRequest::Bullet { x, y, dir_x, dir_y, speed, damage, owner } => {
+                    if matches!(owner, BulletOwner::Player) {
+                        let dist = cast_ray((x, y), (dir_x, dir_y), BULLET_MAX_RANGE, &self.walls);
+                        self.bullet_traces.push(ImpactEvent {
+                            x: x + dir_x * dist,
+                            y: y + dir_y * dist,
+                            origin_x: x,
+                            origin_y: y,
+                        });
+                    }
+                    self.bullets.push(Bullet::new(x, y, dir_x, dir_y, speed, damage, owner));
+                }
+                SpawnRequest::Enemy { x, y } => {
+                    self.enemies.push(Enemy::new(x, y));
+                }
+            }
+        }
     }
 }
 

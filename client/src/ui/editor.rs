@@ -259,46 +259,36 @@ impl Editor {
             self.wall_start = None;
             self.breakable_start = None;
             self.base_map_start = None;
-            println!("[editor] tool → player spawn  (1)");
         }
         if input.key_2 && !self.prev_key_2 {
             self.tool = Tool::Enemy;
             self.wall_start = None;
             self.breakable_start = None;
             self.base_map_start = None;
-            println!("[editor] tool → enemy  (2)");
         }
         if input.key_3 && !self.prev_key_3 {
             self.tool = Tool::Wall;
             self.wall_start = None;
             self.breakable_start = None;
             self.base_map_start = None;
-            println!(
-                "[editor] tool → wall  (3) — click 2 points, 0.1-tile thick, right-click to cancel/delete"
-            );
         }
         if input.key_4 && !self.prev_key_4 {
             self.tool = Tool::TargetDummy;
             self.wall_start = None;
             self.breakable_start = None;
             self.base_map_start = None;
-            println!("[editor] tool → target dummy  (4)");
         }
         if input.key_5 && !self.prev_key_5 {
             self.tool = Tool::Breakable;
             self.wall_start = None;
             self.breakable_start = None;
             self.base_map_start = None;
-            println!(
-                "[editor] tool → breakable wall  (5) — click 2 points, right-click to cancel/delete"
-            );
         }
         if input.key_6 && !self.prev_key_6 {
             self.tool = Tool::Prop;
             self.wall_start = None;
             self.breakable_start = None;
             self.base_map_start = None;
-            println!("[editor] tool → prop  (6)");
             self.announce_selected_prop_asset();
         }
         if input.key_7 && !self.prev_key_7 {
@@ -306,22 +296,14 @@ impl Editor {
             self.wall_start = None;
             self.breakable_start = None;
             self.base_map_start = None;
-            println!(
-                "[editor] tool → base map  (7) — click 2 corners to set map bounds, right-click to cancel/clear"
-            );
         }
 
         // --- grid snap toggle ---
         if input.key_g && !self.prev_key_g {
             self.snap_mode = self.snap_mode.toggle();
-            println!("[editor] snap mode → {}", self.active_snap_label());
         }
         if input.key_h && !self.prev_key_h {
             self.show_subgrid = !self.show_subgrid;
-            println!(
-                "[editor] inner grid {}",
-                if self.show_subgrid { "ON" } else { "OFF" }
-            );
         }
         if self.tool == Tool::Prop {
             if input.key_q && !self.prev_key_q {
@@ -337,39 +319,18 @@ impl Editor {
             Tool::Wall => {
                 if just_pressed {
                     if let Some(start) = self.wall_start.take() {
-                        if let Some((edges_added, len)) =
-                            self.add_edge_path(start, (mx, my), snap_mode, false)
-                        {
-                            println!(
-                                "[editor] wall placed  edges={} len:{:.3}  total={}",
-                                edges_added,
-                                len,
-                                self.level.walls.len()
-                            );
-                        }
+                        self.add_edge_path(start, (mx, my), snap_mode, false);
                     } else {
                         self.wall_start = Some((mx, my));
-                        println!("[editor] wall: first point set at ({mx:.1}, {my:.1})");
                     }
                 }
             }
             Tool::Breakable => {
                 if just_pressed {
                     if let Some(start) = self.breakable_start.take() {
-                        if let Some((edges_added, len)) =
-                            self.add_edge_path(start, (mx, my), snap_mode, true)
-                        {
-                            println!(
-                                "[editor] breakable wall placed  edges={} len:{:.3}  total={}  breakables={}",
-                                edges_added,
-                                len,
-                                self.level.walls.len(),
-                                count_breakables(&self.level)
-                            );
-                        }
+                        self.add_edge_path(start, (mx, my), snap_mode, true);
                     } else {
                         self.breakable_start = Some((mx, my));
-                        println!("[editor] breakable wall: first point set at ({mx:.0}, {my:.0})");
                     }
                 }
             }
@@ -378,16 +339,9 @@ impl Editor {
                     if let Some(start) = self.base_map_start.take() {
                         if let Some(bounds) = bounds_from_points(start, (mx, my)) {
                             self.level.map_bounds = Some(bounds);
-                            println!(
-                                "[editor] base map set  origin=({:.2},{:.2})  size={:.2}x{:.2}",
-                                bounds.x, bounds.y, bounds.w, bounds.h
-                            );
-                        } else {
-                            println!("[editor] base map ignored: rectangle too small");
                         }
                     } else {
                         self.base_map_start = Some((mx, my));
-                        println!("[editor] base map: first corner set at ({mx:.2}, {my:.2})");
                     }
                 }
             }
@@ -400,17 +354,13 @@ impl Editor {
 
         // --- delete on right-click ---
         if just_right_pressed {
-            if self.tool == Tool::Wall && self.wall_start.take().is_some() {
-                println!("[editor] wall placement cancelled");
-            } else if self.tool == Tool::Breakable && self.breakable_start.take().is_some() {
-                println!("[editor] breakable wall placement cancelled");
-            } else if self.tool == Tool::BaseMap && self.base_map_start.take().is_some() {
-                println!("[editor] base map placement cancelled");
+            if self.tool == Tool::Wall {
+                self.wall_start.take();
+            } else if self.tool == Tool::Breakable {
+                self.breakable_start.take();
             } else if self.tool == Tool::BaseMap {
-                if self.level.map_bounds.take().is_some() {
-                    println!("[editor] base map cleared");
-                } else {
-                    println!("[editor] no base map to clear");
+                if self.base_map_start.take().is_none() {
+                    self.level.map_bounds.take();
                 }
             } else {
                 self.delete_at(raw_mx, raw_my);
@@ -447,134 +397,65 @@ impl Editor {
         match self.tool {
             Tool::PlayerSpawn => {
                 self.level.player_spawn = Some(Pos { x, y });
-                println!("[editor] player spawn → ({x:.0}, {y:.0})");
             }
             Tool::Enemy => {
                 self.level.enemies.push(Pos { x, y });
-                println!(
-                    "[editor] enemy ({x:.0}, {y:.0})  total={}",
-                    self.level.enemies.len()
-                );
             }
             Tool::TargetDummy => {
                 self.level.target_enemies.push(Pos { x, y });
-                println!(
-                    "[editor] target dummy ({x:.0}, {y:.0})  total={}",
-                    self.level.target_enemies.len()
-                );
             }
             Tool::Prop => {
                 let Some(asset) = self.selected_prop_definition() else {
-                    println!("[editor] no prop ids found in assets/props/*.json");
                     return;
                 };
                 let prop_id = asset.id.clone();
-                self.level.props.push(LevelProp {
-                    x,
-                    y,
-                    id: prop_id.clone(),
-                });
-                println!(
-                    "[editor] prop '{}' ({x:.2}, {y:.2})  total={}",
-                    prop_id,
-                    self.level.props.len()
-                );
+                self.level.props.push(LevelProp { x, y, id: prop_id });
             }
-            Tool::Wall | Tool::Breakable | Tool::BaseMap => {} // handled via two-point placement
+            Tool::Wall | Tool::Breakable | Tool::BaseMap => {}
         }
     }
 
     fn delete_at(&mut self, x: f32, y: f32) {
-        // Walls — delete nearest occupied edge.
         const EDGE_REMOVE_RADIUS: f32 = px_to_tiles(18.0);
-        if let Some((edge, cell)) = self.nearest_edge_at(x, y, EDGE_REMOVE_RADIUS) {
+        if let Some((edge, _cell)) = self.nearest_edge_at(x, y, EDGE_REMOVE_RADIUS) {
             self.edges.remove(&edge);
             self.rebuild_walls_from_edges();
-            let label = if cell.breakable {
-                "breakable edge"
-            } else {
-                "edge"
-            };
-            println!(
-                "[editor] {label} removed  remaining={}  breakables={}",
-                self.level.walls.len(),
-                count_breakables(&self.level)
-            );
             return;
         }
 
-        // Props — delete nearest center within radius.
         const PROP_REMOVE_RADIUS: f32 = px_to_tiles(20.0);
         if let Some(idx) = self.nearest_prop_idx(x, y, PROP_REMOVE_RADIUS) {
-            let removed = self.level.props.remove(idx);
-            println!(
-                "[editor] prop '{}' removed  remaining={}",
-                removed.id,
-                self.level.props.len()
-            );
+            self.level.props.remove(idx);
             return;
         }
 
-        // Enemies — delete nearest within radius.
         const R: f32 = px_to_tiles(20.0);
         if let Some(idx) = nearest_idx(&self.level.enemies, x, y, R) {
             self.level.enemies.remove(idx);
-            println!(
-                "[editor] enemy removed  remaining={}",
-                self.level.enemies.len()
-            );
             return;
         }
 
         if let Some(idx) = nearest_idx(&self.level.target_enemies, x, y, R) {
             self.level.target_enemies.remove(idx);
-            println!(
-                "[editor] target dummy removed  remaining={}",
-                self.level.target_enemies.len()
-            );
             return;
         }
 
-        // Player spawn — delete if near enough.
         if let Some(sp) = self.level.player_spawn {
             if dist(sp.x, sp.y, x, y) < R {
                 self.level.player_spawn = None;
-                println!("[editor] player spawn cleared");
             }
         }
     }
 
     pub fn save(&self, path: &str) {
-        match self.level.save(path) {
-            Ok(_) => println!(
-                "[editor] saved   → {path}  enemies={} targets={} walls={} props={}  map={}",
-                self.level.enemies.len(),
-                self.level.target_enemies.len(),
-                self.level.walls.len(),
-                self.level.props.len(),
-                map_bounds_label(self.level.map_bounds)
-            ),
-            Err(e) => println!("[editor] save error: {e}"),
-        }
+        let _ = self.level.save(path);
     }
 
     pub fn load(&mut self, path: &str) {
-        match LevelData::load(path) {
-            Ok(data) => {
-                println!(
-                    "[editor] loaded  ← {path}  enemies={}  targets={}  walls={}  breakables={}  props={}  map={}",
-                    data.enemies.len(),
-                    data.target_enemies.len(),
-                    data.walls.len(),
-                    count_breakables(&data),
-                    data.props.len(),
-                    map_bounds_label(data.map_bounds)
-                );
-                self.level = data;
-                self.rebuild_edges_from_walls();
-                self.rebuild_walls_from_edges();
-            }
-            Err(e) => println!("[editor] load error: {e}"),
+        if let Ok(data) = LevelData::load(path) {
+            self.level = data;
+            self.rebuild_edges_from_walls();
+            self.rebuild_walls_from_edges();
         }
     }
 
@@ -775,29 +656,16 @@ impl Editor {
 
     fn cycle_prop_asset(&mut self, dir: i32) {
         if self.prop_assets.is_empty() {
-            println!("[editor] no prop ids found in assets/props/*.json");
             return;
         }
         let len = self.prop_assets.len() as i32;
-        let next = (self.selected_prop_asset as i32 + dir).rem_euclid(len);
-        self.selected_prop_asset = next as usize;
+        self.selected_prop_asset =
+            ((self.selected_prop_asset as i32 + dir).rem_euclid(len)) as usize;
         self.announce_selected_prop_asset();
     }
 
     fn announce_selected_prop_asset(&self) {
-        if let Some(asset) = self.selected_prop_definition() {
-            println!(
-                "[editor] prop id → '{}'  ({}/{})  size={:.2}x{:.2}  collider={}",
-                asset.id,
-                self.selected_prop_asset + 1,
-                self.prop_assets.len(),
-                asset.width,
-                asset.height,
-                if asset.is_collider { "yes" } else { "no" }
-            );
-        } else {
-            println!("[editor] no prop ids found in assets/props/*.json");
-        }
+        // intentionally silent — selection is shown in the editor overlay
     }
 
     fn nearest_prop_idx(&self, x: f32, y: f32, max_dist: f32) -> Option<usize> {
@@ -1176,10 +1044,6 @@ fn nearest_idx(points: &[Pos], x: f32, y: f32, max_dist: f32) -> Option<usize> {
         .map(|(i, _)| i)
 }
 
-fn count_breakables(level: &LevelData) -> usize {
-    level.walls.iter().filter(|w| w.breakable).count()
-}
-
 fn bounds_from_points(a: (f32, f32), b: (f32, f32)) -> Option<LevelBounds> {
     let min_x = a.0.min(b.0);
     let min_y = a.1.min(b.1);
@@ -1196,13 +1060,6 @@ fn bounds_from_points(a: (f32, f32), b: (f32, f32)) -> Option<LevelBounds> {
         w,
         h,
     })
-}
-
-fn map_bounds_label(bounds: Option<LevelBounds>) -> String {
-    match bounds {
-        Some(b) => format!("({:.2},{:.2}) {:.2}x{:.2}", b.x, b.y, b.w, b.h),
-        None => "none".to_string(),
-    }
 }
 
 fn push_bounds_fill(

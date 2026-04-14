@@ -57,11 +57,6 @@ impl LoadoutMenu {
             }
         }
         out.normalize_for_selected_weapon();
-
-        println!("[loadout] LOADOUT BUILDER");
-        println!("[loadout]   ↑/↓ select row   ←/→ change option");
-        println!("[loadout]   Esc/Enter: back to menu");
-
         out
     }
 

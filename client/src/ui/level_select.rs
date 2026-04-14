@@ -26,7 +26,6 @@ impl LevelSelect {
             prev_up: false,
             prev_down: false,
         };
-        s.print_list();
         s
     }
 
@@ -34,7 +33,6 @@ impl LevelSelect {
     pub fn refresh(&mut self) {
         self.levels = scan();
         self.selected = 0;
-        self.print_list();
     }
 
     /// Drive keyboard navigation. Takes raw `up` / `down` bools from InputState.
@@ -46,21 +44,9 @@ impl LevelSelect {
             } else {
                 self.selected -= 1;
             }
-            println!(
-                "[select] ↑  [{}] {} ({})",
-                self.selected,
-                self.levels[self.selected].id,
-                self.levels[self.selected].path.display()
-            );
         }
         if down && !self.prev_down && !self.levels.is_empty() {
             self.selected = (self.selected + 1) % self.levels.len();
-            println!(
-                "[select] ↓  [{}] {} ({})",
-                self.selected,
-                self.levels[self.selected].id,
-                self.levels[self.selected].path.display()
-            );
         }
         self.prev_up = up;
         self.prev_down = down;
@@ -117,16 +103,6 @@ impl LevelSelect {
         out
     }
 
-    fn print_list(&self) {
-        println!("[select] SELECT LEVEL  (↑/↓ navigate · Enter confirm · Esc back)");
-        if self.levels.is_empty() {
-            println!("[select]   (no .json files found in levels/ — create one in the editor)");
-        }
-        for (i, p) in self.levels.iter().enumerate() {
-            let mark = if i == self.selected { "→" } else { " " };
-            println!("[select]   {mark} [{}] {} ({})", i, p.id, p.path.display());
-        }
-    }
 }
 
 fn scan() -> Vec<LevelEntry> {
@@ -147,7 +123,7 @@ fn scan() -> Vec<LevelEntry> {
         };
         match LevelData::load(path_str) {
             Ok(level) => levels.push(LevelEntry { path, id: level.id }),
-            Err(e) => println!("[select] skipping '{}' ({e})", path.display()),
+            Err(_) => {}
         }
     }
     levels

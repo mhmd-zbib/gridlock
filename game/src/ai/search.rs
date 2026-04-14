@@ -33,7 +33,7 @@ const THREAT_BOOST: f32 = 0.22;
 const DANGER_HISTORY_BOOST: f32 = 0.12;
 const DIRECTION_MEMORY_BOOST: f32 = 0.08;
 const ANCHOR_LAMBDA: f32 = 0.32;
-const AI_SCAN_LOG: bool = true;
+const AI_SCAN_LOG: bool = false;
 
 const W_DISTANCE: f32 = 0.30;
 const W_CONNECTIVITY: f32 = 0.20;
