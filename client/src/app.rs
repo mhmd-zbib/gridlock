@@ -7,7 +7,6 @@ use winit::event_loop::ActiveEventLoop;
 use winit::window::{Fullscreen, Window, WindowId};
 
 use crate::net::{ConnState, NetClient};
-use net::{ClientPacket, InputFlags, SelfState, encode_rotation};
 use crate::ui::editor::{Editor, Tool};
 use crate::ui::loadout::LoadoutMenu;
 use crate::ui::menu::{MainMenu, MenuChoice};
@@ -25,6 +24,7 @@ use game::world::level::LevelData;
 use game::world::prop;
 use game::world::rooms::LevelRooms;
 use game::world::units::{px_to_tiles, tiles_to_px};
+use net::{ClientPacket, InputFlags, MoveSpeed, SelfState, decode_rotation, encode_rotation};
 
 macro_rules! ts {
     ($x:expr, $y:expr, $text:expr, $size:expr, $color:expr) => {
@@ -42,7 +42,7 @@ macro_rules! ts {
 // Net bullet trace (server-authoritative)
 // ---------------------------------------------------------------------------
 
-/// A bullet trace received from the server, kept alive for a short display TTL.
+/// A bullet trace received from the server, rendered as a very fast tracer.
 struct NetBulletTrace {
     from_x: f32,
     from_y: f32,
@@ -51,7 +51,10 @@ struct NetBulletTrace {
     ttl: f32,
 }
 
-const NET_BULLET_TTL: f32 = 0.30;
+/// Total lifetime of a network bullet tracer animation in seconds.
+const NET_BULLET_TTL: f32 = 0.08;
+/// Fraction of the path occupied by the moving tracer segment.
+const NET_BULLET_TRAIL_FRACTION: f32 = 0.20;
 /// Max screen-space length (px) of a rendered bullet trace.  Prevents traces
 /// from shooting far off screen when the server has no walls.
 const NET_BULLET_MAX_SCREEN_PX: f32 = 500.0;
@@ -174,19 +177,19 @@ impl ApplicationHandler for App {
                     let mx = input.mouse_x as f32;
                     let my = input.mouse_y as f32;
 
-                    let esc   = input.escape     && !self.prev_esc;
-                    let enter = input.enter      && !self.prev_enter;
-                    let f1    = input.f1         && !self.prev_f1;
+                    let esc = input.escape && !self.prev_esc;
+                    let enter = input.enter && !self.prev_enter;
+                    let f1 = input.f1 && !self.prev_f1;
                     let click = input.mouse_left && !self.prev_click;
 
                     if let Some(ns) = self.tick(sw, sh, mx, my, esc, enter, f1, click, &input) {
                         self.app_state = ns;
                     }
 
-                    self.prev_esc   = input.escape;
+                    self.prev_esc = input.escape;
                     self.prev_enter = input.enter;
-                    self.prev_f1    = input.f1;
-                    self.prev_f8    = input.f8;
+                    self.prev_f1 = input.f1;
+                    self.prev_f8 = input.f8;
                     self.prev_click = input.mouse_left;
                     self.input.end_frame();
 
@@ -199,10 +202,13 @@ impl ApplicationHandler for App {
                 let my = input.mouse_y as f32;
 
                 let quads = self.build_quads(sw, sh, mx, my);
-                let geo   = self.build_geo(sw, sh);
+                let geo = self.build_geo(sw, sh);
                 let texts = self.build_texts(sw, sh, mx, my);
 
-                self.wgpu_state.as_mut().unwrap().render(&quads, &geo, &texts);
+                self.wgpu_state
+                    .as_mut()
+                    .unwrap()
+                    .render(&quads, &geo, &texts);
 
                 window.request_redraw();
             }
@@ -242,16 +248,11 @@ impl App {
 
                             // Load first available level, fall back to default game state
                             if let Some(level) = scan_first_level() {
-                                self.game.load_level(
-                                    &level,
-                                    px_to_tiles(sw),
-                                    px_to_tiles(sh),
-                                );
+                                self.game
+                                    .load_level(&level, px_to_tiles(sw), px_to_tiles(sh));
                             }
-                            self.camera.reset((
-                                self.game.player.movement.x,
-                                self.game.player.movement.y,
-                            ));
+                            self.camera
+                                .reset((self.game.player.movement.x, self.game.player.movement.y));
                             return Some(AppState::Playing);
                         }
                         MenuChoice::Loadout => {
@@ -279,10 +280,9 @@ impl App {
 
             AppState::Playing => {
                 let viewport_px = (sw, sh);
-                let mouse_world = self.camera.screen_to_world(
-                    (input.mouse_x as f32, input.mouse_y as f32),
-                    viewport_px,
-                );
+                let mouse_world = self
+                    .camera
+                    .screen_to_world((input.mouse_x as f32, input.mouse_y as f32), viewport_px);
                 let mut world_input = input.clone();
                 world_input.mouse_x = tiles_to_px(mouse_world.0) as f64;
                 world_input.mouse_y = tiles_to_px(mouse_world.1) as f64;
@@ -293,20 +293,32 @@ impl App {
                     .map(|n| matches!(n.state(), ConnState::Connected { .. }))
                     .unwrap_or(false);
 
-                // When connected, bullet visuals come from the server.  Strip
-                // `shoot` from the local sim so it does not spawn projectiles or
-                // generate local impact marks — ammo/reload state still update
-                // because we keep `reload` in world_input.
+                // When connected the server is authoritative for position and
+                // bullets.  Strip movement and shoot from local sim so it only
+                // advances weapon/reload timers — no local projectiles or
+                // position drift.
                 let mut local_input = world_input.clone();
                 if net_connected {
                     local_input.shoot = false;
+                    local_input.right = false;
+                    local_input.left = false;
+                    local_input.up = false;
+                    local_input.down = false;
                 }
 
                 self.game.update(FIXED_STEP, &local_input);
 
-                // Pull server snapshots and ingest bullet events.
+                // Pull all server snapshots received since the last tick and
+                // ingest bullet events.  We must drain the whole queue — not
+                // just the latest snapshot — because bullet events exist only in
+                // the one tick snapshot where the shot was fired, and the
+                // network thread may have queued several snapshots between game
+                // ticks, most of which contain no bullets.
                 if let Some(net) = &self.net {
-                    if let Some(snap) = net.take_snapshot() {
+                    let snaps = net.take_snapshots();
+                    // Use the last snapshot's authoritative state; accumulate
+                    // bullet events from every snapshot in the batch.
+                    for snap in snaps {
                         self.server_me = Some(snap.me);
                         for b in snap.bullets {
                             self.net_bullet_traces.push(NetBulletTrace {
@@ -317,6 +329,18 @@ impl App {
                                 ttl: NET_BULLET_TTL,
                             });
                         }
+                    }
+                }
+
+                // Apply server-authoritative position so the camera and
+                // collision stay in sync with the server.
+                if net_connected {
+                    if let Some(ref me) = self.server_me {
+                        self.game.player.movement.x = me.x;
+                        self.game.player.movement.y = me.y;
+                        let rotation = decode_rotation(me.rotation);
+                        self.game.player.sight.direction = rotation;
+                        self.game.player.aim_cone.direction = rotation;
                     }
                 }
 
@@ -347,18 +371,24 @@ impl App {
                         let mut flags = InputFlags::default();
                         flags.set_shooting(input.shoot);
                         flags.set_reloading(input.reload);
-                        flags.set_walking(input.walk);
+                        flags.set_move_speed(if input.walk {
+                            MoveSpeed::SlowWalk
+                        } else if input.shift {
+                            MoveSpeed::Run
+                        } else {
+                            MoveSpeed::Walk
+                        });
                         flags.set_peeking(input.peek);
 
                         let angle = (mouse_world.1 - self.game.player.movement.y)
                             .atan2(mouse_world.0 - self.game.player.movement.x);
 
                         net.send_input(ClientPacket {
-                            sequence:   self.net_seq,
-                            timestamp:  client_time_ms(),
+                            sequence: self.net_seq,
+                            timestamp: client_time_ms(),
                             movement_x: (input.right as i8) - (input.left as i8),
-                            movement_y: (input.down  as i8) - (input.up   as i8),
-                            rotation:   encode_rotation(angle),
+                            movement_y: (input.down as i8) - (input.up as i8),
+                            rotation: encode_rotation(angle),
                             flags,
                         });
                         self.net_seq = self.net_seq.wrapping_add(1);
@@ -404,7 +434,15 @@ impl App {
 
     fn build_geo(&self, sw: f32, sh: f32) -> Vec<GeoVertex> {
         if let AppState::Playing = &self.app_state {
-            play_geo(&self.game, &self.camera, self.debug_mode, sw, sh, &self.net_bullet_traces)
+            play_geo(
+                &self.game,
+                &self.camera,
+                self.debug_mode,
+                sw,
+                sh,
+                &self.net_bullet_traces,
+                self.server_me.as_ref(),
+            )
         } else {
             vec![]
         }
@@ -431,7 +469,15 @@ impl App {
         match &self.app_state {
             AppState::MainMenu(_) => main_menu_texts(sw, sh),
             AppState::Loadout(loadout) => loadout_texts(sw, sh, loadout),
-            AppState::Playing => play_texts(sw, sh, &self.game, &self.camera, self.debug_mode, self.net.as_ref(), self.server_me.as_ref()),
+            AppState::Playing => play_texts(
+                sw,
+                sh,
+                &self.game,
+                &self.camera,
+                self.debug_mode,
+                self.net.as_ref(),
+                self.server_me.as_ref(),
+            ),
             AppState::Editing => editor_texts(sw, sh, &self.editor),
         }
     }
@@ -445,14 +491,26 @@ fn main_menu_texts(sw: f32, sh: f32) -> Vec<TextSection> {
     let cx = sw * 0.5;
     let bh = sh * 0.10;
     let gap = sh * 0.05;
-    let y_play    = sh * 0.28 + bh * 0.26;
-    let y_loadout = y_play    + bh + gap;
-    let y_editor  = y_loadout + bh + gap;
+    let y_play = sh * 0.28 + bh * 0.26;
+    let y_loadout = y_play + bh + gap;
+    let y_editor = y_loadout + bh + gap;
     vec![
-        ts!(cx - 160.0, sh * 0.12, "SHOOTING GAME", 48.0, [1.0, 1.0, 1.0, 1.0]),
-        ts!(cx - 68.0,  y_play,    "PLAY GAME",     28.0, [0.0, 0.0, 0.0, 1.0]),
-        ts!(cx - 62.0,  y_loadout, "LOADOUT",       28.0, [0.0, 0.0, 0.0, 1.0]),
-        ts!(cx - 92.0,  y_editor,  "LEVEL EDITOR",  28.0, [0.0, 0.0, 0.0, 1.0]),
+        ts!(
+            cx - 160.0,
+            sh * 0.12,
+            "SHOOTING GAME",
+            48.0,
+            [1.0, 1.0, 1.0, 1.0]
+        ),
+        ts!(cx - 68.0, y_play, "PLAY GAME", 28.0, [0.0, 0.0, 0.0, 1.0]),
+        ts!(cx - 62.0, y_loadout, "LOADOUT", 28.0, [0.0, 0.0, 0.0, 1.0]),
+        ts!(
+            cx - 92.0,
+            y_editor,
+            "LEVEL EDITOR",
+            28.0,
+            [0.0, 0.0, 0.0, 1.0]
+        ),
     ]
 }
 
@@ -552,7 +610,9 @@ fn play_texts(
     } else {
         game.player.ammo_in_mag() as u8
     };
-    let reloading = server_me.map(|me| me.reload_progress > 0).unwrap_or(game.player.is_reloading());
+    let reloading = server_me
+        .map(|me| me.reload_progress > 0)
+        .unwrap_or(game.player.is_reloading());
 
     let mut out = vec![
         ts!(
@@ -577,16 +637,22 @@ fn play_texts(
             [0.5, 0.5, 0.5, 1.0]
         ),
         ts!(8.0, 38.0, attachments_line, 13.0, [0.45, 0.45, 0.45, 1.0]),
-        ts!(sw - 170.0, 6.0, "SHOOTING GAME", 13.0, [0.35, 0.35, 0.35, 1.0]),
+        ts!(
+            sw - 170.0,
+            6.0,
+            "SHOOTING GAME",
+            13.0,
+            [0.35, 0.35, 0.35, 1.0]
+        ),
         ts!(
             sw - 210.0,
             20.0,
             match net.map(|n| n.state()) {
-                None                                   => "net: off".into(),
-                Some(ConnState::Connecting)            => "net: connecting…".into(),
+                None => "net: off".into(),
+                Some(ConnState::Connecting) => "net: connecting…".into(),
                 Some(ConnState::Connected { player_id }) => format!("net: player #{player_id}"),
-                Some(ConnState::Rejected(r))           => format!("net: rejected ({r})"),
-                Some(ConnState::Disconnected)          => "net: disconnected".into(),
+                Some(ConnState::Rejected(r)) => format!("net: rejected ({r})"),
+                Some(ConnState::Disconnected) => "net: disconnected".into(),
             },
             12.0,
             [0.35, 0.35, 0.35, 1.0]
@@ -999,7 +1065,15 @@ fn play_quads(
 // Play-mode sight-cone geometry builder
 // ---------------------------------------------------------------------------
 
-fn play_geo(game: &Game, camera: &TacticalCamera, debug: bool, sw: f32, sh: f32, net_bullets: &[NetBulletTrace]) -> Vec<GeoVertex> {
+fn play_geo(
+    game: &Game,
+    camera: &TacticalCamera,
+    debug: bool,
+    sw: f32,
+    sh: f32,
+    net_bullets: &[NetBulletTrace],
+    server_me: Option<&SelfState>,
+) -> Vec<GeoVertex> {
     let viewport_px = (sw, sh);
     let mut out = Vec::new();
     let walls = &game.walls;
@@ -1025,10 +1099,20 @@ fn play_geo(game: &Game, camera: &TacticalCamera, debug: bool, sw: f32, sh: f32,
         game.player.sight.cone_arc_pts(player_pos, walls, 60),
     );
     push_cone_fan(&mut out, player_pos_px, &arc, [0.3, 0.7, 1.0, 0.16]);
+    let (aim_direction, aim_half_angle) = if let Some(me) = server_me {
+        (decode_rotation(me.rotation), me.aim_cone_half_angle)
+    } else {
+        (
+            game.player.aim_cone.direction,
+            game.player.aim_cone.half_angle(),
+        )
+    };
     let aim_arc = world_points_to_screen(
         camera,
         viewport_px,
-        game.player.aim_cone.cone_arc_pts(player_pos, walls, 16),
+        game.player
+            .aim_cone
+            .cone_arc_pts_for(player_pos, walls, 16, aim_direction, aim_half_angle),
     );
     push_cone_fan(&mut out, player_pos_px, &aim_arc, [1.0, 0.6, 0.1, 0.45]);
 
@@ -1046,7 +1130,8 @@ fn play_geo(game: &Game, camera: &TacticalCamera, debug: bool, sw: f32, sh: f32,
 
     // ── Server-authoritative bullet traces ────────────────────────────────────
     for trace in net_bullets {
-        let alpha = (trace.ttl / NET_BULLET_TTL).clamp(0.0, 1.0);
+        let life = (trace.ttl / NET_BULLET_TTL).clamp(0.0, 1.0);
+        let progress = (1.0 - life).clamp(0.0, 1.0);
         let from = world_pos_to_screen(camera, viewport_px, (trace.from_x, trace.from_y));
         let mut to = world_pos_to_screen(camera, viewport_px, (trace.to_x, trace.to_y));
 
@@ -1060,8 +1145,40 @@ fn play_geo(game: &Game, camera: &TacticalCamera, debug: bool, sw: f32, sh: f32,
             to = (from.0 + dx * s, from.1 + dy * s);
         }
 
-        push_line(&mut out, from, to, 3.0, [1.0, 0.9, 0.3, 0.9 * alpha]);
-        push_circle_fan(&mut out, to, 5.0, [1.0, 0.85, 0.2, 0.5 * alpha], 12);
+        let tail_t = (progress - NET_BULLET_TRAIL_FRACTION).max(0.0);
+        let head = (
+            from.0 + (to.0 - from.0) * progress,
+            from.1 + (to.1 - from.1) * progress,
+        );
+        let tail = (
+            from.0 + (to.0 - from.0) * tail_t,
+            from.1 + (to.1 - from.1) * tail_t,
+        );
+
+        let alpha = life;
+        push_line(&mut out, tail, head, 7.0, [1.0, 0.95, 0.7, alpha * 0.70]);
+        push_line(&mut out, tail, head, 3.0, [1.0, 1.0, 1.0, alpha]);
+        push_circle_fan(&mut out, head, 7.0, [1.0, 0.95, 0.45, alpha], 10);
+
+        if progress < 0.20 {
+            push_circle_fan(
+                &mut out,
+                from,
+                8.0,
+                [1.0, 0.5, 0.1, (0.20 - progress) / 0.20 * alpha * 0.85],
+                10,
+            );
+        }
+
+        if progress > 0.80 {
+            push_circle_fan(
+                &mut out,
+                to,
+                6.5,
+                [1.0, 1.0, 0.2, (progress - 0.80) / 0.20 * alpha * 0.75],
+                10,
+            );
+        }
     }
 
     // ── Enemies ───────────────────────────────────────────────────────────────
@@ -1250,7 +1367,7 @@ fn push_line(out: &mut Vec<GeoVertex>, a: (f32, f32), b: (f32, f32), width: f32,
     }
     let half = width * 0.5;
     let nx = -dy / len * half;
-    let ny =  dx / len * half;
+    let ny = dx / len * half;
 
     let v0 = [a.0 + nx, a.1 + ny];
     let v1 = [a.0 - nx, a.1 - ny];
@@ -1282,5 +1399,8 @@ fn scan_first_level() -> Option<LevelData> {
         .filter(|p| p.extension().and_then(|s| s.to_str()) == Some("json"))
         .collect();
     paths.sort();
-    paths.first().and_then(|p| p.to_str()).and_then(|s| LevelData::load(s).ok())
+    paths
+        .first()
+        .and_then(|p| p.to_str())
+        .and_then(|s| LevelData::load(s).ok())
 }

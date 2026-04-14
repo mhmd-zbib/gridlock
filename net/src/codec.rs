@@ -55,6 +55,10 @@ pub fn encode(packet: &AnyPacket) -> Vec<u8> {
             w.u8(p.me.ammo);
             w.u8(p.me.reload_progress);
             w.u8(p.me.movement_state.0);
+            w.f32(p.me.x);
+            w.f32(p.me.y);
+            w.u16(p.me.rotation);
+            w.f32(p.me.aim_cone_half_angle);
             // players
             w.u8(p.players.len().min(255) as u8);
             for pl in p.players.iter().take(255) {
@@ -157,6 +161,10 @@ pub fn decode(buf: &[u8]) -> Result<AnyPacket, DecodeError> {
                 ammo: r.u8()?,
                 reload_progress: r.u8()?,
                 movement_state: MovementState(r.u8()?),
+                x: r.f32()?,
+                y: r.f32()?,
+                rotation: r.u16()?,
+                aim_cone_half_angle: r.f32()?,
             };
             let player_count = r.u8()? as usize;
             let mut players = Vec::with_capacity(player_count);
@@ -186,8 +194,8 @@ pub fn decode(buf: &[u8]) -> Result<AnyPacket, DecodeError> {
             let mut sounds = Vec::with_capacity(sound_count);
             for _ in 0..sound_count {
                 let kind_byte = r.u8()?;
-                let kind = SoundKind::from_u8(kind_byte)
-                    .ok_or(DecodeError::InvalidField("sound_kind"))?;
+                let kind =
+                    SoundKind::from_u8(kind_byte).ok_or(DecodeError::InvalidField("sound_kind"))?;
                 sounds.push(SoundEvent {
                     kind,
                     x: r.f32()?,
@@ -401,6 +409,10 @@ mod tests {
                 ammo: 30,
                 reload_progress: 0,
                 movement_state: MovementState(0),
+                x: 19.125,
+                y: 28.75,
+                rotation: encode_rotation(1.0),
+                aim_cone_half_angle: 0.125,
             },
             players: vec![PlayerState {
                 id: 7,
@@ -437,6 +449,9 @@ mod tests {
         };
         assert_eq!(p.tick, 42);
         assert_eq!(p.me.health, 100);
+        assert!((p.me.x - 19.125).abs() < 1e-5);
+        assert!((p.me.y - 28.75).abs() < 1e-5);
+        assert!((p.me.aim_cone_half_angle - 0.125).abs() < 1e-6);
         assert_eq!(p.players.len(), 1);
         assert_eq!(p.players[0].id, 7);
         assert!((p.players[0].x - 3.5).abs() < 1e-5);

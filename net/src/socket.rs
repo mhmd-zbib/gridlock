@@ -172,11 +172,7 @@ impl NetSocket {
     ///
     /// Returns the ack on success, or an error if the reply is not a
     /// `ConnectAck` or the socket fails.
-    pub async fn connect(
-        &self,
-        server: SocketAddr,
-        name: &str,
-    ) -> Result<ConnectAck, RecvError> {
+    pub async fn connect(&self, server: SocketAddr, name: &str) -> Result<ConnectAck, RecvError> {
         let req = ConnectRequest::new(name);
         self.send_to(&AnyPacket::ConnectRequest(req), server)
             .await

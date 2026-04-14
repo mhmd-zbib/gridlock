@@ -2,14 +2,14 @@
 ///
 /// Wire layout (big-endian):
 ///   [tick: u32] [timestamp: u32]
-///   [self_state: 4 B]
+///   [self_state: 18 B]
 ///   [player_count: u8] [players: player_count × 14 B]
 ///   [bullet_count: u8] [bullets: bullet_count × 20 B]
 ///   [sound_count:  u8] [sounds:  sound_count  × 10 B]
 ///   [match_state: 4 B]
 ///
 /// Maximum wire size with reasonable counts (64 players, 32 bullets, 16 sounds):
-///   8 + 4 + 1 + 64×14 + 1 + 32×20 + 1 + 16×10 + 4 = 1,795 B
+///   8 + 18 + 1 + 64×14 + 1 + 32×20 + 1 + 16×10 + 4 = 1,729 B
 /// Keep player/bullet/sound counts small to stay under the 1 400 B MTU ceiling.
 #[derive(Debug, Clone)]
 pub struct ServerPacket {
@@ -38,9 +38,10 @@ pub struct ServerPacket {
 
 // ── SelfState ─────────────────────────────────────────────────────────────────
 
-/// The local player's authoritative state (4 bytes on the wire).
+/// The local player's authoritative state (18 bytes on the wire).
 ///
 /// Wire layout: [health: u8] [ammo: u8] [reload_progress: u8] [movement_state: u8]
+///              [x: f32] [y: f32] [rotation: u16] [aim_cone_half_angle: f32]
 #[derive(Debug, Clone, Copy, Default)]
 pub struct SelfState {
     /// Current health; `0` means dead.
@@ -55,6 +56,19 @@ pub struct SelfState {
 
     /// Packed locomotion + action flags; see [`MovementState`].
     pub movement_state: MovementState,
+
+    /// Server-authoritative position X in tiles.
+    pub x: f32,
+
+    /// Server-authoritative position Y in tiles.
+    pub y: f32,
+
+    /// Aim direction compressed to `[0, 65535]` (same encoding as
+    /// `ClientPacket::rotation`).
+    pub rotation: u16,
+
+    /// Current authoritative aim-cone half-angle in radians.
+    pub aim_cone_half_angle: f32,
 }
 
 // ── PlayerState ───────────────────────────────────────────────────────────────
@@ -155,26 +169,22 @@ pub struct MatchState {
 /// [`PlayerState::movement_state`] (1 byte on the wire).
 ///
 /// ```text
-/// bit 0 : RUNNING
-/// bit 1 : WALKING
-/// bit 2 : PEEKING
-/// bit 3 : RELOADING
-/// bits 4-7 : reserved
+/// bits 0-1: MOVE_SPEED  (0 = SlowWalk · 1 = Walk · 2 = Run · 3 = reserved)
+/// bit 2   : PEEKING
+/// bit 3   : RELOADING
+/// bits 4-7: reserved
 /// ```
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct MovementState(pub u8);
 
 impl MovementState {
-    const RUNNING: u8 = 1 << 0;
-    const WALKING: u8 = 1 << 1;
+    const MOVE_SPEED_MASK: u8 = 0b0000_0011;
     const PEEKING: u8 = 1 << 2;
     const RELOADING: u8 = 1 << 3;
 
-    pub fn is_running(self) -> bool {
-        self.0 & Self::RUNNING != 0
-    }
-    pub fn is_walking(self) -> bool {
-        self.0 & Self::WALKING != 0
+    /// Returns the movement speed tier.
+    pub fn move_speed(self) -> super::MoveSpeed {
+        super::MoveSpeed::from_u8(self.0 & Self::MOVE_SPEED_MASK)
     }
     pub fn is_peeking(self) -> bool {
         self.0 & Self::PEEKING != 0
@@ -183,11 +193,9 @@ impl MovementState {
         self.0 & Self::RELOADING != 0
     }
 
-    pub fn set_running(&mut self, v: bool) {
-        self.set_bit(Self::RUNNING, v);
-    }
-    pub fn set_walking(&mut self, v: bool) {
-        self.set_bit(Self::WALKING, v);
+    /// Encodes the movement speed tier into bits 0-1.
+    pub fn set_move_speed(&mut self, speed: super::MoveSpeed) {
+        self.0 = (self.0 & !Self::MOVE_SPEED_MASK) | (speed as u8 & Self::MOVE_SPEED_MASK);
     }
     pub fn set_peeking(&mut self, v: bool) {
         self.set_bit(Self::PEEKING, v);

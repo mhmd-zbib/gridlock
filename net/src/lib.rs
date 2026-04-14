@@ -4,15 +4,16 @@ pub mod socket;
 
 // ── Flat re-exports for convenience ──────────────────────────────────────────
 
-pub use codec::{decode, decode_rotation, encode, encode_rotation, DecodeError};
+pub use codec::{DecodeError, decode, decode_rotation, encode, encode_rotation};
+pub use proto::MoveSpeed;
 pub use proto::{
     client::{ClientPacket, InputFlags},
     handshake::{
-        AnyPacket, ConnectAck, ConnectRequest, ConnectResult, PacketKind, PROTOCOL_VERSION,
+        AnyPacket, ConnectAck, ConnectRequest, ConnectResult, PROTOCOL_VERSION, PacketKind,
     },
     server::{
         BulletEvent, MatchState, MovementState, PlayerState, SelfState, ServerPacket, SoundEvent,
         SoundKind,
     },
 };
-pub use socket::{NetSocket, RecvError, MAX_DATAGRAM};
+pub use socket::{MAX_DATAGRAM, NetSocket, RecvError};

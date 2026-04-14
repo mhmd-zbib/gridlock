@@ -4,8 +4,8 @@ use super::entity::player::{Player, PlayerLoadoutConfig};
 use super::entity::weapon::attachment::AttachmentCategory;
 use super::entity::weapon::{weapon_supports_attachment, weapon_supports_attachment_category};
 use super::spawn::{SpawnQueue, SpawnRequest};
-use super::systems::{projectile, visibility};
 pub use super::systems::projectile::ImpactEvent;
+use super::systems::{projectile, visibility};
 use super::world::level::{LevelBounds, LevelData};
 use super::world::prop::{self, ResolvedProp};
 use super::world::ray::cast_ray;
@@ -226,7 +226,11 @@ impl Game {
             });
         }
         // Impact marks for local visual feedback (wall/enemy hits).
-        self.impacts.extend(impact_events.iter().map(|hit| ImpactMark::new(hit.x, hit.y)));
+        self.impacts.extend(
+            impact_events
+                .iter()
+                .map(|hit| ImpactMark::new(hit.x, hit.y)),
+        );
         for impact in &mut self.impacts {
             impact.ttl -= dt;
         }
@@ -239,7 +243,15 @@ impl Game {
         const BULLET_MAX_RANGE: f32 = px_to_tiles(1500.0);
         for req in self.spawn_queue.drain() {
             match req {
-                SpawnRequest::Bullet { x, y, dir_x, dir_y, speed, damage, owner } => {
+                SpawnRequest::Bullet {
+                    x,
+                    y,
+                    dir_x,
+                    dir_y,
+                    speed,
+                    damage,
+                    owner,
+                } => {
                     if matches!(owner, BulletOwner::Player) {
                         let dist = cast_ray((x, y), (dir_x, dir_y), BULLET_MAX_RANGE, &self.walls);
                         self.bullet_traces.push(ImpactEvent {
@@ -249,7 +261,8 @@ impl Game {
                             origin_y: y,
                         });
                     }
-                    self.bullets.push(Bullet::new(x, y, dir_x, dir_y, speed, damage, owner));
+                    self.bullets
+                        .push(Bullet::new(x, y, dir_x, dir_y, speed, damage, owner));
                 }
                 SpawnRequest::Enemy { x, y } => {
                     self.enemies.push(Enemy::new(x, y));

@@ -139,7 +139,22 @@ impl AimCone {
     /// The algorithm is identical to `Sight::cone_arc_pts`: uniform ray samples are
     /// supplemented with wall-corner rays so shadow edges snap cleanly to geometry.
     pub fn cone_arc_pts(&self, origin: (f32, f32), walls: &[Wall], n_rays: usize) -> Vec<[f32; 2]> {
-        let half = self.half_angle();
+        self.cone_arc_pts_for(origin, walls, n_rays, self.direction, self.half_angle())
+    }
+
+    /// Same as [`Self::cone_arc_pts`], but with explicit direction + half-angle.
+    ///
+    /// This is used by the networked client to render an authoritative cone angle
+    /// sent by the server while still using local wall clipping and weapon range.
+    pub fn cone_arc_pts_for(
+        &self,
+        origin: (f32, f32),
+        walls: &[Wall],
+        n_rays: usize,
+        direction: f32,
+        half_angle: f32,
+    ) -> Vec<[f32; 2]> {
+        let half = half_angle.max(0.0);
         let range = self.render_range;
 
         let mut rel: Vec<f32> = (0..=n_rays)
@@ -163,7 +178,7 @@ impl AimCone {
                 if dx * dx + dy * dy < px_to_tiles(1.0) * px_to_tiles(1.0) {
                     continue;
                 }
-                let r = wrap_angle(dy.atan2(dx) - self.direction);
+                let r = wrap_angle(dy.atan2(dx) - direction);
                 if r.abs() < half {
                     rel.push(r - EPS);
                     rel.push(r);
@@ -176,7 +191,7 @@ impl AimCone {
 
         rel.iter()
             .map(|&r| {
-                let angle = self.direction + r.clamp(-half, half);
+                let angle = direction + r.clamp(-half, half);
                 let dir = (angle.cos(), angle.sin());
                 let dist = cast_ray(origin, dir, range, walls);
                 [origin.0 + dir.0 * dist, origin.1 + dir.1 * dist]

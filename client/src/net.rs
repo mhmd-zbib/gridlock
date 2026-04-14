@@ -1,9 +1,10 @@
+use std::collections::VecDeque;
 use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use net::{AnyPacket, ClientPacket, ConnectResult, NetSocket};
 use net::proto::server::ServerPacket;
+use net::{AnyPacket, ClientPacket, ConnectResult, NetSocket};
 
 // ── Public types ──────────────────────────────────────────────────────────────
 
@@ -22,20 +23,26 @@ enum Cmd {
 
 // ── NetClient ─────────────────────────────────────────────────────────────────
 
+/// Maximum number of snapshots buffered before older ones are dropped.
+const MAX_PENDING_SNAPSHOTS: usize = 16;
+
 pub struct NetClient {
     state: Arc<Mutex<ConnState>>,
     cmd_tx: std::sync::mpsc::SyncSender<Cmd>,
-    /// Latest snapshot received from the server; replaced each tick.
-    latest_snapshot: Arc<Mutex<Option<ServerPacket>>>,
+    /// All snapshots received from the server since the last `take_snapshots()`
+    /// call, in arrival order.  Using a queue instead of a single slot prevents
+    /// bullet events from being silently discarded when the network thread
+    /// receives multiple snapshots between client game ticks.
+    pending_snapshots: Arc<Mutex<VecDeque<ServerPacket>>>,
 }
 
 impl NetClient {
     pub fn connect(server_addr: SocketAddr, name: String) -> Self {
-        let state   = Arc::new(Mutex::new(ConnState::Connecting));
+        let state = Arc::new(Mutex::new(ConnState::Connecting));
         let state_bg = Arc::clone(&state);
         let (cmd_tx, cmd_rx) = std::sync::mpsc::sync_channel(8);
-        let latest_snapshot = Arc::new(Mutex::new(None::<ServerPacket>));
-        let snapshot_bg = Arc::clone(&latest_snapshot);
+        let pending_snapshots = Arc::new(Mutex::new(VecDeque::new()));
+        let snapshot_bg = Arc::clone(&pending_snapshots);
 
         std::thread::spawn(move || {
             tokio::runtime::Builder::new_current_thread()
@@ -45,7 +52,11 @@ impl NetClient {
                 .block_on(net_task(server_addr, name, state_bg, cmd_rx, snapshot_bg));
         });
 
-        Self { state, cmd_tx, latest_snapshot }
+        Self {
+            state,
+            cmd_tx,
+            pending_snapshots,
+        }
     }
 
     pub fn state(&self) -> ConnState {
@@ -60,11 +71,14 @@ impl NetClient {
         let _ = self.cmd_tx.try_send(Cmd::SendInput(pkt));
     }
 
-    /// Take the most recent server snapshot, leaving `None` behind.
+    /// Drain all server snapshots received since the last call, oldest first.
     ///
-    /// Returns `None` if no new snapshot has arrived since the last call.
-    pub fn take_snapshot(&self) -> Option<ServerPacket> {
-        self.latest_snapshot.lock().unwrap().take()
+    /// Returns an empty `Vec` if no new snapshots have arrived.
+    /// Callers should use the last entry's state fields (health, ammo, …) as
+    /// the authoritative current state, and accumulate bullet/sound events from
+    /// **all** entries so that no projectile events are dropped between ticks.
+    pub fn take_snapshots(&self) -> Vec<ServerPacket> {
+        self.pending_snapshots.lock().unwrap().drain(..).collect()
     }
 }
 
@@ -81,7 +95,7 @@ async fn net_task(
     name: String,
     state: Arc<Mutex<ConnState>>,
     cmd_rx: std::sync::mpsc::Receiver<Cmd>,
-    latest_snapshot: Arc<Mutex<Option<ServerPacket>>>,
+    pending_snapshots: Arc<Mutex<VecDeque<ServerPacket>>>,
 ) {
     let socket = match NetSocket::bind("0.0.0.0:0".parse().unwrap()).await {
         Ok(s) => s,
@@ -92,24 +106,38 @@ async fn net_task(
     };
 
     // Handshake — 5 s timeout
-    let ack = match tokio::time::timeout(
-        Duration::from_secs(5),
-        socket.connect(server_addr, &name),
-    )
-    .await
+    let ack = match tokio::time::timeout(Duration::from_secs(5), socket.connect(server_addr, &name))
+        .await
     {
-        Ok(Ok(a))  => a,
-        Ok(Err(e)) => { *state.lock().unwrap() = ConnState::Rejected(e.to_string()); return; }
-        Err(_)     => { *state.lock().unwrap() = ConnState::Rejected("timed out".into()); return; }
+        Ok(Ok(a)) => a,
+        Ok(Err(e)) => {
+            *state.lock().unwrap() = ConnState::Rejected(e.to_string());
+            return;
+        }
+        Err(_) => {
+            *state.lock().unwrap() = ConnState::Rejected("timed out".into());
+            return;
+        }
     };
 
     match ack.result {
         ConnectResult::Ok => {
-            *state.lock().unwrap() = ConnState::Connected { player_id: ack.player_id };
+            *state.lock().unwrap() = ConnState::Connected {
+                player_id: ack.player_id,
+            };
         }
-        ConnectResult::ServerFull     => { *state.lock().unwrap() = ConnState::Rejected("server full".into());             return; }
-        ConnectResult::VersionMismatch => { *state.lock().unwrap() = ConnState::Rejected("version mismatch".into());       return; }
-        ConnectResult::Banned         => { *state.lock().unwrap() = ConnState::Rejected("banned".into());                  return; }
+        ConnectResult::ServerFull => {
+            *state.lock().unwrap() = ConnState::Rejected("server full".into());
+            return;
+        }
+        ConnectResult::VersionMismatch => {
+            *state.lock().unwrap() = ConnState::Rejected("version mismatch".into());
+            return;
+        }
+        ConnectResult::Banned => {
+            *state.lock().unwrap() = ConnState::Rejected("banned".into());
+            return;
+        }
     }
 
     // Session loop — stay connected until explicit Disconnect or server closes
@@ -123,7 +151,9 @@ async fn net_task(
                     return;
                 }
                 Ok(Cmd::SendInput(pkt)) => {
-                    let _ = socket.send_to(&AnyPacket::ClientInput(pkt), server_addr).await;
+                    let _ = socket
+                        .send_to(&AnyPacket::ClientInput(pkt), server_addr)
+                        .await;
                 }
                 Err(std::sync::mpsc::TryRecvError::Disconnected) => {
                     let _ = socket.send_to(&AnyPacket::Disconnect, server_addr).await;
@@ -133,7 +163,7 @@ async fn net_task(
             }
         }
 
-        // Non-blocking recv — store snapshots, react to disconnect
+        // Non-blocking recv — queue snapshots, react to disconnect
         match tokio::time::timeout(Duration::from_millis(16), socket.recv()).await {
             Ok(Ok((AnyPacket::ServerSnapshot(snap), _))) => {
                 println!(
@@ -149,7 +179,11 @@ async fn net_task(
                         b.shooter_id, b.from_x, b.from_y, b.to_x, b.to_y, b.hit_player_id,
                     );
                 }
-                *latest_snapshot.lock().unwrap() = Some(snap);
+                let mut queue = pending_snapshots.lock().unwrap();
+                if queue.len() >= MAX_PENDING_SNAPSHOTS {
+                    queue.pop_front(); // drop oldest to bound memory
+                }
+                queue.push_back(snap);
             }
             Ok(Ok((AnyPacket::Disconnect, _))) => {
                 *state.lock().unwrap() = ConnState::Disconnected;

@@ -1,3 +1,5 @@
+use super::MoveSpeed;
+
 /// Packet sent from client → server every input tick (~11 bytes on the wire).
 ///
 /// Wire layout (big-endian):
@@ -33,12 +35,11 @@ pub struct ClientPacket {
 /// Bitfield carried inside [`ClientPacket::flags`].
 ///
 /// ```text
-/// bit 0 : SHOOTING
-/// bit 1 : RELOADING
-/// bit 2 : WALKING   (hold-to-walk, slower movement)
-/// bit 3 : PEEKING
-/// bits 4-6 : weapon slot index (0-7)
-/// bit 7 : reserved
+/// bit 0   : SHOOTING
+/// bit 1   : RELOADING
+/// bits 2-3: MOVE_SPEED  (0 = SlowWalk · 1 = Walk · 2 = Run · 3 = reserved)
+/// bit 4   : PEEKING
+/// bits 5-7: weapon slot index (0-7)
 /// ```
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct InputFlags(pub u8);
@@ -46,10 +47,11 @@ pub struct InputFlags(pub u8);
 impl InputFlags {
     const SHOOTING: u8 = 1 << 0;
     const RELOADING: u8 = 1 << 1;
-    const WALKING: u8 = 1 << 2;
-    const PEEKING: u8 = 1 << 3;
-    const WEAPON_SLOT_MASK: u8 = 0b0111_0000;
-    const WEAPON_SLOT_SHIFT: u8 = 4;
+    const MOVE_SPEED_MASK: u8 = 0b0000_1100;
+    const MOVE_SPEED_SHIFT: u8 = 2;
+    const PEEKING: u8 = 1 << 4;
+    const WEAPON_SLOT_MASK: u8 = 0b1110_0000;
+    const WEAPON_SLOT_SHIFT: u8 = 5;
 
     // ── Getters ──────────────────────────────────────────────────────────────
 
@@ -59,8 +61,9 @@ impl InputFlags {
     pub fn is_reloading(self) -> bool {
         self.0 & Self::RELOADING != 0
     }
-    pub fn is_walking(self) -> bool {
-        self.0 & Self::WALKING != 0
+    /// Returns the active movement speed tier.
+    pub fn move_speed(self) -> MoveSpeed {
+        MoveSpeed::from_u8((self.0 & Self::MOVE_SPEED_MASK) >> Self::MOVE_SPEED_SHIFT)
     }
     pub fn is_peeking(self) -> bool {
         self.0 & Self::PEEKING != 0
@@ -78,16 +81,18 @@ impl InputFlags {
     pub fn set_reloading(&mut self, v: bool) {
         self.set_bit(Self::RELOADING, v);
     }
-    pub fn set_walking(&mut self, v: bool) {
-        self.set_bit(Self::WALKING, v);
+    /// Encodes the movement speed tier into bits 2-3.
+    pub fn set_move_speed(&mut self, speed: MoveSpeed) {
+        let bits = ((speed as u8) << Self::MOVE_SPEED_SHIFT) & Self::MOVE_SPEED_MASK;
+        self.0 = (self.0 & !Self::MOVE_SPEED_MASK) | bits;
     }
     pub fn set_peeking(&mut self, v: bool) {
         self.set_bit(Self::PEEKING, v);
     }
     /// Clamps `slot` to `[0, 7]`.
     pub fn set_weapon_slot(&mut self, slot: u8) {
-        let clamped = (slot.min(7) << Self::WEAPON_SLOT_SHIFT) & Self::WEAPON_SLOT_MASK;
-        self.0 = (self.0 & !Self::WEAPON_SLOT_MASK) | clamped;
+        let bits = (slot.min(7) << Self::WEAPON_SLOT_SHIFT) & Self::WEAPON_SLOT_MASK;
+        self.0 = (self.0 & !Self::WEAPON_SLOT_MASK) | bits;
     }
 
     fn set_bit(&mut self, bit: u8, v: bool) {

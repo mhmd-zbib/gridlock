@@ -102,7 +102,6 @@ impl LevelSelect {
 
         out
     }
-
 }
 
 fn scan() -> Vec<LevelEntry> {

@@ -56,9 +56,7 @@ pub fn load_assets() -> Vec<PropAssetDef> {
     out.sort_by(|a, b| a.id.cmp(&b.id));
 
     let mut seen = HashSet::new();
-    out.retain(|def| {
-        seen.insert(def.id.clone())
-    });
+    out.retain(|def| seen.insert(def.id.clone()));
     out
 }
 
