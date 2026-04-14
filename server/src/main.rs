@@ -3,11 +3,12 @@ use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use engine::input::InputState;
+use game::entity::weapon::{WeaponState, all_weapon_ids};
 use game::game::Game;
 use game::world::level::{LevelBounds, LevelData};
+use game::world::ray::cast_ray;
 use game::world::sight::Sight;
-use game::world::units::{px_to_tiles, tiles_to_px};
+use game::world::units::px_to_tiles;
 use game::world::wall::{self, Wall};
 use net::proto::server::{
     BulletEvent, MatchState, MovementState, PlayerState, SelfState, ServerPacket,
@@ -26,6 +27,9 @@ const PLAYER_HALF: f32 = px_to_tiles(10.0);
 const WALK_SPEED: f32 = px_to_tiles(40.0);
 const NORMAL_SPEED: f32 = px_to_tiles(85.0);
 const RUN_SPEED: f32 = px_to_tiles(200.0);
+const BULLET_MAX_RANGE: f32 = px_to_tiles(1500.0);
+const WALL_HIT_EPS: f32 = px_to_tiles(0.5);
+const MAX_HEALTH: u16 = 100;
 
 // ── Session ───────────────────────────────────────────────────────────────────
 
@@ -34,7 +38,10 @@ struct Session {
     name: String,
     x: f32,
     y: f32,
+    health: u16,
     rotation: u16,
+    weapon: WeaponState,
+    aim_cone_half_angle: f32,
     movement_state: MovementState,
     /// Team selection (`0` = none, `1` = team 1, `2` = team 2).
     team: u8,
@@ -109,14 +116,13 @@ async fn main() {
     loop {
         sleep_until(next_tick).await;
 
-        // Advance all connected player replicas and collect latest inputs.
-        let (game_started, addrs, player_input): (
-            bool,
-            Vec<SocketAddr>,
-            Option<(u16, ClientPacket)>,
-        ) = {
+        // Advance all connected player replicas.
+        let (game_started, addrs): (bool, Vec<SocketAddr>) = {
             let mut st = state.lock().unwrap();
             for session in st.sessions.values_mut() {
+                if session.health == 0 {
+                    continue;
+                }
                 if let Some(input) = session.latest_input {
                     apply_session_input(
                         session,
@@ -128,13 +134,7 @@ async fn main() {
                 }
             }
             let addrs = st.sessions.keys().copied().collect();
-            // For now advance the game with the first connected player's input.
-            let input = st
-                .sessions
-                .values()
-                .filter_map(|s| s.latest_input.map(|i| (s.player_id, i)))
-                .next();
-            (st.game_started, addrs, input)
+            (st.game_started, addrs)
         };
 
         if !game_started {
@@ -146,32 +146,10 @@ async fn main() {
             continue;
         }
 
-        // Convert the client packet into an engine InputState and step the game.
-        let engine_input = player_input
-            .map(|(_, pkt)| {
-                client_input_to_engine(&pkt, game.player.movement.x, game.player.movement.y)
-            })
-            .unwrap_or_default();
-
-        game.update(TICK_DURATION.as_secs_f32(), &engine_input);
-
-        // The shooter_id for all traces this tick is the first connected player
-        // (or 0 if nobody is connected yet).
-        let shooter_id = player_input.map(|(id, _)| id).unwrap_or(0);
-
-        // Drain bullet traces and convert to wire events.
-        let bullets: Vec<BulletEvent> = game
-            .take_bullet_traces()
-            .into_iter()
-            .map(|t| BulletEvent {
-                shooter_id,
-                from_x: t.origin_x,
-                from_y: t.origin_y,
-                to_x: t.x,
-                to_y: t.y,
-                hit_player_id: 0,
-            })
-            .collect();
+        let bullets = {
+            let mut st = state.lock().unwrap();
+            step_combat(&mut st, &mut game.walls, TICK_DURATION.as_secs_f32())
+        };
 
         tick = tick.wrapping_add(1);
         next_tick += TICK_DURATION;
@@ -185,10 +163,10 @@ async fn main() {
                         let snapshot = build_snapshot_for_player(
                             tick,
                             &bullets,
-                            &game,
+                            &game.walls,
                             &st,
                             addr,
-                            session.latest_input.as_ref(),
+                            session,
                         );
                         (addr, encode(&AnyPacket::ServerSnapshot(snapshot)))
                     })
@@ -241,14 +219,20 @@ async fn handle_packet(packet: AnyPacket, addr: SocketAddr, socket: &NetSocket, 
                     let pid = st.next_player_id;
                     st.next_player_id = pid.wrapping_add(1).max(1);
                     let spawn = st.spawn;
+                    let offset = spawn_offset(pid);
+                    let weapon = default_weapon_state();
+                    let aim_cone_half_angle = weapon.stats().aim_base_half_angle_deg.to_radians();
                     st.sessions.insert(
                         addr,
                         Session {
                             player_id: pid,
                             name: req.name_str().to_string(),
-                            x: spawn.0,
-                            y: spawn.1,
+                            x: spawn.0 + offset.0,
+                            y: spawn.1 + offset.1,
+                            health: MAX_HEALTH,
                             rotation: encode_rotation(0.0),
+                            weapon,
+                            aim_cone_half_angle,
                             movement_state: MovementState::default(),
                             team: 0,
                             latest_input: None,
@@ -390,82 +374,35 @@ async fn broadcast_lobby_state(socket: &NetSocket, state: &Shared) {
     }
 }
 
-// ── Input conversion ──────────────────────────────────────────────────────────
-
-/// Convert a `ClientPacket` into an `InputState` the game engine can consume.
-///
-/// The rotation angle is decoded back to a direction vector, and a fake
-/// mouse-world position one tile ahead of the player is synthesised so that
-/// `Player::update` computes the correct aim direction.
-fn client_input_to_engine(pkt: &ClientPacket, player_x: f32, player_y: f32) -> InputState {
-    let theta = decode_rotation(pkt.rotation);
-    let dir_x = theta.cos();
-    let dir_y = theta.sin();
-
-    // One tile ahead in the aim direction, expressed as pixel coordinates
-    // (the engine converts pixels → tiles internally via px_to_tiles).
-    let aim_px_x = tiles_to_px(player_x + dir_x) as f64;
-    let aim_px_y = tiles_to_px(player_y + dir_y) as f64;
-
-    InputState {
-        right: pkt.movement_x > 0,
-        left: pkt.movement_x < 0,
-        down: pkt.movement_y > 0,
-        up: pkt.movement_y < 0,
-        shoot: pkt.flags.is_shooting(),
-        reload: pkt.flags.is_reloading(),
-        walk: pkt.flags.move_speed() == MoveSpeed::SlowWalk,
-        shift: pkt.flags.move_speed() == MoveSpeed::Run,
-        peek: pkt.flags.is_peeking(),
-        mouse_x: aim_px_x,
-        mouse_y: aim_px_y,
-        ..InputState::default()
-    }
-}
-
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 fn build_snapshot_for_player(
     tick: u32,
     bullets: &[BulletEvent],
-    game: &Game,
+    walls: &[Wall],
     st: &ServerState,
     recipient_addr: SocketAddr,
-    latest_input: Option<&ClientPacket>,
+    recipient_session: &Session,
 ) -> ServerPacket {
-    let fallback_rotation = encode_rotation(game.player.sight.direction);
-    let (me_x, me_y, me_rotation, me_movement_state) =
-        if let Some(session) = st.sessions.get(&recipient_addr) {
-            (
-                session.x,
-                session.y,
-                session.rotation,
-                session.movement_state,
-            )
-        } else {
-            (
-                game.player.movement.x,
-                game.player.movement.y,
-                fallback_rotation,
-                movement_state_from_input(latest_input, game.player.is_reloading()),
-            )
-        };
+    let me_x = recipient_session.x;
+    let me_y = recipient_session.y;
+    let me_rotation = recipient_session.rotation;
+    let me_movement_state = recipient_session.movement_state;
+    let me_weapon_stats = recipient_session.weapon.stats();
 
     let mut viewer_sight = Sight::player();
     viewer_sight.direction = decode_rotation(me_rotation);
-    viewer_sight.half_angle = game.player.sight.half_angle;
-    viewer_sight.range = game.player.sight.range;
-    viewer_sight.circle_radius = game.player.sight.circle_radius;
-    let viewer_pos = (me_x, me_y);
+    viewer_sight.range = me_weapon_stats.visibility_range;
+    viewer_sight.half_angle = me_weapon_stats.visibility_half_angle_deg.to_radians();
+
     let players: Vec<PlayerState> = st
         .sessions
         .iter()
         .filter_map(|(&addr, session)| {
-            if addr == recipient_addr {
+            if addr == recipient_addr || session.health == 0 {
                 return None;
             }
-            let target = (session.x, session.y);
-            if !viewer_sight.can_see(viewer_pos, target, &game.walls) {
+            if !viewer_sight.can_see((me_x, me_y), (session.x, session.y), walls) {
                 return None;
             }
             Some(PlayerState {
@@ -481,17 +418,25 @@ fn build_snapshot_for_player(
 
     ServerPacket {
         tick,
-        timestamp: latest_input.map(|pkt| pkt.timestamp).unwrap_or(0),
+        timestamp: recipient_session
+            .latest_input
+            .as_ref()
+            .map(|pkt| pkt.timestamp)
+            .unwrap_or(0),
         me: SelfState {
-            health: 100,
-            ammo: game.player.ammo_in_mag() as u8,
+            health: recipient_session.health.min(u8::MAX as u16) as u8,
+            ammo: recipient_session.weapon.ammo_in_mag().min(u8::MAX as u32) as u8,
             // Non-zero while reloading (exact progress tracked client-side).
-            reload_progress: if game.player.is_reloading() { 128 } else { 0 },
+            reload_progress: if recipient_session.weapon.is_reloading() {
+                128
+            } else {
+                0
+            },
             movement_state: me_movement_state,
             x: me_x,
             y: me_y,
             rotation: me_rotation,
-            aim_cone_half_angle: game.player.aim_cone.half_angle(),
+            aim_cone_half_angle: recipient_session.aim_cone_half_angle,
         },
         players,
         bullets: bullets.to_vec(),
@@ -574,6 +519,168 @@ fn clamp_actor_to_level_bounds(x: &mut f32, y: &mut f32, half: f32, bounds: Opti
     } else {
         *y = bounds.y + bounds.h * 0.5;
     }
+}
+
+fn step_combat(st: &mut ServerState, walls: &mut Vec<Wall>, dt: f32) -> Vec<BulletEvent> {
+    let shooter_addrs: Vec<SocketAddr> = st.sessions.keys().copied().collect();
+    let mut bullets = Vec::new();
+
+    for shooter_addr in shooter_addrs {
+        let Some((shooter_id, origin, dir, damage)) = tick_shooter(st, shooter_addr, dt) else {
+            continue;
+        };
+
+        let wall_dist = cast_ray(origin, dir, BULLET_MAX_RANGE, walls);
+        let mut impact_dist = wall_dist;
+        let mut hit_target_addr: Option<SocketAddr> = None;
+
+        for (&target_addr, target) in &st.sessions {
+            if target_addr == shooter_addr || target.health == 0 {
+                continue;
+            }
+            if let Some(hit_dist) =
+                ray_circle_hit_distance(origin, dir, (target.x, target.y), PLAYER_HALF, impact_dist)
+            {
+                impact_dist = hit_dist;
+                hit_target_addr = Some(target_addr);
+            }
+        }
+
+        let impact_x = origin.0 + dir.0 * impact_dist;
+        let impact_y = origin.1 + dir.1 * impact_dist;
+
+        let mut hit_player_id = 0;
+        if let Some(target_addr) = hit_target_addr {
+            if let Some(target) = st.sessions.get_mut(&target_addr) {
+                let damage = damage.min(u16::MAX as u32) as u16;
+                target.health = target.health.saturating_sub(damage);
+                hit_player_id = target.player_id;
+            }
+        } else if wall_dist < BULLET_MAX_RANGE {
+            apply_wall_hit(
+                walls,
+                (
+                    impact_x + dir.0 * WALL_HIT_EPS,
+                    impact_y + dir.1 * WALL_HIT_EPS,
+                ),
+                damage,
+            );
+        }
+
+        bullets.push(BulletEvent {
+            shooter_id,
+            from_x: origin.0,
+            from_y: origin.1,
+            to_x: impact_x,
+            to_y: impact_y,
+            hit_player_id,
+        });
+    }
+
+    bullets
+}
+
+fn tick_shooter(
+    st: &mut ServerState,
+    shooter_addr: SocketAddr,
+    dt: f32,
+) -> Option<(u16, (f32, f32), (f32, f32), u32)> {
+    let shooter = st.sessions.get_mut(&shooter_addr)?;
+    if shooter.health == 0 {
+        return None;
+    }
+
+    shooter.weapon.tick(dt);
+
+    let latest_input = shooter.latest_input?;
+    if latest_input.flags.is_reloading() {
+        let _ = shooter.weapon.try_start_reload();
+    }
+    if latest_input.flags.is_shooting() && shooter.weapon.ammo_in_mag() == 0 {
+        let _ = shooter.weapon.try_start_reload();
+    }
+    shooter
+        .movement_state
+        .set_reloading(shooter.weapon.is_reloading());
+    shooter.aim_cone_half_angle = shooter.weapon.stats().aim_base_half_angle_deg.to_radians();
+
+    if !latest_input.flags.is_shooting() {
+        return None;
+    }
+
+    let weapon_stats = shooter.weapon.stats();
+    if !shooter.weapon.try_fire_with_stats(weapon_stats) {
+        return None;
+    }
+
+    let theta = decode_rotation(shooter.rotation);
+    let dir = (theta.cos(), theta.sin());
+    Some((
+        shooter.player_id,
+        (shooter.x, shooter.y),
+        dir,
+        weapon_stats.bullet_damage,
+    ))
+}
+
+fn ray_circle_hit_distance(
+    origin: (f32, f32),
+    dir: (f32, f32),
+    center: (f32, f32),
+    radius: f32,
+    max_dist: f32,
+) -> Option<f32> {
+    let oc_x = center.0 - origin.0;
+    let oc_y = center.1 - origin.1;
+    let proj = oc_x * dir.0 + oc_y * dir.1;
+    if proj < 0.0 || proj > max_dist {
+        return None;
+    }
+
+    let oc_sq = oc_x * oc_x + oc_y * oc_y;
+    let closest_sq = oc_sq - proj * proj;
+    let radius_sq = radius * radius;
+    if closest_sq > radius_sq {
+        return None;
+    }
+
+    let offset = (radius_sq - closest_sq).sqrt();
+    let mut t = proj - offset;
+    if t < 0.0 {
+        t = proj + offset;
+    }
+    (t >= 0.0 && t <= max_dist).then_some(t)
+}
+
+fn apply_wall_hit(walls: &mut Vec<Wall>, hit: (f32, f32), damage: u32) {
+    let Some(hit_idx) = walls.iter().position(|w| w.contains(hit.0, hit.1)) else {
+        return;
+    };
+    let destroyed = {
+        let wall = &mut walls[hit_idx];
+        wall.take_damage_at(hit.0, hit.1, damage)
+    };
+    if destroyed {
+        walls.remove(hit_idx);
+    }
+}
+
+fn default_weapon_state() -> WeaponState {
+    let default_weapon = all_weapon_ids()
+        .first()
+        .copied()
+        .expect("weapon catalog is empty");
+    WeaponState::new(default_weapon)
+}
+
+fn spawn_offset(player_id: u16) -> (f32, f32) {
+    if player_id <= 1 {
+        return (0.0, 0.0);
+    }
+    let idx = (player_id - 1) as f32;
+    let angle = idx * 2.3999632;
+    let radius = px_to_tiles(26.0);
+    (angle.cos() * radius, angle.sin() * radius)
 }
 
 fn server_time_ms() -> u32 {
