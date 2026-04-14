@@ -16,6 +16,10 @@ pub enum PacketKind {
     Ping = 0x06,
     /// Either direction: response to a Ping.
     Pong = 0x07,
+    /// Client → server: lobby command (team select / start game).
+    LobbyCommand = 0x08,
+    /// Server → client: lobby state update.
+    LobbyState = 0x09,
 }
 
 impl PacketKind {
@@ -28,6 +32,8 @@ impl PacketKind {
             0x05 => Some(Self::Disconnect),
             0x06 => Some(Self::Ping),
             0x07 => Some(Self::Pong),
+            0x08 => Some(Self::LobbyCommand),
+            0x09 => Some(Self::LobbyState),
             _ => None,
         }
     }
@@ -97,6 +103,7 @@ pub enum ConnectResult {
     ServerFull = 1,
     VersionMismatch = 2,
     Banned = 3,
+    MatchStarted = 4,
 }
 
 impl ConnectResult {
@@ -106,6 +113,7 @@ impl ConnectResult {
             1 => Some(Self::ServerFull),
             2 => Some(Self::VersionMismatch),
             3 => Some(Self::Banned),
+            4 => Some(Self::MatchStarted),
             _ => None,
         }
     }
@@ -113,7 +121,11 @@ impl ConnectResult {
 
 // ── AnyPacket ─────────────────────────────────────────────────────────────────
 
-use crate::proto::{client::ClientPacket, server::ServerPacket};
+use crate::proto::{
+    client::ClientPacket,
+    lobby::{LobbyCommand, LobbyState},
+    server::ServerPacket,
+};
 
 /// Tagged union of every packet type — the surface returned by
 /// [`crate::codec::decode`] and accepted by [`crate::codec::encode`].
@@ -123,6 +135,8 @@ pub enum AnyPacket {
     ConnectAck(ConnectAck),
     ClientInput(ClientPacket),
     ServerSnapshot(ServerPacket),
+    LobbyCommand(LobbyCommand),
+    LobbyState(LobbyState),
     Disconnect,
     Ping(u32),
     Pong(u32),
@@ -135,6 +149,8 @@ impl AnyPacket {
             Self::ConnectAck(_) => PacketKind::ConnectAck,
             Self::ClientInput(_) => PacketKind::ClientInput,
             Self::ServerSnapshot(_) => PacketKind::ServerSnapshot,
+            Self::LobbyCommand(_) => PacketKind::LobbyCommand,
+            Self::LobbyState(_) => PacketKind::LobbyState,
             Self::Disconnect => PacketKind::Disconnect,
             Self::Ping(_) => PacketKind::Ping,
             Self::Pong(_) => PacketKind::Pong,
@@ -145,4 +161,4 @@ impl AnyPacket {
 // ── Constants ─────────────────────────────────────────────────────────────────
 
 /// Bump this whenever the wire format changes in a backwards-incompatible way.
-pub const PROTOCOL_VERSION: u8 = 1;
+pub const PROTOCOL_VERSION: u8 = 2;

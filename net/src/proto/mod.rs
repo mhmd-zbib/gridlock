@@ -1,5 +1,6 @@
 pub mod client;
 pub mod handshake;
+pub mod lobby;
 pub mod server;
 
 // ── MoveSpeed ─────────────────────────────────────────────────────────────────

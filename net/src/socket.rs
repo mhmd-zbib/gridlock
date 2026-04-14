@@ -177,12 +177,11 @@ impl NetSocket {
         self.send_to(&AnyPacket::ConnectRequest(req), server)
             .await
             .map_err(RecvError::Io)?;
-        let (packet, _) = self.recv().await?;
-        match packet {
-            AnyPacket::ConnectAck(ack) => Ok(ack),
-            _ => Err(RecvError::Decode(DecodeError::InvalidField(
-                "expected ConnectAck",
-            ))),
+        loop {
+            let (packet, _) = self.recv().await?;
+            if let AnyPacket::ConnectAck(ack) = packet {
+                return Ok(ack);
+            }
         }
     }
 }

@@ -12,6 +12,7 @@
 use crate::proto::{
     client::{ClientPacket, InputFlags},
     handshake::{AnyPacket, ConnectAck, ConnectRequest, ConnectResult, PacketKind},
+    lobby::{LobbyCommand, LobbyCommandKind, LobbyState},
     server::{
         BulletEvent, MatchState, MovementState, PlayerState, SelfState, ServerPacket, SoundEvent,
         SoundKind,
@@ -91,6 +92,18 @@ pub fn encode(packet: &AnyPacket) -> Vec<u8> {
             w.u16(p.match_state.timer);
             w.u8(p.match_state.score_team1);
             w.u8(p.match_state.score_team2);
+        }
+        AnyPacket::LobbyCommand(p) => {
+            w.u8(PacketKind::LobbyCommand as u8);
+            w.u8(p.kind as u8);
+            w.u8(p.team);
+        }
+        AnyPacket::LobbyState(p) => {
+            w.u8(PacketKind::LobbyState as u8);
+            w.u8(p.game_started as u8);
+            w.u8(p.your_team);
+            w.u8(p.team1_count);
+            w.u8(p.team2_count);
         }
         AnyPacket::Disconnect => {
             w.u8(PacketKind::Disconnect as u8);
@@ -218,6 +231,18 @@ pub fn decode(buf: &[u8]) -> Result<AnyPacket, DecodeError> {
                 match_state,
             })
         }
+        PacketKind::LobbyCommand => {
+            let kind = LobbyCommandKind::from_u8(r.u8()?)
+                .ok_or(DecodeError::InvalidField("lobby_command_kind"))?;
+            let team = r.u8()?;
+            AnyPacket::LobbyCommand(LobbyCommand { kind, team })
+        }
+        PacketKind::LobbyState => AnyPacket::LobbyState(LobbyState {
+            game_started: r.u8()? != 0,
+            your_team: r.u8()?,
+            team1_count: r.u8()?,
+            team2_count: r.u8()?,
+        }),
         PacketKind::Disconnect => AnyPacket::Disconnect,
         PacketKind::Ping => AnyPacket::Ping(r.u32()?),
         PacketKind::Pong => AnyPacket::Pong(r.u32()?),
@@ -360,6 +385,7 @@ mod tests {
     use crate::proto::{
         client::InputFlags,
         handshake::{ConnectRequest, PROTOCOL_VERSION},
+        lobby::{LobbyCommand, LobbyCommandKind, LobbyState},
         server::SoundKind,
     };
 
@@ -459,6 +485,32 @@ mod tests {
         assert_eq!(p.sounds.len(), 1);
         assert_eq!(p.sounds[0].kind, SoundKind::Gunshot);
         assert_eq!(p.match_state.timer, 180);
+    }
+
+    #[test]
+    fn roundtrip_lobby_packets() {
+        let select = AnyPacket::LobbyCommand(LobbyCommand::select_team(2));
+        let decoded = decode(&encode(&select)).unwrap();
+        let AnyPacket::LobbyCommand(cmd) = decoded else {
+            panic!("wrong variant");
+        };
+        assert_eq!(cmd.kind, LobbyCommandKind::SelectTeam);
+        assert_eq!(cmd.team, 2);
+
+        let state = AnyPacket::LobbyState(LobbyState {
+            game_started: true,
+            your_team: 1,
+            team1_count: 2,
+            team2_count: 0,
+        });
+        let decoded = decode(&encode(&state)).unwrap();
+        let AnyPacket::LobbyState(lobby) = decoded else {
+            panic!("wrong variant");
+        };
+        assert!(lobby.game_started);
+        assert_eq!(lobby.your_team, 1);
+        assert_eq!(lobby.team1_count, 2);
+        assert_eq!(lobby.team2_count, 0);
     }
 
     #[test]

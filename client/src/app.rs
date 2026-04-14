@@ -9,6 +9,7 @@ use winit::window::{Fullscreen, Window, WindowId};
 use crate::net::{ConnState, NetClient};
 use crate::ui::editor::{Editor, Tool};
 use crate::ui::loadout::LoadoutMenu;
+use crate::ui::lobby::{LobbyChoice, LobbyMenu};
 use crate::ui::menu::{MainMenu, MenuChoice};
 use engine::input::InputHandler;
 use engine::render::geometry::{GeoVertex, push_circle_fan, push_cone_fan};
@@ -24,7 +25,10 @@ use game::world::level::LevelData;
 use game::world::prop;
 use game::world::rooms::LevelRooms;
 use game::world::units::{px_to_tiles, tiles_to_px};
-use net::{ClientPacket, InputFlags, MoveSpeed, SelfState, decode_rotation, encode_rotation};
+use net::{
+    ClientPacket, InputFlags, LobbyState, MoveSpeed, PlayerState, SelfState, decode_rotation,
+    encode_rotation,
+};
 
 macro_rules! ts {
     ($x:expr, $y:expr, $text:expr, $size:expr, $color:expr) => {
@@ -66,6 +70,7 @@ const NET_BULLET_MAX_SCREEN_PX: f32 = 500.0;
 enum AppState {
     MainMenu(MainMenu),
     Loadout(LoadoutMenu),
+    Lobby(LobbyMenu),
     Playing,
     Editing,
 }
@@ -98,6 +103,10 @@ pub struct App {
     net_bullet_traces: Vec<NetBulletTrace>,
     /// Latest authoritative self-state received from the server (ammo, health, …).
     server_me: Option<SelfState>,
+    /// Latest remote players visible to this client, from server snapshots.
+    net_players: Vec<PlayerState>,
+    /// Latest lobby state received from the server while waiting to start.
+    lobby_state: Option<LobbyState>,
 }
 
 impl Default for App {
@@ -123,6 +132,8 @@ impl Default for App {
             net_seq: 0,
             net_bullet_traces: Vec::new(),
             server_me: None,
+            net_players: Vec::new(),
+            lobby_state: None,
         }
     }
 }
@@ -239,21 +250,17 @@ impl App {
                 if click {
                     match menu.click(sw, sh, mx, my)? {
                         MenuChoice::Play => {
-                            // Start network connection
+                            // Start network connection and enter lobby.
                             self.net = Some(NetClient::connect(
                                 "127.0.0.1:7777".parse().unwrap(),
                                 "Player".into(),
                             ));
                             self.net_seq = 0;
-
-                            // Load first available level, fall back to default game state
-                            if let Some(level) = scan_first_level() {
-                                self.game
-                                    .load_level(&level, px_to_tiles(sw), px_to_tiles(sh));
-                            }
-                            self.camera
-                                .reset((self.game.player.movement.x, self.game.player.movement.y));
-                            return Some(AppState::Playing);
+                            self.server_me = None;
+                            self.net_bullet_traces.clear();
+                            self.net_players.clear();
+                            self.lobby_state = None;
+                            return Some(AppState::Lobby(LobbyMenu::new()));
                         }
                         MenuChoice::Loadout => {
                             return Some(AppState::Loadout(LoadoutMenu::new(
@@ -265,6 +272,58 @@ impl App {
                             return Some(AppState::Editing);
                         }
                     }
+                }
+                None
+            }
+
+            AppState::Lobby(menu) => {
+                if let Some(net) = &self.net {
+                    for lobby in net.take_lobby_states() {
+                        self.lobby_state = Some(lobby);
+                    }
+                }
+
+                if self
+                    .lobby_state
+                    .as_ref()
+                    .map(|s| s.game_started)
+                    .unwrap_or(false)
+                {
+                    self.enter_play_state(sw, sh);
+                    return Some(AppState::Playing);
+                }
+
+                let connected = self
+                    .net
+                    .as_ref()
+                    .map(|n| matches!(n.state(), ConnState::Connected { .. }))
+                    .unwrap_or(false);
+                let can_start = connected
+                    && !self
+                        .lobby_state
+                        .as_ref()
+                        .map(|s| s.game_started)
+                        .unwrap_or(false);
+
+                if click {
+                    if let Some(choice) = menu.click(sw, sh, mx, my, can_start) {
+                        if let Some(net) = &self.net {
+                            match choice {
+                                LobbyChoice::Team1 => net.send_lobby_select_team(1),
+                                LobbyChoice::Team2 => net.send_lobby_select_team(2),
+                                LobbyChoice::StartGame => net.send_lobby_start_game(),
+                            }
+                        }
+                    }
+                }
+
+                if esc {
+                    if let Some(net) = self.net.take() {
+                        net.disconnect();
+                    }
+                    self.net_players.clear();
+                    self.lobby_state = None;
+                    return Some(AppState::MainMenu(MainMenu::new()));
                 }
                 None
             }
@@ -320,6 +379,7 @@ impl App {
                     // bullet events from every snapshot in the batch.
                     for snap in snaps {
                         self.server_me = Some(snap.me);
+                        self.net_players = snap.players;
                         for b in snap.bullets {
                             self.net_bullet_traces.push(NetBulletTrace {
                                 from_x: b.from_x,
@@ -399,6 +459,8 @@ impl App {
                     if let Some(net) = self.net.take() {
                         net.disconnect();
                     }
+                    self.net_players.clear();
+                    self.lobby_state = None;
                     return Some(AppState::MainMenu(MainMenu::new()));
                 }
                 if f1 {
@@ -426,6 +488,20 @@ impl App {
                 None
             }
         }
+    }
+
+    fn enter_play_state(&mut self, sw: f32, sh: f32) {
+        // Load first available level, fall back to default game state.
+        if let Some(level) = scan_first_level() {
+            self.game
+                .load_level(&level, px_to_tiles(sw), px_to_tiles(sh));
+        }
+        self.camera
+            .reset((self.game.player.movement.x, self.game.player.movement.y));
+        self.server_me = None;
+        self.net_bullet_traces.clear();
+        self.net_players.clear();
+        self.lobby_state = None;
     }
 
     // ---------------------------------------------------------------------------
@@ -456,7 +532,28 @@ impl App {
         match &self.app_state {
             AppState::MainMenu(menu) => menu.instances(sw, sh, mx, my),
             AppState::Loadout(loadout) => loadout.instances(sw, sh),
-            AppState::Playing => play_quads(&self.game, &self.camera, self.debug_mode, sw, sh),
+            AppState::Lobby(lobby) => {
+                let selected_team = self.lobby_state.as_ref().map(|s| s.your_team).unwrap_or(0);
+                let can_start = self
+                    .net
+                    .as_ref()
+                    .map(|n| matches!(n.state(), ConnState::Connected { .. }))
+                    .unwrap_or(false)
+                    && !self
+                        .lobby_state
+                        .as_ref()
+                        .map(|s| s.game_started)
+                        .unwrap_or(false);
+                lobby.instances(sw, sh, mx, my, selected_team, can_start)
+            }
+            AppState::Playing => play_quads(
+                &self.game,
+                &self.camera,
+                self.debug_mode,
+                sw,
+                sh,
+                &self.net_players,
+            ),
             AppState::Editing => self.editor.instances(sw, sh, mx, my),
         }
     }
@@ -469,6 +566,7 @@ impl App {
         match &self.app_state {
             AppState::MainMenu(_) => main_menu_texts(sw, sh),
             AppState::Loadout(loadout) => loadout_texts(sw, sh, loadout),
+            AppState::Lobby(_) => lobby_texts(sw, sh, self.net.as_ref(), self.lobby_state.as_ref()),
             AppState::Playing => play_texts(
                 sw,
                 sh,
@@ -510,6 +608,106 @@ fn main_menu_texts(sw: f32, sh: f32) -> Vec<TextSection> {
             "LEVEL EDITOR",
             28.0,
             [0.0, 0.0, 0.0, 1.0]
+        ),
+    ]
+}
+
+fn lobby_texts(
+    sw: f32,
+    sh: f32,
+    net: Option<&NetClient>,
+    lobby: Option<&LobbyState>,
+) -> Vec<TextSection> {
+    let team1_count = lobby.map(|s| s.team1_count).unwrap_or(0);
+    let team2_count = lobby.map(|s| s.team2_count).unwrap_or(0);
+    let selected_team = match lobby.map(|s| s.your_team).unwrap_or(0) {
+        1 => "Selected team: TEAM 1".to_string(),
+        2 => "Selected team: TEAM 2".to_string(),
+        _ => "Selected team: (none yet)".to_string(),
+    };
+    let waiting = if lobby.map(|s| s.game_started).unwrap_or(false) {
+        "Match is starting..."
+    } else {
+        "Waiting room"
+    };
+    let net_line = match net.map(|n| n.state()) {
+        None => "net: off".into(),
+        Some(ConnState::Connecting) => "net: connecting…".into(),
+        Some(ConnState::Connected { player_id }) => format!("net: player #{player_id}"),
+        Some(ConnState::Rejected(r)) => format!("net: rejected ({r})"),
+        Some(ConnState::Disconnected) => "net: disconnected".into(),
+    };
+
+    let bw = sw * 0.34;
+    let bh = sh * 0.10;
+    let team1_x = sw * 0.5 - bw - sw * 0.03;
+    let team2_x = sw * 0.5 + sw * 0.03;
+    let team_y = sh * 0.44 + bh * 0.28;
+    let start_y = sh * 0.62 + bh * 0.28;
+
+    vec![
+        ts!(
+            sw * 0.5 - 200.0,
+            sh * 0.24,
+            "WAITING FOR PLAYERS",
+            44.0,
+            [1.0, 1.0, 1.0, 1.0]
+        ),
+        ts!(
+            sw * 0.5 - 150.0,
+            sh * 0.30,
+            "Choose a team, then press Start Game",
+            18.0,
+            [0.72, 0.72, 0.72, 1.0]
+        ),
+        ts!(
+            team1_x + bw * 0.5 - 65.0,
+            team_y,
+            format!("TEAM 1 ({team1_count})"),
+            28.0,
+            [0.0, 0.0, 0.0, 1.0]
+        ),
+        ts!(
+            team2_x + bw * 0.5 - 65.0,
+            team_y,
+            format!("TEAM 2 ({team2_count})"),
+            28.0,
+            [0.0, 0.0, 0.0, 1.0]
+        ),
+        ts!(
+            sw * 0.5 - 86.0,
+            start_y,
+            "START GAME",
+            30.0,
+            [0.0, 0.0, 0.0, 1.0]
+        ),
+        ts!(
+            sw * 0.5 - 95.0,
+            sh * 0.78,
+            selected_team,
+            20.0,
+            [0.85, 0.85, 0.85, 1.0]
+        ),
+        ts!(
+            sw * 0.5 - 52.0,
+            sh * 0.82,
+            waiting,
+            18.0,
+            [0.72, 0.72, 0.72, 1.0]
+        ),
+        ts!(
+            sw * 0.5 - 110.0,
+            sh * 0.86,
+            net_line,
+            16.0,
+            [0.62, 0.62, 0.62, 1.0]
+        ),
+        ts!(
+            sw * 0.5 - 155.0,
+            sh * 0.90,
+            "Esc: back to main menu",
+            15.0,
+            [0.55, 0.55, 0.55, 1.0]
         ),
     ]
 }
@@ -922,6 +1120,7 @@ fn play_quads(
     debug: bool,
     sw: f32,
     sh: f32,
+    remote_players: &[PlayerState],
 ) -> Vec<QuadInstance> {
     let viewport_px = (sw, sh);
     let mut out = Vec::new();
@@ -988,6 +1187,14 @@ fn play_quads(
         half_size: [10.0, 10.0],
         color: [1.0, 1.0, 1.0, 1.0],
     });
+    for remote in remote_players {
+        let p = world_pos_to_screen(camera, viewport_px, (remote.x, remote.y));
+        out.push(QuadInstance {
+            center: [p.0, p.1],
+            half_size: [9.0, 9.0],
+            color: [0.95, 0.25, 0.25, 1.0],
+        });
+    }
     for e in &game.enemies {
         let visible = e.visible_to_player;
         if !visible && !debug {

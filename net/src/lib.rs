@@ -11,6 +11,7 @@ pub use proto::{
     handshake::{
         AnyPacket, ConnectAck, ConnectRequest, ConnectResult, PROTOCOL_VERSION, PacketKind,
     },
+    lobby::{LobbyCommand, LobbyCommandKind, LobbyState},
     server::{
         BulletEvent, MatchState, MovementState, PlayerState, SelfState, ServerPacket, SoundEvent,
         SoundKind,

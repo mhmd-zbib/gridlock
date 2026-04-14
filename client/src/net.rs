@@ -4,7 +4,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use net::proto::server::ServerPacket;
-use net::{AnyPacket, ClientPacket, ConnectResult, NetSocket};
+use net::{AnyPacket, ClientPacket, ConnectResult, LobbyCommand, LobbyState, NetSocket};
 
 // ── Public types ──────────────────────────────────────────────────────────────
 
@@ -19,12 +19,14 @@ pub enum ConnState {
 enum Cmd {
     Disconnect,
     SendInput(ClientPacket),
+    SendLobbyCommand(LobbyCommand),
 }
 
 // ── NetClient ─────────────────────────────────────────────────────────────────
 
 /// Maximum number of snapshots buffered before older ones are dropped.
 const MAX_PENDING_SNAPSHOTS: usize = 16;
+const MAX_PENDING_LOBBY_STATES: usize = 16;
 
 pub struct NetClient {
     state: Arc<Mutex<ConnState>>,
@@ -34,6 +36,7 @@ pub struct NetClient {
     /// bullet events from being silently discarded when the network thread
     /// receives multiple snapshots between client game ticks.
     pending_snapshots: Arc<Mutex<VecDeque<ServerPacket>>>,
+    pending_lobby_states: Arc<Mutex<VecDeque<LobbyState>>>,
 }
 
 impl NetClient {
@@ -43,19 +46,29 @@ impl NetClient {
         let (cmd_tx, cmd_rx) = std::sync::mpsc::sync_channel(8);
         let pending_snapshots = Arc::new(Mutex::new(VecDeque::new()));
         let snapshot_bg = Arc::clone(&pending_snapshots);
+        let pending_lobby_states = Arc::new(Mutex::new(VecDeque::new()));
+        let lobby_bg = Arc::clone(&pending_lobby_states);
 
         std::thread::spawn(move || {
             tokio::runtime::Builder::new_current_thread()
                 .enable_all()
                 .build()
                 .unwrap()
-                .block_on(net_task(server_addr, name, state_bg, cmd_rx, snapshot_bg));
+                .block_on(net_task(
+                    server_addr,
+                    name,
+                    state_bg,
+                    cmd_rx,
+                    snapshot_bg,
+                    lobby_bg,
+                ));
         });
 
         Self {
             state,
             cmd_tx,
             pending_snapshots,
+            pending_lobby_states,
         }
     }
 
@@ -71,6 +84,18 @@ impl NetClient {
         let _ = self.cmd_tx.try_send(Cmd::SendInput(pkt));
     }
 
+    pub fn send_lobby_select_team(&self, team: u8) {
+        let _ = self
+            .cmd_tx
+            .try_send(Cmd::SendLobbyCommand(LobbyCommand::select_team(team)));
+    }
+
+    pub fn send_lobby_start_game(&self) {
+        let _ = self
+            .cmd_tx
+            .try_send(Cmd::SendLobbyCommand(LobbyCommand::start_game()));
+    }
+
     /// Drain all server snapshots received since the last call, oldest first.
     ///
     /// Returns an empty `Vec` if no new snapshots have arrived.
@@ -79,6 +104,15 @@ impl NetClient {
     /// **all** entries so that no projectile events are dropped between ticks.
     pub fn take_snapshots(&self) -> Vec<ServerPacket> {
         self.pending_snapshots.lock().unwrap().drain(..).collect()
+    }
+
+    /// Drain all lobby updates received since the last call, oldest first.
+    pub fn take_lobby_states(&self) -> Vec<LobbyState> {
+        self.pending_lobby_states
+            .lock()
+            .unwrap()
+            .drain(..)
+            .collect()
     }
 }
 
@@ -96,6 +130,7 @@ async fn net_task(
     state: Arc<Mutex<ConnState>>,
     cmd_rx: std::sync::mpsc::Receiver<Cmd>,
     pending_snapshots: Arc<Mutex<VecDeque<ServerPacket>>>,
+    pending_lobby_states: Arc<Mutex<VecDeque<LobbyState>>>,
 ) {
     let socket = match NetSocket::bind("0.0.0.0:0".parse().unwrap()).await {
         Ok(s) => s,
@@ -138,6 +173,10 @@ async fn net_task(
             *state.lock().unwrap() = ConnState::Rejected("banned".into());
             return;
         }
+        ConnectResult::MatchStarted => {
+            *state.lock().unwrap() = ConnState::Rejected("match already started".into());
+            return;
+        }
     }
 
     // Session loop — stay connected until explicit Disconnect or server closes
@@ -153,6 +192,11 @@ async fn net_task(
                 Ok(Cmd::SendInput(pkt)) => {
                     let _ = socket
                         .send_to(&AnyPacket::ClientInput(pkt), server_addr)
+                        .await;
+                }
+                Ok(Cmd::SendLobbyCommand(cmd)) => {
+                    let _ = socket
+                        .send_to(&AnyPacket::LobbyCommand(cmd), server_addr)
                         .await;
                 }
                 Err(std::sync::mpsc::TryRecvError::Disconnected) => {
@@ -188,6 +232,13 @@ async fn net_task(
             Ok(Ok((AnyPacket::Disconnect, _))) => {
                 *state.lock().unwrap() = ConnState::Disconnected;
                 return;
+            }
+            Ok(Ok((AnyPacket::LobbyState(lobby), _))) => {
+                let mut queue = pending_lobby_states.lock().unwrap();
+                if queue.len() >= MAX_PENDING_LOBBY_STATES {
+                    queue.pop_front();
+                }
+                queue.push_back(lobby);
             }
             _ => {}
         }
