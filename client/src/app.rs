@@ -24,7 +24,9 @@ use game::world::camera::{CameraBehaviorState, CameraBounds, CameraStepInput, Ta
 use game::world::level::LevelData;
 use game::world::prop;
 use game::world::rooms::LevelRooms;
+use game::world::sight::Sight;
 use game::world::units::{px_to_tiles, tiles_to_px};
+use game::world::wall::Wall;
 use net::{
     ClientPacket, InputFlags, LobbyState, MoveSpeed, PlayerState, SelfState, decode_rotation,
     encode_rotation,
@@ -57,11 +59,13 @@ struct NetBulletTrace {
 
 /// Total lifetime of a network bullet tracer animation in seconds.
 const NET_BULLET_TTL: f32 = 0.08;
-/// Fraction of the path occupied by the moving tracer segment.
-const NET_BULLET_TRAIL_FRACTION: f32 = 0.20;
-/// Max screen-space length (px) of a rendered bullet trace.  Prevents traces
-/// from shooting far off screen when the server has no walls.
-const NET_BULLET_MAX_SCREEN_PX: f32 = 500.0;
+/// Visibility sampling step along a world-space trace segment.
+const NET_BULLET_VIS_SAMPLE_STEP: f32 = px_to_tiles(24.0);
+/// Enemy body half-size in screen pixels (matches the quad body size).
+const ENEMY_BODY_HALF_PX: f32 = 8.0;
+/// Dense fan sampling for enemy visibility clipping.
+const ENEMY_MASK_CIRCLE_RAYS: usize = 192;
+const ENEMY_MASK_CONE_RAYS: usize = 256;
 
 // ---------------------------------------------------------------------------
 // App state machine
@@ -378,7 +382,8 @@ impl App {
                     // Use the last snapshot's authoritative state; accumulate
                     // bullet events from every snapshot in the batch.
                     for snap in snaps {
-                        self.server_me = Some(snap.me);
+                        let me = snap.me;
+                        self.server_me = Some(me);
                         self.net_players = snap.players;
                         for b in snap.bullets {
                             self.net_bullet_traces.push(NetBulletTrace {
@@ -1197,20 +1202,15 @@ fn play_quads(
     }
     for e in &game.enemies {
         let visible = e.visible_to_player;
-        if !visible && !debug {
+        if !debug {
             continue;
         }
-        // Dimmer when not visible to player (debug see-through).
-        let color = match (e.kind, visible) {
-            (EnemyKind::Shooter, true) => [1.0, 0.2, 0.2, 1.0],
-            (EnemyKind::Shooter, false) => [0.6, 0.15, 0.15, 0.55],
-            (EnemyKind::TargetDummy, true) => [1.0, 0.85, 0.2, 1.0],
-            (EnemyKind::TargetDummy, false) => [0.6, 0.5, 0.12, 0.55],
-        };
+        // In debug mode we still draw full enemy quads, dimming hidden ones.
+        let color = enemy_body_color(e.kind, visible);
         let enemy = world_pos_to_screen(camera, viewport_px, (e.movement.x, e.movement.y));
         out.push(QuadInstance {
             center: [enemy.0, enemy.1],
-            half_size: [8.0, 8.0],
+            half_size: [ENEMY_BODY_HALF_PX, ENEMY_BODY_HALF_PX],
             color,
         });
 
@@ -1286,11 +1286,44 @@ fn play_geo(
     let walls = &game.walls;
     let player_pos = (game.player.movement.x, game.player.movement.y);
     let player_pos_px = world_pos_to_screen(camera, viewport_px, player_pos);
+    let mut viewer_sight = Sight::player();
+    viewer_sight.direction = server_me
+        .map(|me| decode_rotation(me.rotation))
+        .unwrap_or(game.player.sight.direction);
+    viewer_sight.half_angle = game.player.sight.half_angle;
+    viewer_sight.range = game.player.sight.range;
+    viewer_sight.circle_radius = game.player.sight.circle_radius;
 
     // ── Level room / gap overlay (standalone, no enemy involvement) ───────────
     if debug {
         // Use cached rooms from level load (no per-frame recomputation)
         push_level_rooms_geo(&mut out, &game.rooms, camera, viewport_px);
+    }
+
+    // ── Enemies (precise visibility mask) ──────────────────────────────────────
+    if !debug {
+        let mask_circle = world_points_to_screen(
+            camera,
+            viewport_px,
+            viewer_sight.circle_arc_pts(player_pos, walls, ENEMY_MASK_CIRCLE_RAYS),
+        );
+        let mask_cone = world_points_to_screen(
+            camera,
+            viewport_px,
+            viewer_sight.cone_arc_pts(player_pos, walls, ENEMY_MASK_CONE_RAYS),
+        );
+        for e in &game.enemies {
+            let enemy_center =
+                world_pos_to_screen(camera, viewport_px, (e.movement.x, e.movement.y));
+            push_enemy_masked_body(
+                &mut out,
+                enemy_center,
+                enemy_body_color(e.kind, true),
+                player_pos_px,
+                &mask_circle,
+                &mask_cone,
+            );
+        }
     }
 
     // ── Player ────────────────────────────────────────────────────────────────
@@ -1335,59 +1368,6 @@ fn play_geo(
         );
     }
 
-    // ── Server-authoritative bullet traces ────────────────────────────────────
-    for trace in net_bullets {
-        let life = (trace.ttl / NET_BULLET_TTL).clamp(0.0, 1.0);
-        let progress = (1.0 - life).clamp(0.0, 1.0);
-        let from = world_pos_to_screen(camera, viewport_px, (trace.from_x, trace.from_y));
-        let mut to = world_pos_to_screen(camera, viewport_px, (trace.to_x, trace.to_y));
-
-        // Clamp the endpoint so the trace stays on-screen even when the server
-        // reports a hit point far outside the level (e.g. no walls loaded).
-        let dx = to.0 - from.0;
-        let dy = to.1 - from.1;
-        let dist = (dx * dx + dy * dy).sqrt();
-        if dist > NET_BULLET_MAX_SCREEN_PX {
-            let s = NET_BULLET_MAX_SCREEN_PX / dist;
-            to = (from.0 + dx * s, from.1 + dy * s);
-        }
-
-        let tail_t = (progress - NET_BULLET_TRAIL_FRACTION).max(0.0);
-        let head = (
-            from.0 + (to.0 - from.0) * progress,
-            from.1 + (to.1 - from.1) * progress,
-        );
-        let tail = (
-            from.0 + (to.0 - from.0) * tail_t,
-            from.1 + (to.1 - from.1) * tail_t,
-        );
-
-        let alpha = life;
-        push_line(&mut out, tail, head, 7.0, [1.0, 0.95, 0.7, alpha * 0.70]);
-        push_line(&mut out, tail, head, 3.0, [1.0, 1.0, 1.0, alpha]);
-        push_circle_fan(&mut out, head, 7.0, [1.0, 0.95, 0.45, alpha], 10);
-
-        if progress < 0.20 {
-            push_circle_fan(
-                &mut out,
-                from,
-                8.0,
-                [1.0, 0.5, 0.1, (0.20 - progress) / 0.20 * alpha * 0.85],
-                10,
-            );
-        }
-
-        if progress > 0.80 {
-            push_circle_fan(
-                &mut out,
-                to,
-                6.5,
-                [1.0, 1.0, 0.2, (progress - 0.80) / 0.20 * alpha * 0.75],
-                10,
-            );
-        }
-    }
-
     // ── Enemies ───────────────────────────────────────────────────────────────
     for e in &game.enemies {
         if e.kind == EnemyKind::TargetDummy {
@@ -1421,6 +1401,38 @@ fn play_geo(
         };
         let arc = world_points_to_screen(camera, viewport_px, e.sight.cone_arc_pts(ep, walls, 48));
         push_cone_fan(&mut out, ep_px, &arc, cone_color);
+    }
+
+    // ── Server-authoritative bullet traces ────────────────────────────────────
+    // Draw these last so they stay readable over all cone overlays.
+    for trace in net_bullets {
+        let life = (trace.ttl / NET_BULLET_TTL).clamp(0.0, 1.0);
+        let from_world = (trace.from_x, trace.from_y);
+        let to_world = (trace.to_x, trace.to_y);
+
+        let alpha = life;
+        let visible_spans = visible_trace_t_spans(
+            from_world,
+            to_world,
+            player_pos,
+            &viewer_sight,
+            walls,
+            0.0,
+            1.0,
+            NET_BULLET_VIS_SAMPLE_STEP,
+        );
+        for (t0, t1) in visible_spans {
+            let tail =
+                world_pos_to_screen(camera, viewport_px, lerp_point(from_world, to_world, t0));
+            let head =
+                world_pos_to_screen(camera, viewport_px, lerp_point(from_world, to_world, t1));
+            push_line(&mut out, tail, head, 4.0, [1.0, 0.97, 0.85, alpha * 0.75]);
+            push_line(&mut out, tail, head, 2.0, [1.0, 1.0, 1.0, alpha]);
+        }
+        if viewer_sight.can_see(player_pos, to_world, walls) {
+            let to = world_pos_to_screen(camera, viewport_px, to_world);
+            push_circle_fan(&mut out, to, 4.5, [1.0, 1.0, 0.35, alpha * 0.85], 10);
+        }
     }
 
     out
@@ -1589,6 +1601,237 @@ fn push_line(out: &mut Vec<GeoVertex>, a: (f32, f32), b: (f32, f32), width: f32,
     out.push(GeoVertex { pos: v1, color });
     out.push(GeoVertex { pos: v3, color });
     out.push(GeoVertex { pos: v2, color });
+}
+
+fn enemy_body_color(kind: EnemyKind, visible: bool) -> [f32; 4] {
+    match (kind, visible) {
+        (EnemyKind::Shooter, true) => [1.0, 0.2, 0.2, 1.0],
+        (EnemyKind::Shooter, false) => [0.6, 0.15, 0.15, 0.55],
+        (EnemyKind::TargetDummy, true) => [1.0, 0.85, 0.2, 1.0],
+        (EnemyKind::TargetDummy, false) => [0.6, 0.5, 0.12, 0.55],
+    }
+}
+
+fn push_enemy_masked_body(
+    out: &mut Vec<GeoVertex>,
+    center: (f32, f32),
+    color: [f32; 4],
+    mask_center: (f32, f32),
+    mask_circle: &[[f32; 2]],
+    mask_cone: &[[f32; 2]],
+) {
+    let enemy_poly = [
+        [center.0 - ENEMY_BODY_HALF_PX, center.1 - ENEMY_BODY_HALF_PX],
+        [center.0 + ENEMY_BODY_HALF_PX, center.1 - ENEMY_BODY_HALF_PX],
+        [center.0 + ENEMY_BODY_HALF_PX, center.1 + ENEMY_BODY_HALF_PX],
+        [center.0 - ENEMY_BODY_HALF_PX, center.1 + ENEMY_BODY_HALF_PX],
+    ];
+
+    let enemy_min_x = center.0 - ENEMY_BODY_HALF_PX;
+    let enemy_max_x = center.0 + ENEMY_BODY_HALF_PX;
+    let enemy_min_y = center.1 - ENEMY_BODY_HALF_PX;
+    let enemy_max_y = center.1 + ENEMY_BODY_HALF_PX;
+
+    push_polygon_clipped_by_fan(
+        out,
+        &enemy_poly,
+        mask_center,
+        mask_circle,
+        color,
+        enemy_min_x,
+        enemy_max_x,
+        enemy_min_y,
+        enemy_max_y,
+    );
+    push_polygon_clipped_by_fan(
+        out,
+        &enemy_poly,
+        mask_center,
+        mask_cone,
+        color,
+        enemy_min_x,
+        enemy_max_x,
+        enemy_min_y,
+        enemy_max_y,
+    );
+}
+
+fn push_polygon_clipped_by_fan(
+    out: &mut Vec<GeoVertex>,
+    polygon: &[[f32; 2]],
+    fan_center: (f32, f32),
+    fan_arc: &[[f32; 2]],
+    color: [f32; 4],
+    poly_min_x: f32,
+    poly_max_x: f32,
+    poly_min_y: f32,
+    poly_max_y: f32,
+) {
+    if fan_arc.len() < 2 {
+        return;
+    }
+    let center = [fan_center.0, fan_center.1];
+    for i in 1..fan_arc.len() {
+        let tri = [center, fan_arc[i - 1], fan_arc[i]];
+        let tri_min_x = tri.iter().map(|p| p[0]).fold(f32::INFINITY, f32::min);
+        let tri_max_x = tri.iter().map(|p| p[0]).fold(f32::NEG_INFINITY, f32::max);
+        let tri_min_y = tri.iter().map(|p| p[1]).fold(f32::INFINITY, f32::min);
+        let tri_max_y = tri.iter().map(|p| p[1]).fold(f32::NEG_INFINITY, f32::max);
+
+        if tri_max_x < poly_min_x
+            || tri_min_x > poly_max_x
+            || tri_max_y < poly_min_y
+            || tri_min_y > poly_max_y
+        {
+            continue;
+        }
+
+        let clipped = clip_polygon_with_triangle(polygon, tri);
+        if clipped.len() < 3 {
+            continue;
+        }
+        for j in 1..(clipped.len() - 1) {
+            out.push(GeoVertex {
+                pos: clipped[0],
+                color,
+            });
+            out.push(GeoVertex {
+                pos: clipped[j],
+                color,
+            });
+            out.push(GeoVertex {
+                pos: clipped[j + 1],
+                color,
+            });
+        }
+    }
+}
+
+fn clip_polygon_with_triangle(subject: &[[f32; 2]], triangle: [[f32; 2]; 3]) -> Vec<[f32; 2]> {
+    const EPS: f32 = 1.0e-5;
+    let mut output = subject.to_vec();
+    if output.len() < 3 {
+        return Vec::new();
+    }
+
+    let signed_area2 = cross2(
+        (
+            triangle[1][0] - triangle[0][0],
+            triangle[1][1] - triangle[0][1],
+        ),
+        (
+            triangle[2][0] - triangle[0][0],
+            triangle[2][1] - triangle[0][1],
+        ),
+    );
+    let ccw = signed_area2 >= 0.0;
+
+    for edge in 0..3 {
+        let a = triangle[edge];
+        let b = triangle[(edge + 1) % 3];
+        let input = output;
+        output = Vec::new();
+        if input.is_empty() {
+            break;
+        }
+        let mut prev = *input.last().unwrap_or(&input[0]);
+        let mut prev_inside = point_inside_half_plane(prev, a, b, ccw, EPS);
+        for &curr in &input {
+            let curr_inside = point_inside_half_plane(curr, a, b, ccw, EPS);
+            if prev_inside && curr_inside {
+                output.push(curr);
+            } else if prev_inside && !curr_inside {
+                output.push(segment_line_intersection(prev, curr, a, b));
+            } else if !prev_inside && curr_inside {
+                output.push(segment_line_intersection(prev, curr, a, b));
+                output.push(curr);
+            }
+            prev = curr;
+            prev_inside = curr_inside;
+        }
+    }
+    output
+}
+
+fn point_inside_half_plane(p: [f32; 2], a: [f32; 2], b: [f32; 2], ccw: bool, eps: f32) -> bool {
+    let edge = (b[0] - a[0], b[1] - a[1]);
+    let rel = (p[0] - a[0], p[1] - a[1]);
+    let c = cross2(edge, rel);
+    if ccw { c >= -eps } else { c <= eps }
+}
+
+fn segment_line_intersection(p0: [f32; 2], p1: [f32; 2], a: [f32; 2], b: [f32; 2]) -> [f32; 2] {
+    const EPS: f32 = 1.0e-8;
+    let r = (p1[0] - p0[0], p1[1] - p0[1]);
+    let s = (b[0] - a[0], b[1] - a[1]);
+    let denom = cross2(r, s);
+    if denom.abs() <= EPS {
+        return p1;
+    }
+    let ap = (a[0] - p0[0], a[1] - p0[1]);
+    let t = (cross2(ap, s) / denom).clamp(0.0, 1.0);
+    [p0[0] + r.0 * t, p0[1] + r.1 * t]
+}
+
+fn cross2(a: (f32, f32), b: (f32, f32)) -> f32 {
+    a.0 * b.1 - a.1 * b.0
+}
+
+fn lerp_point(a: (f32, f32), b: (f32, f32), t: f32) -> (f32, f32) {
+    (a.0 + (b.0 - a.0) * t, a.1 + (b.1 - a.1) * t)
+}
+
+fn visible_trace_t_spans(
+    from: (f32, f32),
+    to: (f32, f32),
+    viewer_pos: (f32, f32),
+    viewer_sight: &Sight,
+    walls: &[Wall],
+    t_start: f32,
+    t_end: f32,
+    sample_step: f32,
+) -> Vec<(f32, f32)> {
+    if t_end <= t_start {
+        return Vec::new();
+    }
+    let dx = to.0 - from.0;
+    let dy = to.1 - from.1;
+    let len = (dx * dx + dy * dy).sqrt();
+    if len <= f32::EPSILON {
+        return if viewer_sight.can_see(viewer_pos, to, walls) {
+            vec![(t_start, t_end)]
+        } else {
+            Vec::new()
+        };
+    }
+
+    let samples = (len / sample_step).ceil().max(1.0) as u32;
+    let mut spans: Vec<(f32, f32)> = Vec::new();
+
+    for i in 0..samples {
+        let seg_t0 = i as f32 / samples as f32;
+        let seg_t1 = (i + 1) as f32 / samples as f32;
+        let t0 = seg_t0.max(t_start);
+        let t1 = seg_t1.min(t_end);
+        if t1 <= t0 {
+            continue;
+        }
+
+        let mid = lerp_point(from, to, (t0 + t1) * 0.5);
+        if !viewer_sight.can_see(viewer_pos, mid, walls) {
+            continue;
+        }
+
+        if let Some(last) = spans.last_mut()
+            && t0 <= last.1 + 1.0e-4
+        {
+            last.1 = t1.max(last.1);
+            continue;
+        }
+        spans.push((t0, t1));
+    }
+
+    spans
 }
 
 fn client_time_ms() -> u32 {

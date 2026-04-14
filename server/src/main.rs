@@ -394,6 +394,7 @@ fn build_snapshot_for_player(
     viewer_sight.direction = decode_rotation(me_rotation);
     viewer_sight.range = me_weapon_stats.visibility_range;
     viewer_sight.half_angle = me_weapon_stats.visibility_half_angle_deg.to_radians();
+    let viewer_pos = (me_x, me_y);
 
     let players: Vec<PlayerState> = st
         .sessions
@@ -402,7 +403,7 @@ fn build_snapshot_for_player(
             if addr == recipient_addr || session.health == 0 {
                 return None;
             }
-            if !viewer_sight.can_see((me_x, me_y), (session.x, session.y), walls) {
+            if !viewer_sight.can_see(viewer_pos, (session.x, session.y), walls) {
                 return None;
             }
             Some(PlayerState {
@@ -415,7 +416,6 @@ fn build_snapshot_for_player(
             })
         })
         .collect();
-
     ServerPacket {
         tick,
         timestamp: recipient_session
@@ -439,6 +439,8 @@ fn build_snapshot_for_player(
             aim_cone_half_angle: recipient_session.aim_cone_half_angle,
         },
         players,
+        // Send every bullet to every client; the client decides whether to
+        // render based on local visibility (see bullet_event_visible_to_local_player).
         bullets: bullets.to_vec(),
         sounds: vec![],
         match_state: MatchState {
