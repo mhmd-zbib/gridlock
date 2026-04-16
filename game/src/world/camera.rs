@@ -131,6 +131,19 @@ impl TacticalCamera {
         )
     }
 
+    pub fn world_points_to_screen<I>(&self, points: I, viewport_px: (f32, f32)) -> Vec<[f32; 2]>
+    where
+        I: IntoIterator<Item = [f32; 2]>,
+    {
+        points
+            .into_iter()
+            .map(|p| {
+                let s = self.world_to_screen((p[0], p[1]), viewport_px);
+                [s.0, s.1]
+            })
+            .collect()
+    }
+
     pub fn screen_to_world(&self, screen_px: (f32, f32), viewport_px: (f32, f32)) -> (f32, f32) {
         (
             px_to_tiles(screen_px.0 - viewport_px.0 * 0.5) + self.center.0,

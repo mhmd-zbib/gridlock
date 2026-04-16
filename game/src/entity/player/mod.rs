@@ -4,7 +4,9 @@ mod locomotion;
 use super::bullet::BulletOwner;
 use crate::entity::movement::Movement;
 use crate::entity::weapon::attachment::{AttachmentCategory, AttachmentLoadout};
-use crate::entity::weapon::{WeaponId, all_weapon_ids};
+use crate::entity::weapon::{
+    WeaponId, all_weapon_ids, weapon_supports_attachment, weapon_supports_attachment_category,
+};
 use crate::input::InputState;
 use crate::spawn::{SpawnQueue, SpawnRequest};
 use crate::world::aim_cone::AimCone;
@@ -38,6 +40,24 @@ impl Default for PlayerLoadoutConfig {
         Self {
             weapon: first_weapon,
             attachments: AttachmentLoadout::default(),
+        }
+    }
+}
+
+/// Remove any attachment that is incompatible with the chosen weapon.
+///
+/// Called after the player edits their loadout config so the game state never
+/// holds an attachment that the weapon does not support.
+pub fn sanitize_loadout(loadout: &mut PlayerLoadoutConfig) {
+    for category in AttachmentCategory::all() {
+        if weapon_supports_attachment_category(loadout.weapon, *category) {
+            if let Some(attachment) = loadout.attachments.get(*category) {
+                if !weapon_supports_attachment(loadout.weapon, attachment) {
+                    loadout.attachments.unequip(*category);
+                }
+            }
+        } else {
+            loadout.attachments.unequip(*category);
         }
     }
 }
