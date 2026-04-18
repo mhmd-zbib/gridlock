@@ -1,6 +1,5 @@
 pub mod aim_cone;
 pub mod bounds;
-pub mod camera;
 pub mod level;
 pub mod prop;
 pub mod ray;

@@ -22,7 +22,7 @@ pub const ENEMY_HALF: f32 = px_to_tiles(8.0);
 /// Maximum distance a bullet can travel before it is discarded.
 pub const BULLET_MAX_RANGE: f32 = px_to_tiles(1500.0);
 
-const IMPACT_TTL: f32 = 0.15;
+pub const IMPACT_TTL: f32 = 0.15;
 
 // ---------------------------------------------------------------------------
 // ImpactMark
@@ -32,7 +32,7 @@ const IMPACT_TTL: f32 = 0.15;
 pub struct ImpactMark {
     pub x: f32,
     pub y: f32,
-    ttl: f32,
+    pub ttl: f32,
 }
 
 impl ImpactMark {
@@ -42,11 +42,6 @@ impl ImpactMark {
             y,
             ttl: IMPACT_TTL,
         }
-    }
-
-    /// Normalised lifetime in [0, 1] — 1.0 is freshly spawned, 0.0 is expired.
-    pub fn alpha(&self) -> f32 {
-        (self.ttl / IMPACT_TTL).clamp(0.0, 1.0)
     }
 }
 

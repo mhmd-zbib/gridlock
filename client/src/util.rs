@@ -1,6 +1,6 @@
+use crate::camera::CameraBounds;
 use game::entity::enemy::{Enemy, EnemyKind};
 use game::game::Game;
-use game::world::camera::CameraBounds;
 use game::world::level::LevelData;
 use game::world::units::px_to_tiles;
 

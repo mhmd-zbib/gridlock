@@ -97,6 +97,10 @@ impl Player {
         self.loadout.attachment_name_for(category)
     }
 
+    pub fn active_weapon_stats(&self) -> crate::entity::weapon::WeaponStats {
+        self.loadout.active_stats()
+    }
+
     pub fn apply_loadout(&mut self, config: &PlayerLoadoutConfig) {
         self.loadout.set_weapon(config.weapon);
         self.loadout.set_attachments(config.attachments.clone());
@@ -131,7 +135,6 @@ impl Player {
         self.aim_cone.set_spread_profile(
             active_stats.aim_base_half_angle_deg,
             active_stats.movement_spread_max_deg,
-            active_stats.aim_cone_render_range,
         );
 
         let speed_frac = self.movement.velocity_frac * (self.movement.speed / RUN_SPEED);

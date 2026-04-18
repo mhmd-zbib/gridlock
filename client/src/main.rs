@@ -1,4 +1,5 @@
 mod app;
+mod camera;
 mod net;
 mod render;
 mod systems;

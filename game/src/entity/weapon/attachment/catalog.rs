@@ -139,9 +139,19 @@ fn resolve_attachments_dir() -> PathBuf {
         return manifest_attachments;
     }
 
+    let workspace_attachments = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .map(|root| root.join("assets").join("attachments"));
+    if let Some(path) = workspace_attachments.as_ref().filter(|path| path.is_dir()) {
+        return path.to_path_buf();
+    }
+
     panic!(
-        "attachments directory not found (checked './assets/attachments' and '{}/assets/attachments')",
-        env!("CARGO_MANIFEST_DIR")
+        "attachments directory not found (checked './assets/attachments', '{}/assets/attachments', and '{}')",
+        env!("CARGO_MANIFEST_DIR"),
+        workspace_attachments
+            .map(|path| path.display().to_string())
+            .unwrap_or_else(|| "<workspace-root-unavailable>/assets/attachments".to_string())
     );
 }
 

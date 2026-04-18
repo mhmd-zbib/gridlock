@@ -4,13 +4,13 @@ mod session;
 mod tick;
 
 use std::sync::Arc;
-use std::time::Instant;
 
 use winit::application::ApplicationHandler;
 use winit::event::WindowEvent;
 use winit::event_loop::ActiveEventLoop;
 use winit::window::{Fullscreen, Window, WindowId};
 
+use crate::camera::TacticalCamera;
 use crate::net::NetClient;
 use crate::render::entities::NetBulletTrace;
 use crate::render::geometry::OUTSIDE_CONE_DIM;
@@ -20,9 +20,8 @@ use crate::ui::lobby::LobbyMenu;
 use crate::ui::menu::MainMenu;
 use engine::input::InputHandler;
 use engine::render::state::State;
-use engine::timing::FIXED_STEP;
+use engine::timing::GameLoop;
 use game::game::Game;
-use game::world::camera::TacticalCamera;
 use net::{LobbyState, PlayerState, SelfState};
 
 // ---------------------------------------------------------------------------
@@ -50,8 +49,7 @@ pub struct App {
     app_state: AppState,
     net: Option<NetClient>,
 
-    input_timer: Instant,
-    input_accumulator: f32,
+    game_loop: GameLoop,
 
     prev_esc: bool,
     prev_enter: bool,
@@ -79,8 +77,7 @@ impl Default for App {
             editor: Editor::new(),
             app_state: AppState::MainMenu(MainMenu::new()),
             net: None,
-            input_timer: Instant::now(),
-            input_accumulator: 0.0,
+            game_loop: GameLoop::new(),
             prev_esc: false,
             prev_enter: false,
             prev_f1: false,
@@ -135,12 +132,6 @@ impl ApplicationHandler for App {
                 let window = Arc::clone(&state.window);
                 let _ = state; // release borrow so we can call &mut self methods
 
-                // --- Fixed-rate input / logic loop (60 Hz) ---
-                let now = Instant::now();
-                let frame_dt = now.duration_since(self.input_timer).as_secs_f32().min(0.25);
-                self.input_timer = now;
-                self.input_accumulator += frame_dt;
-
                 self.run_fixed_updates(sw, sh);
 
                 // --- Uncapped render loop ---
@@ -157,7 +148,8 @@ impl ApplicationHandler for App {
 
 impl App {
     fn run_fixed_updates(&mut self, sw: f32, sh: f32) {
-        while self.input_accumulator >= FIXED_STEP {
+        let steps = self.game_loop.consume_fixed_steps();
+        for _ in 0..steps {
             let input = self.input.state.clone();
             let mx = input.mouse_x as f32;
             let my = input.mouse_y as f32;
@@ -177,7 +169,6 @@ impl App {
             self.prev_f8 = input.f8;
             self.prev_click = input.mouse_left;
             self.input.end_frame();
-            self.input_accumulator -= FIXED_STEP;
         }
     }
 

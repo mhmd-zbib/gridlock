@@ -1,9 +1,9 @@
+use crate::camera::{CameraBehaviorState, CameraStepInput};
 use crate::systems::input::build_client_packet;
 use crate::systems::network::apply_server_snapshots;
 use crate::util::{enemies_in_combat, infer_world_bounds};
 use engine::input::InputState;
 use engine::timing::FIXED_STEP;
-use game::world::camera::{CameraBehaviorState, CameraStepInput};
 use game::world::units::{px_to_tiles, tiles_to_px};
 use net::decode_rotation;
 

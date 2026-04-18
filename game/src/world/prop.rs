@@ -119,6 +119,14 @@ fn resolve_assets_dir() -> Option<PathBuf> {
         return Some(manifest_assets);
     }
 
+    let workspace_assets = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .map(|root| root.join("assets").join("props"))
+        .filter(|path| path.is_dir());
+    if let Some(path) = workspace_assets {
+        return Some(path);
+    }
+
     None
 }
 

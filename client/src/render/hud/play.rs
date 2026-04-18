@@ -1,41 +1,17 @@
-use crate::net::NetClient;
+use crate::camera::{CameraBehaviorState, TacticalCamera};
+use crate::render::views::HudView;
 use engine::render::text::TextSection;
-use game::ai::awareness::AiState;
-use game::entity::enemy::EnemyKind;
-use game::entity::weapon::attachment::AttachmentCategory;
-use game::game::Game;
-use game::world::camera::{CameraBehaviorState, TacticalCamera};
-use net::SelfState;
 
 use super::shared::{net_status_line, ts};
 
 pub fn play_texts(
     sw: f32,
     _sh: f32,
-    game: &Game,
+    view: &HudView<'_>,
     camera: &TacticalCamera,
-    debug: bool,
-    net: Option<&NetClient>,
-    server_me: Option<&SelfState>,
 ) -> Vec<TextSection> {
-    let attachments_line = AttachmentCategory::all()
-        .iter()
-        .map(|category| {
-            format!(
-                "{}={}",
-                category.label(),
-                game.player.attachment_name_for(*category).unwrap_or("-")
-            )
-        })
-        .collect::<Vec<_>>()
-        .join("  ");
-
-    let ammo_display = server_me
-        .map(|me| me.ammo)
-        .unwrap_or(game.player.ammo_in_mag() as u8);
-    let reloading = server_me
-        .map(|me| me.reload_progress > 0)
-        .unwrap_or(game.player.is_reloading());
+    let ammo_display = view.player.ammo;
+    let reloading = view.player.reloading;
 
     let mut out = vec![
         ts(
@@ -50,16 +26,22 @@ pub fn play_texts(
             22.0,
             format!(
                 "{} ({})  ammo: {}/{}{}   R: reload",
-                game.player.weapon_name(),
-                game.player.weapon_class_label(),
+                view.player.weapon_name,
+                view.player.weapon_class,
                 ammo_display,
-                game.player.mag_size(),
+                view.player.mag_size,
                 if reloading { " [reloading]" } else { "" }
             ),
             13.0,
             [0.5, 0.5, 0.5, 1.0],
         ),
-        ts(8.0, 38.0, attachments_line, 13.0, [0.45, 0.45, 0.45, 1.0]),
+        ts(
+            8.0,
+            38.0,
+            view.player.attachments_line.clone(),
+            13.0,
+            [0.45, 0.45, 0.45, 1.0],
+        ),
         ts(
             sw - 170.0,
             6.0,
@@ -70,13 +52,14 @@ pub fn play_texts(
         ts(
             sw - 210.0,
             20.0,
-            net_status_line(net),
+            net_status_line(view.net),
             12.0,
             [0.35, 0.35, 0.35, 1.0],
         ),
     ];
 
-    if !debug {
+    if view.enemies.is_empty() && view.player.room_idx.is_none() && view.player.speed == 0.0 {
+        // Non-debug mode: enemies vec is empty, no room info, skip debug block.
         return out;
     }
 
@@ -84,23 +67,20 @@ pub fn play_texts(
     let mut py = 28.0;
     let lh = 13.0;
 
-    let spd = game.player.movement.speed * game.player.movement.velocity_frac;
     out.push(ts(
         px,
         py,
         format!(
             "[DEBUG]  spd:{:.2} tiles/s  enemies:{}",
-            spd,
-            game.enemies.len()
+            view.player.speed, view.player.enemy_count,
         ),
         12.0,
         [0.9, 0.9, 0.2, 1.0],
     ));
     py += lh + 2.0;
 
-    let player_pos = (game.player.movement.x, game.player.movement.y);
-    let room_info = match game.rooms.find_room_at(player_pos.0, player_pos.1) {
-        Some(room_idx) => format!("Room: {}", room_idx),
+    let room_info = match view.player.room_idx {
+        Some(idx) => format!("Room: {}", idx),
         None => "Room: ---".to_string(),
     };
     out.push(ts(px, py, room_info, 11.0, [0.6, 0.9, 0.6, 1.0]));
@@ -131,12 +111,12 @@ pub fn play_texts(
     ));
     py += lh + 2.0;
 
-    for (i, e) in game.enemies.iter().enumerate() {
-        if e.kind == EnemyKind::TargetDummy {
+    for e in &view.enemies {
+        if e.is_dummy {
             out.push(ts(
                 px,
                 py,
-                format!("T{i} [TARGET] hp:{}", e.hp),
+                format!("T{} [TARGET] hp:{}", e.idx, e.hp),
                 11.0,
                 [1.0, 0.85, 0.25, 1.0],
             ));
@@ -144,43 +124,28 @@ pub fn play_texts(
             continue;
         }
 
-        let state_label = match e.brain.awareness.state {
-            AiState::Combat => "COMBAT",
-            AiState::Alert => "ALERT ",
-            AiState::Idle => "idle  ",
-        };
-        let sees = if e.brain.awareness.state == AiState::Combat {
-            "Y"
-        } else {
-            "n"
-        };
-        let col = if e.brain.awareness.in_combat() {
-            [1.0, 0.35, 0.35, 1.0]
-        } else if e.brain.awareness.is_alert() {
-            [1.0, 0.65, 0.2, 1.0]
-        } else {
-            [0.55, 0.8, 0.55, 1.0]
-        };
         out.push(ts(
             px,
             py,
             format!(
-                "E{i} [{state_label}] susp:{:.2} hp:{} vis:{}",
-                e.brain.awareness.suspicion, e.hp, sees
+                "E{} [{}] susp:{:.2} hp:{} vis:{}",
+                e.idx,
+                e.state_label,
+                e.suspicion,
+                e.hp,
+                if e.in_combat { "Y" } else { "n" }
             ),
             11.0,
-            col,
+            e.color,
         ));
         py += lh;
 
-        let pos = (e.movement.x, e.movement.y);
-        let anchor = e.brain.spawn_anchor();
         out.push(ts(
             px + 8.0,
             py,
             format!(
                 "pos:({:.0},{:.0}) anc:({:.0},{:.0})",
-                pos.0, pos.1, anchor.0, anchor.1
+                e.pos.0, e.pos.1, e.anchor.0, e.anchor.1
             ),
             10.0,
             [0.6, 0.6, 0.6, 1.0],
@@ -190,13 +155,13 @@ pub fn play_texts(
         out.push(ts(
             px + 8.0,
             py,
-            format!("phase:{}", e.brain.phase_name()),
+            format!("phase:{}", e.phase),
             10.0,
             [0.5, 0.75, 1.0, 1.0],
         ));
         py += lh;
 
-        if let Some(lk) = e.brain.awareness.last_known_pos() {
+        if let Some(lk) = e.last_known_pos {
             out.push(ts(
                 px + 8.0,
                 py,
@@ -207,7 +172,7 @@ pub fn play_texts(
             py += lh;
         }
 
-        if let Some(mv) = e.brain.last_move_target {
+        if let Some(mv) = e.last_move_target {
             out.push(ts(
                 px + 8.0,
                 py,

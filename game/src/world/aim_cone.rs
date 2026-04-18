@@ -1,6 +1,4 @@
-use super::ray::{cast_ray, wrap_angle};
-use super::units::px_to_tiles;
-use super::wall::Wall;
+use super::ray::wrap_angle;
 
 // ---------------------------------------------------------------------------
 // Tunable constants — edit these to feel the behaviour
@@ -27,9 +25,6 @@ pub const MOVEMENT_SPREAD_RISE_RATE: f32 = 3.0;
 /// Lower than rise so the cone lingers a moment after stopping — feels more physical.
 pub const MOVEMENT_SPREAD_FALL_RATE: f32 = 1.8;
 
-/// How far the aim-cone arc is drawn in tiles (visual only, not a bullet range cap).
-pub const DEFAULT_AIM_CONE_RENDER_RANGE: f32 = px_to_tiles(180.0);
-
 // ---------------------------------------------------------------------------
 // AimCone
 // ---------------------------------------------------------------------------
@@ -48,7 +43,6 @@ pub struct AimCone {
     smoothed_velocity_frac: f32,
     base_half_angle_deg: f32,
     movement_spread_max_deg: f32,
-    render_range: f32,
 
     /// Tiny embedded xorshift32 PRNG — no external crate needed.
     rng_state: u32,
@@ -62,20 +56,13 @@ impl AimCone {
             smoothed_velocity_frac: 0.0,
             base_half_angle_deg: DEFAULT_BASE_HALF_ANGLE_DEG,
             movement_spread_max_deg: DEFAULT_MOVEMENT_SPREAD_MAX_DEG,
-            render_range: DEFAULT_AIM_CONE_RENDER_RANGE,
             rng_state: 0xDEAD_BEEF,
         }
     }
 
-    pub fn set_spread_profile(
-        &mut self,
-        base_half_angle_deg: f32,
-        movement_spread_max_deg: f32,
-        render_range: f32,
-    ) {
+    pub fn set_spread_profile(&mut self, base_half_angle_deg: f32, movement_spread_max_deg: f32) {
         self.base_half_angle_deg = base_half_angle_deg.max(0.0);
         self.movement_spread_max_deg = movement_spread_max_deg.max(0.0);
-        self.render_range = render_range.max(0.0);
     }
 
     // -----------------------------------------------------------------------
@@ -128,75 +115,6 @@ impl AimCone {
         let offset = (self.next_f32() * 2.0 - 1.0) * half;
         let angle = self.direction + offset;
         (angle.cos(), angle.sin())
-    }
-
-    // -----------------------------------------------------------------------
-    // Rendering
-    // -----------------------------------------------------------------------
-
-    /// Cast rays across the aim cone and return wall-clipped arc points for rendering.
-    ///
-    /// The algorithm is identical to `Sight::cone_arc_pts`: uniform ray samples are
-    /// supplemented with wall-corner rays so shadow edges snap cleanly to geometry.
-    pub fn cone_arc_pts(&self, origin: (f32, f32), walls: &[Wall], n_rays: usize) -> Vec<[f32; 2]> {
-        self.cone_arc_pts_for(origin, walls, n_rays, self.direction, self.half_angle())
-    }
-
-    /// Same as [`Self::cone_arc_pts`], but with explicit direction + half-angle.
-    ///
-    /// This is used by the networked client to render an authoritative cone angle
-    /// sent by the server while still using local wall clipping and weapon range.
-    pub fn cone_arc_pts_for(
-        &self,
-        origin: (f32, f32),
-        walls: &[Wall],
-        n_rays: usize,
-        direction: f32,
-        half_angle: f32,
-    ) -> Vec<[f32; 2]> {
-        let half = half_angle.max(0.0);
-        let range = self.render_range;
-
-        let mut rel: Vec<f32> = (0..=n_rays)
-            .map(|i| {
-                let t = i as f32 / n_rays as f32;
-                -half + t * half * 2.0
-            })
-            .collect();
-
-        // Corner-angle hints — same trick as Sight — keeps edges crisp.
-        const EPS: f32 = 0.0002;
-        for w in walls {
-            for &(cx, cy) in &[
-                (w.x, w.y),
-                (w.x + w.w, w.y),
-                (w.x, w.y + w.h),
-                (w.x + w.w, w.y + w.h),
-            ] {
-                let dx = cx - origin.0;
-                let dy = cy - origin.1;
-                if dx * dx + dy * dy < px_to_tiles(1.0) * px_to_tiles(1.0) {
-                    continue;
-                }
-                let r = wrap_angle(dy.atan2(dx) - direction);
-                if r.abs() < half {
-                    rel.push(r - EPS);
-                    rel.push(r);
-                    rel.push(r + EPS);
-                }
-            }
-        }
-
-        rel.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
-
-        rel.iter()
-            .map(|&r| {
-                let angle = direction + r.clamp(-half, half);
-                let dir = (angle.cos(), angle.sin());
-                let dist = cast_ray(origin, dir, range, walls);
-                [origin.0 + dir.0 * dist, origin.1 + dir.1 * dist]
-            })
-            .collect()
     }
 
     // -----------------------------------------------------------------------
