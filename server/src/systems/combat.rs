@@ -132,11 +132,10 @@ fn tick_shooter(
         return None;
     }
 
+    let dir = shooter.aim_cone.sample_direction();
     shooter
         .aim_cone
         .on_shot(weapon_stats.recoil_per_shot_deg, weapon_stats.recoil_max_deg);
-
-    let dir = (shooter.aim_cone.direction.cos(), shooter.aim_cone.direction.sin());
     Some((
         shooter.player_id,
         (shooter.x, shooter.y),

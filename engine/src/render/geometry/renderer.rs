@@ -20,6 +20,7 @@ pub struct GeometryRenderer {
     pipeline: wgpu::RenderPipeline,
     pipeline_masked: wgpu::RenderPipeline,
     vertex_buf: wgpu::Buffer,
+    vertex_buf_masked: wgpu::Buffer,
     uniform_buf: wgpu::Buffer,
     bind_group: wgpu::BindGroup,
 }
@@ -33,6 +34,13 @@ impl GeometryRenderer {
 
         let vertex_buf = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("geo vertices"),
+            size: MAX_VERTS * std::mem::size_of::<GeoVertex>() as u64,
+            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+
+        let vertex_buf_masked = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("geo vertices masked"),
             size: MAX_VERTS * std::mem::size_of::<GeoVertex>() as u64,
             usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
@@ -80,6 +88,7 @@ impl GeometryRenderer {
             pipeline,
             pipeline_masked,
             vertex_buf,
+            vertex_buf_masked,
             uniform_buf,
             bind_group,
         }
@@ -142,7 +151,7 @@ impl GeometryRenderer {
             0,
             bytemuck::cast_slice(&[screen_w, screen_h, 0.0_f32, 0.0_f32]),
         );
-        queue.write_buffer(&self.vertex_buf, 0, bytemuck::cast_slice(verts));
+        queue.write_buffer(&self.vertex_buf_masked, 0, bytemuck::cast_slice(verts));
 
         let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("geo pass masked"),
@@ -167,7 +176,7 @@ impl GeometryRenderer {
         });
         pass.set_pipeline(&self.pipeline_masked);
         pass.set_bind_group(0, &self.bind_group, &[]);
-        pass.set_vertex_buffer(0, self.vertex_buf.slice(..));
+        pass.set_vertex_buffer(0, self.vertex_buf_masked.slice(..));
         pass.set_stencil_reference(1);
         pass.draw(0..verts.len() as u32, 0..1);
     }
