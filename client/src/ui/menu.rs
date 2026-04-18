@@ -1,4 +1,4 @@
-use engine::render::quad::QuadInstance;
+use game::render::quad::QuadInstance;
 
 // ---------------------------------------------------------------------------
 // Button

@@ -18,9 +18,9 @@ use crate::ui::editor::Editor;
 use crate::ui::loadout::LoadoutMenu;
 use crate::ui::lobby::LobbyMenu;
 use crate::ui::menu::MainMenu;
-use engine::input::InputHandler;
-use engine::render::state::State;
-use engine::timing::GameLoop;
+use game::input::InputHandler;
+use game::render::state::State;
+use game::timing::GameLoop;
 use game::game::Game;
 use net::{LobbyState, PlayerState, SelfState};
 

@@ -1,17 +1,21 @@
 use crate::session::Session;
+use game::systems::movement::apply_actor_movement;
 use game::world::level::LevelBounds;
 use game::world::units::px_to_tiles;
-use game::world::wall::{self, Wall};
+use game::world::wall::Wall;
 use net::proto::server::MovementState;
 use net::{ClientPacket, MoveSpeed};
 
-const PLAYER_HALF: f32 = px_to_tiles(10.0);
+pub const PLAYER_HALF: f32 = px_to_tiles(10.0);
 const WALK_SPEED: f32 = px_to_tiles(40.0);
 const NORMAL_SPEED: f32 = px_to_tiles(85.0);
 const RUN_SPEED: f32 = px_to_tiles(200.0);
 
-/// Apply the latest client input to a session: translate position, resolve
-/// wall collisions, clamp to level bounds, and update movement/rotation state.
+/// Apply the latest client input to a session.
+///
+/// Movement physics (normalisation, wall collision, bounds clamping) are
+/// delegated to `game::systems::movement::apply_actor_movement` so that the
+/// server never duplicates physics logic — game is the single source of truth.
 pub fn apply_session_input(
     session: &mut Session,
     input: &ClientPacket,
@@ -19,20 +23,17 @@ pub fn apply_session_input(
     walls: &[Wall],
     level_bounds: Option<LevelBounds>,
 ) {
-    let speed = speed_from_input(input);
-    let mut dx = input.movement_x as f32;
-    let mut dy = input.movement_y as f32;
-    let len = (dx * dx + dy * dy).sqrt();
-    if len > 1.0 {
-        dx /= len;
-        dy /= len;
-    }
-
-    session.x += dx * speed * dt;
-    session.y += dy * speed * dt;
-    wall::resolve_all(&mut session.x, &mut session.y, PLAYER_HALF, walls);
-    clamp_to_bounds(&mut session.x, &mut session.y, PLAYER_HALF, level_bounds);
-
+    apply_actor_movement(
+        &mut session.x,
+        &mut session.y,
+        input.movement_x as f32,
+        input.movement_y as f32,
+        speed_from_input(input),
+        dt,
+        walls,
+        PLAYER_HALF,
+        level_bounds,
+    );
     session.rotation = input.rotation;
     session.movement_state = movement_state_from_input(Some(input), false);
 }
@@ -72,21 +73,3 @@ fn speed_from_input(input: &ClientPacket) -> f32 {
     }
 }
 
-fn clamp_to_bounds(x: &mut f32, y: &mut f32, half: f32, bounds: Option<LevelBounds>) {
-    let Some(bounds) = bounds else { return };
-    let min_x = bounds.x + half;
-    let max_x = bounds.x + bounds.w - half;
-    let min_y = bounds.y + half;
-    let max_y = bounds.y + bounds.h - half;
-
-    if min_x <= max_x {
-        *x = x.clamp(min_x, max_x);
-    } else {
-        *x = bounds.x + bounds.w * 0.5;
-    }
-    if min_y <= max_y {
-        *y = y.clamp(min_y, max_y);
-    } else {
-        *y = bounds.y + bounds.h * 0.5;
-    }
-}

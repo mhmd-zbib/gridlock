@@ -3,6 +3,7 @@ use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
 
 use game::entity::weapon::WeaponState;
+use game::world::aim_cone::AimCone;
 use net::ClientPacket;
 use net::proto::server::MovementState;
 
@@ -20,7 +21,7 @@ pub struct Session {
     /// Rotation encoded as a u16 angle (see `net::codec`).
     pub rotation: u16,
     pub weapon: WeaponState,
-    pub aim_cone_half_angle: f32,
+    pub aim_cone: AimCone,
     pub movement_state: MovementState,
     /// Team selection: `0` = none, `1` = team 1, `2` = team 2.
     pub team: u8,

@@ -1,4 +1,4 @@
-use engine::render::quad::{QuadInstance, push_quad};
+use game::render::quad::{QuadInstance, push_quad};
 use game::world::level::LevelBounds;
 use game::world::units::{px_to_tiles, tiles_to_px};
 

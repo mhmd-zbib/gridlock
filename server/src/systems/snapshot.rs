@@ -74,7 +74,7 @@ pub fn build_snapshot_for_player(
             x: me_x,
             y: me_y,
             rotation: me_rotation,
-            aim_cone_half_angle: recipient.aim_cone_half_angle,
+            aim_cone_half_angle: recipient.aim_cone.half_angle(),
         },
         players,
         // Every bullet event is sent to every client; the client's renderer

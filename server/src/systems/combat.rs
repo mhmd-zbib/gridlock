@@ -6,6 +6,7 @@ use game::world::units::px_to_tiles;
 use game::world::wall::Wall;
 use net::decode_rotation;
 use net::proto::server::BulletEvent;
+use net::MoveSpeed;
 
 const PLAYER_HALF: f32 = px_to_tiles(10.0);
 const BULLET_MAX_RANGE: f32 = px_to_tiles(1500.0);
@@ -111,19 +112,31 @@ fn tick_shooter(
     shooter
         .movement_state
         .set_reloading(shooter.weapon.is_reloading());
-    shooter.aim_cone_half_angle = shooter.weapon.stats().aim_base_half_angle_deg.to_radians();
+
+    let weapon_stats = shooter.weapon.stats();
+    shooter.aim_cone.set_spread_profile(
+        weapon_stats.aim_base_half_angle_deg,
+        weapon_stats.movement_spread_max_deg,
+    );
+    let velocity_frac = velocity_frac_from_input(&latest_input);
+    shooter
+        .aim_cone
+        .update(dt, velocity_frac, weapon_stats.recoil_decay_deg_per_sec);
+    shooter.aim_cone.direction = decode_rotation(shooter.rotation);
 
     if !latest_input.flags.is_shooting() {
         return None;
     }
 
-    let weapon_stats = shooter.weapon.stats();
     if !shooter.weapon.try_fire_with_stats(weapon_stats) {
         return None;
     }
 
-    let theta = decode_rotation(shooter.rotation);
-    let dir = (theta.cos(), theta.sin());
+    shooter
+        .aim_cone
+        .on_shot(weapon_stats.recoil_per_shot_deg, weapon_stats.recoil_max_deg);
+
+    let dir = (shooter.aim_cone.direction.cos(), shooter.aim_cone.direction.sin());
     Some((
         shooter.player_id,
         (shooter.x, shooter.y),
@@ -160,6 +173,20 @@ fn ray_circle_hit_distance(
         t = proj + offset;
     }
     (t >= 0.0 && t <= max_dist).then_some(t)
+}
+
+/// Map the client's reported move speed to a 0–1 velocity fraction.
+/// Mirrors the ratio used by the client: speed / RUN_SPEED.
+fn velocity_frac_from_input(input: &net::ClientPacket) -> f32 {
+    let is_moving = input.movement_x != 0 || input.movement_y != 0;
+    if !is_moving {
+        return 0.0;
+    }
+    match input.flags.move_speed() {
+        MoveSpeed::SlowWalk => 40.0 / 200.0,
+        MoveSpeed::Walk => 85.0 / 200.0,
+        MoveSpeed::Run => 1.0,
+    }
 }
 
 /// Apply bullet damage to the first wall that contains the hit point.

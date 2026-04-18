@@ -2,8 +2,8 @@ use crate::camera::{CameraBehaviorState, CameraStepInput};
 use crate::systems::input::build_client_packet;
 use crate::systems::network::apply_server_snapshots;
 use crate::util::{enemies_in_combat, infer_world_bounds};
-use engine::input::InputState;
-use engine::timing::FIXED_STEP;
+use game::input::InputState;
+use game::timing::FIXED_STEP;
 use game::world::units::{px_to_tiles, tiles_to_px};
 use net::decode_rotation;
 
@@ -23,14 +23,23 @@ impl App {
         let viewport_px = (sw, sh);
         let mouse_world = self.camera.screen_to_world((mx, my), viewport_px);
         let net_connected = self.is_net_connected();
-        let local_input = self.build_local_play_input(input, mouse_world, net_connected);
 
-        self.game.update(FIXED_STEP, &local_input);
-        self.consume_server_snapshots();
-        self.apply_server_authoritative_player_state(net_connected);
-        self.update_bullet_traces();
+        if net_connected {
+            // Server is the source of truth: send inputs, apply authoritative
+            // state received back, and skip local simulation entirely.
+            self.send_play_input(input, mouse_world);
+            self.consume_server_snapshots();
+            self.apply_server_authoritative_player_state(net_connected);
+            self.update_bullet_traces();
+        } else {
+            // Single-player: game runs the full simulation locally.
+            let mut local_input = input.clone();
+            local_input.mouse_x = tiles_to_px(mouse_world.0) as f64;
+            local_input.mouse_y = tiles_to_px(mouse_world.1) as f64;
+            self.game.update(FIXED_STEP, &local_input);
+        }
+
         self.update_play_camera(viewport_px, sw, sh, mouse_world);
-        self.send_play_input(input, mouse_world);
 
         if esc {
             self.leave_online_session();
@@ -44,27 +53,6 @@ impl App {
             self.debug_mode = !self.debug_mode;
         }
         None
-    }
-
-    fn build_local_play_input(
-        &self,
-        input: &InputState,
-        mouse_world: (f32, f32),
-        net_connected: bool,
-    ) -> InputState {
-        let mut local_input = input.clone();
-        local_input.mouse_x = tiles_to_px(mouse_world.0) as f64;
-        local_input.mouse_y = tiles_to_px(mouse_world.1) as f64;
-
-        if net_connected {
-            local_input.shoot = false;
-            local_input.right = false;
-            local_input.left = false;
-            local_input.up = false;
-            local_input.down = false;
-        }
-
-        local_input
     }
 
     fn consume_server_snapshots(&mut self) {

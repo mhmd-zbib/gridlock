@@ -1,6 +1,6 @@
 use crate::ui::lobby::LobbyChoice;
 use crate::ui::menu::MenuChoice;
-use engine::input::InputState;
+use game::input::InputState;
 use game::world::units::px_to_tiles;
 
 use super::{App, AppState};

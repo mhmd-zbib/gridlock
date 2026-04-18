@@ -9,9 +9,9 @@ use crate::render::views::{
     SightConeView, WorldView,
 };
 use crate::render::world::world_quads;
-use engine::render::geometry::GeoVertex;
-use engine::render::quad::QuadInstance;
-use engine::render::text::TextSection;
+use game::render::geometry::GeoVertex;
+use game::render::quad::QuadInstance;
+use game::render::text::TextSection;
 use game::ai::awareness::AiState;
 use game::entity::enemy::EnemyKind;
 use game::entity::weapon::attachment::AttachmentCategory;

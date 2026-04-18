@@ -1,5 +1,5 @@
 use crate::ui::editor::{Editor, Tool};
-use engine::render::text::TextSection;
+use game::render::text::TextSection;
 
 use super::shared::ts;
 

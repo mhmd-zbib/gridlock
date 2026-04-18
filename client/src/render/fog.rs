@@ -1,7 +1,7 @@
 use crate::camera::TacticalCamera;
 use crate::render::sight_geometry::{circle_arc_pts_raw, cone_arc_pts_raw};
 use crate::render::views::FogView;
-use engine::render::geometry::{GeoVertex, push_cone_fan};
+use game::render::geometry::{GeoVertex, push_cone_fan};
 
 /// Build the stencil-buffer geometry that defines the player's visible region.
 pub fn vision_cone_mask(

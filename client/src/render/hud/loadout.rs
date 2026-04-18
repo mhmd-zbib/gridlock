@@ -1,5 +1,5 @@
 use crate::ui::loadout::LoadoutMenu;
-use engine::render::text::TextSection;
+use game::render::text::TextSection;
 use game::entity::weapon::attachment::AttachmentCategory;
 
 use super::shared::ts;

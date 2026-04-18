@@ -79,7 +79,6 @@ async fn handle_connect(
             let spawn = st.spawn;
             let offset = spawn_offset(pid);
             let weapon = default_weapon_state();
-            let aim_cone_half_angle = weapon.stats().aim_base_half_angle_deg.to_radians();
             st.sessions.insert(
                 addr,
                 Session {
@@ -90,7 +89,7 @@ async fn handle_connect(
                     health: MAX_HEALTH,
                     rotation: encode_rotation(0.0),
                     weapon,
-                    aim_cone_half_angle,
+                    aim_cone: game::world::aim_cone::AimCone::new(),
                     movement_state: MovementState::default(),
                     team: 0,
                     latest_input: None,

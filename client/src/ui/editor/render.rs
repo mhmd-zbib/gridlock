@@ -1,4 +1,4 @@
-use engine::render::quad::QuadInstance;
+use game::render::quad::QuadInstance;
 use game::world::prop::{self};
 use game::world::units::px_to_tiles;
 

@@ -1,6 +1,6 @@
 use crate::camera::TacticalCamera;
 use crate::render::views::WorldView;
-use engine::render::quad::{QuadInstance, push_world_quad};
+use game::render::quad::{QuadInstance, push_world_quad};
 
 /// Build quad instances for the static world: level floor, walls, and props.
 ///

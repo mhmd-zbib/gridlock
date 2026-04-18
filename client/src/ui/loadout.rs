@@ -1,5 +1,5 @@
-use engine::input::InputState;
-use engine::render::quad::QuadInstance;
+use game::input::InputState;
+use game::render::quad::QuadInstance;
 use game::entity::player::PlayerLoadoutConfig;
 use game::entity::weapon::attachment::{
     ATTACHMENT_CATEGORY_COUNT, AttachmentCategory, AttachmentId, AttachmentLoadout, attachment_name,

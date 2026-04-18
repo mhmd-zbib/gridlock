@@ -1,1 +1,1 @@
-pub use engine::input::InputState;
+pub use engine::input::{InputHandler, InputState};

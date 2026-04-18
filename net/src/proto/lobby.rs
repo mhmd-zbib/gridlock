@@ -11,7 +11,7 @@ pub struct LobbyCommand {
 }
 
 impl LobbyCommand {
-    pub fn select_team(team: u8) -> Self {  
+    pub fn select_team(team: u8) -> Self {
         Self {
             kind: LobbyCommandKind::SelectTeam,
             team: if team == 2 { 2 } else { 1 },
