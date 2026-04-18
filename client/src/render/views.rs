@@ -11,6 +11,14 @@ use net::PlayerState;
 // Fog (stencil mask)
 // ---------------------------------------------------------------------------
 
+pub struct TeammateConeFog {
+    pub pos: (f32, f32),
+    pub sight_direction: f32,
+    pub sight_half_angle: f32,
+    pub sight_range: f32,
+    pub sight_circle_radius: f32,
+}
+
 pub struct FogView<'a> {
     pub player_pos: (f32, f32),
     /// Already resolved: server-authoritative rotation if connected, else local.
@@ -18,6 +26,8 @@ pub struct FogView<'a> {
     pub sight_half_angle: f32,
     pub sight_range: f32,
     pub sight_circle_radius: f32,
+    /// Sight cones of living teammates — unioned into the fog mask.
+    pub teammate_cones: Vec<TeammateConeFog>,
     pub walls: &'a [Wall],
 }
 
@@ -72,12 +82,20 @@ pub struct DebugRoomsView {
     pub gaps: Vec<(f32, f32)>,
 }
 
+pub struct PlayerCircleView {
+    pub pos: (f32, f32),
+    pub color: [f32; 4],
+}
+
 pub struct GeometryView<'a> {
     pub walls: &'a [Wall],
     pub player_sight: SightConeView,
     pub aim_cone: AimConeView,
     pub impacts: Vec<ImpactView>,
     pub enemy_cones: Vec<EnemyConeView>,
+    pub teammate_cones: Vec<TeammateConeFog>,
+    /// All players rendered as circles: local player first, then remote players.
+    pub player_circles: Vec<PlayerCircleView>,
     /// `Some` only when debug mode is active.
     pub debug_rooms: Option<DebugRoomsView>,
 }
@@ -102,7 +120,6 @@ pub struct EnemyBodyView {
 }
 
 pub struct EntitiesView<'a> {
-    pub player_pos: (f32, f32),
     pub enemies: Vec<EnemyBodyView>,
     pub bullet_positions: Vec<(f32, f32)>,
     pub remote_players: &'a [PlayerState],
@@ -160,4 +177,6 @@ pub struct HudView<'a> {
     pub player: HudPlayerView,
     pub enemies: Vec<HudEnemyRow>,
     pub net: Option<&'a crate::net::NetClient>,
+    pub health: u8,
+    pub match_state: Option<net::MatchState>,
 }

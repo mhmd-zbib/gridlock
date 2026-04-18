@@ -4,7 +4,7 @@ use crate::session::{ServerState, Session};
 use game::world::sight::Sight;
 use game::world::wall::Wall;
 use net::decode_rotation;
-use net::proto::server::{BulletEvent, MatchState, PlayerState, SelfState, ServerPacket};
+use net::proto::server::{BulletEvent, MatchState, PlayerState, SelfState, ServerPacket, TeammateView};
 
 /// Build the server snapshot sent to one recipient this tick.
 ///
@@ -34,6 +34,35 @@ pub fn build_snapshot_for_player(
     viewer_sight.half_angle = me_weapon_stats.visibility_half_angle_deg.to_radians();
     let viewer_pos = (me_x, me_y);
 
+    // Spectators (mid-game joiners or dead players waiting for respawn) see
+    // every living player — skip all visibility culling for them.
+    let recipient_is_spectator = recipient.is_spectator || recipient.health == 0;
+
+    let my_team = recipient.team;
+
+    // Build teammate sight cones so the client can union them into the fog mask.
+    let mut teammate_views: Vec<TeammateView> = Vec::new();
+    if my_team != 0 && !recipient_is_spectator {
+        for (&addr, session) in st.sessions.iter() {
+            if addr == recipient_addr || session.health == 0 || session.team != my_team {
+                continue;
+            }
+            let mut tm_sight = Sight::player();
+            tm_sight.direction = decode_rotation(session.rotation);
+            let tm_stats = session.weapon.stats();
+            tm_sight.range = tm_stats.visibility_range;
+            tm_sight.half_angle = tm_stats.visibility_half_angle_deg.to_radians();
+            teammate_views.push(TeammateView {
+                x: session.x,
+                y: session.y,
+                rotation: session.rotation,
+                sight_range: tm_sight.range,
+                sight_half_angle: tm_sight.half_angle,
+                sight_circle_radius: tm_sight.circle_radius,
+            });
+        }
+    }
+
     let players: Vec<PlayerState> = st
         .sessions
         .iter()
@@ -41,8 +70,24 @@ pub fn build_snapshot_for_player(
             if addr == recipient_addr || session.health == 0 {
                 return None;
             }
-            if !viewer_sight.can_see(viewer_pos, (session.x, session.y), walls) {
-                return None;
+            if !recipient_is_spectator {
+                let is_teammate = my_team != 0 && session.team == my_team;
+                // Teammates are always visible; enemies require LOS through the
+                // recipient's cone or any teammate's cone.
+                if !is_teammate {
+                    let visible_to_me = viewer_sight.can_see(viewer_pos, (session.x, session.y), walls);
+                    let visible_to_team = teammate_views.iter().any(|tv| {
+                        let mut tm_sight = Sight::player();
+                        tm_sight.direction = decode_rotation(tv.rotation);
+                        tm_sight.range = tv.sight_range;
+                        tm_sight.half_angle = tv.sight_half_angle;
+                        tm_sight.circle_radius = tv.sight_circle_radius;
+                        tm_sight.can_see((tv.x, tv.y), (session.x, session.y), walls)
+                    });
+                    if !visible_to_me && !visible_to_team {
+                        return None;
+                    }
+                }
             }
             Some(PlayerState {
                 id: session.player_id,
@@ -51,6 +96,7 @@ pub fn build_snapshot_for_player(
                 rotation: session.rotation,
                 movement_state: session.movement_state,
                 weapon: 0,
+                team: session.team,
             })
         })
         .collect();
@@ -81,10 +127,11 @@ pub fn build_snapshot_for_player(
         // decides which ones are within local visibility.
         bullets: bullets.to_vec(),
         sounds: vec![],
+        teammate_views,
         match_state: MatchState {
-            timer: 300,
-            score_team1: 0,
-            score_team2: 0,
+            timer: st.respawn_timer.ceil() as u16,
+            score_team1: st.team1_rounds,
+            score_team2: st.team2_rounds,
         },
     }
 }

@@ -11,10 +11,10 @@ pub use proto::{
     handshake::{
         AnyPacket, ConnectAck, ConnectRequest, ConnectResult, PROTOCOL_VERSION, PacketKind,
     },
-    lobby::{LobbyCommand, LobbyCommandKind, LobbyState},
+    lobby::{LobbyCommand, LobbyCommandKind, LobbyPlayer, LobbyState},
     server::{
         BulletEvent, MatchState, MovementState, PlayerState, SelfState, ServerPacket, SoundEvent,
-        SoundKind,
+        SoundKind, TeammateView,
     },
 };
 pub use socket::{MAX_DATAGRAM, NetSocket, RecvError};

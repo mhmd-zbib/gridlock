@@ -31,6 +31,8 @@ pub struct InputState {
     pub key_5: bool, // editor tool: breakable wall
     pub key_6: bool, // editor tool: prop
     pub key_7: bool, // editor tool: base map bounds
+    pub key_8: bool, // editor tool: team 1 spawn
+    pub key_9: bool, // editor tool: team 2 spawn
     pub key_q: bool, // editor: previous prop id
     pub key_e: bool, // editor: next prop id
     pub key_g: bool, // toggle grid snap
@@ -45,6 +47,11 @@ pub struct InputState {
     pub mouse_left: bool,
     pub mouse_right: bool,
     pub mouse_wheel_y: f32, // transient, reset each frame
+
+    // Text input (for name-entry screen)
+    /// Printable characters typed this frame; cleared by `end_frame`.
+    pub typed_chars: String,
+    pub backspace: bool,
 }
 
 // ---------------------------------------------------------------------------
@@ -102,6 +109,7 @@ impl InputHandler {
                 NamedKey::F1 => self.state.f1 = pressed,
                 NamedKey::F5 => self.state.f5 = pressed,
                 NamedKey::F8 => self.state.f8 = pressed,
+                NamedKey::Backspace => self.state.backspace = pressed,
                 other => {
                     let _ = other;
                     return;
@@ -111,6 +119,9 @@ impl InputHandler {
         }
 
         if let Key::Character(ch) = &event.logical_key {
+            if pressed {
+                self.state.typed_chars.push_str(ch.as_str());
+            }
             match ch.as_str() {
                 "w" | "W" => self.state.up = pressed,
                 "s" | "S" => self.state.down = pressed,
@@ -126,6 +137,8 @@ impl InputHandler {
                 "5" => self.state.key_5 = pressed,
                 "6" => self.state.key_6 = pressed,
                 "7" => self.state.key_7 = pressed,
+                "8" => self.state.key_8 = pressed,
+                "9" => self.state.key_9 = pressed,
                 "-" | "_" => self.state.key_minus = pressed,
                 "=" | "+" => self.state.key_equals = pressed,
                 "q" | "Q" => self.state.key_q = pressed,
@@ -160,5 +173,6 @@ impl InputHandler {
 
     pub fn end_frame(&mut self) {
         self.state.mouse_wheel_y = 0.0;
+        self.state.typed_chars.clear();
     }
 }

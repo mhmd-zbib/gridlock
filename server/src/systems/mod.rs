@@ -4,3 +4,5 @@ pub mod combat;
 pub mod movement;
 /// Snapshot system: build per-client ServerPacket from authoritative state.
 pub mod snapshot;
+/// Round system: detect team elimination, manage respawn countdown.
+pub mod rounds;

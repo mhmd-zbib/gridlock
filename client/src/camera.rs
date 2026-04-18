@@ -1,21 +1,8 @@
-use game::math::vec2;
 use game::render::screen::ScreenTransform;
 use game::world::rooms::LevelRooms;
 use game::world::units::{px_to_tiles, tiles_to_px};
 
-const W_AIM: f32 = 0.0;
-const W_MOVE: f32 = 0.0;
-const MAX_OFFSET_RADIUS: f32 = px_to_tiles(200.0);
-const OFFSET_RESPONSE_GAMMA: f32 = 1.35;
-const AIM_DEADZONE: f32 = px_to_tiles(56.0);
-const AIM_FULL_DISTANCE: f32 = px_to_tiles(420.0);
-const AIM_RESPONSE_GAMMA: f32 = 1.45;
 const GAP_NEAR_RADIUS: f32 = px_to_tiles(180.0);
-const GAP_BIAS_STRENGTH: f32 = px_to_tiles(90.0);
-const IN_ROOM_AIM_SCALE: f32 = 0.62;
-const IN_ROOM_MOVE_SCALE: f32 = 0.70;
-const VISIBILITY_DRIFT_FRAC: f32 = 0.38;
-const MIN_VISIBILITY_DRIFT: f32 = px_to_tiles(96.0);
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum CameraBehaviorState {
@@ -66,11 +53,8 @@ impl CameraBounds {
 }
 
 pub struct CameraStepInput<'a> {
-    pub dt: f32,
     pub viewport_px: (f32, f32),
     pub player_pos: (f32, f32),
-    pub mouse_world: (f32, f32),
-    pub player_vision_range: f32,
     pub bounds: CameraBounds,
     pub rooms: &'a LevelRooms,
     pub desired_state: CameraBehaviorState,
@@ -78,8 +62,6 @@ pub struct CameraStepInput<'a> {
 
 pub struct TacticalCamera {
     center: (f32, f32),
-    offset: (f32, f32),
-    last_player_pos: Option<(f32, f32)>,
     state: CameraBehaviorState,
     in_room: bool,
     near_gap: bool,
@@ -89,8 +71,6 @@ impl TacticalCamera {
     pub fn new(initial_center: (f32, f32)) -> Self {
         Self {
             center: initial_center,
-            offset: (0.0, 0.0),
-            last_player_pos: None,
             state: CameraBehaviorState::Exploration,
             in_room: false,
             near_gap: false,
@@ -99,8 +79,6 @@ impl TacticalCamera {
 
     pub fn reset(&mut self, center: (f32, f32)) {
         self.center = center;
-        self.offset = (0.0, 0.0);
-        self.last_player_pos = None;
         self.state = CameraBehaviorState::Exploration;
         self.in_room = false;
         self.near_gap = false;
@@ -108,10 +86,6 @@ impl TacticalCamera {
 
     pub fn center(&self) -> (f32, f32) {
         self.center
-    }
-
-    pub fn offset(&self) -> (f32, f32) {
-        self.offset
     }
 
     pub fn state(&self) -> CameraBehaviorState {
@@ -144,77 +118,20 @@ impl TacticalCamera {
     }
 
     pub fn update(&mut self, step: CameraStepInput<'_>) {
-        let dt = step.dt.max(1.0e-5);
         let player_pos = step.player_pos;
 
-        let move_dir = match self.last_player_pos {
-            Some(prev) => {
-                vec2::normalize(((player_pos.0 - prev.0) / dt, (player_pos.1 - prev.1) / dt))
-            }
-            None => (0.0, 0.0),
-        };
-        self.last_player_pos = Some(player_pos);
-
-        let aim_delta = (
-            step.mouse_world.0 - player_pos.0,
-            step.mouse_world.1 - player_pos.1,
-        );
-        let aim_dir = vec2::normalize(aim_delta);
-        let aim_scale = aim_distance_scale(vec2::length(aim_delta));
-
+        // HUD metadata — room / gap detection.
         let room_id = step.rooms.find_room_at(player_pos.0, player_pos.1);
         self.in_room = room_id.is_some();
-        let (gap_dir, gap_pull, near_gap) = nearest_gap_bias(step.rooms, room_id, player_pos);
-        self.near_gap = near_gap;
+        self.near_gap = is_near_gap(step.rooms, room_id, player_pos);
+
         self.state = step.desired_state;
         if self.near_gap && self.state == CameraBehaviorState::Exploration {
             self.state = CameraBehaviorState::PeekTension;
         }
 
-        let (follow_alpha, offset_alpha, k_aim, k_move) = match self.state {
-            CameraBehaviorState::Combat => (0.58, 0.70, px_to_tiles(170.0), px_to_tiles(84.0)),
-            CameraBehaviorState::PeekTension => (0.46, 0.60, px_to_tiles(140.0), px_to_tiles(72.0)),
-            CameraBehaviorState::Exploration => (0.36, 0.50, px_to_tiles(115.0), px_to_tiles(56.0)),
-        };
-        let room_scale = if self.in_room {
-            (IN_ROOM_AIM_SCALE, IN_ROOM_MOVE_SCALE)
-        } else {
-            (1.0, 1.0)
-        };
-
-        let o_aim = (
-            aim_dir.0 * k_aim * aim_scale * room_scale.0,
-            aim_dir.1 * k_aim * aim_scale * room_scale.0,
-        );
-        let o_move = (
-            move_dir.0 * k_move * room_scale.1,
-            move_dir.1 * k_move * room_scale.1,
-        );
-
-        let mut desired_offset = (
-            o_aim.0 * W_AIM + o_move.0 * W_MOVE,
-            o_aim.1 * W_AIM + o_move.1 * W_MOVE,
-        );
-        if near_gap {
-            desired_offset.0 += gap_dir.0 * GAP_BIAS_STRENGTH * gap_pull;
-            desired_offset.1 += gap_dir.1 * GAP_BIAS_STRENGTH * gap_pull;
-        }
-
-        desired_offset = apply_response_curve(desired_offset);
-        self.offset = vec2::lerp(self.offset, desired_offset, offset_alpha);
-
-        let c_base = vec2::lerp(self.center, player_pos, follow_alpha);
-        let mut desired_center = (c_base.0 + self.offset.0, c_base.1 + self.offset.1);
-        desired_center = clamp_visibility_region(
-            desired_center,
-            player_pos,
-            step.player_vision_range,
-            MAX_OFFSET_RADIUS,
-        );
-        desired_center = step.bounds.clamp_center(desired_center, step.viewport_px);
-
-        self.center = vec2::lerp(self.center, desired_center, follow_alpha);
-        self.center = step.bounds.clamp_center(self.center, step.viewport_px);
+        // Camera snaps directly to the player — no lag, no offset.
+        self.center = step.bounds.clamp_center(player_pos, step.viewport_px);
     }
 
     pub fn screen_transform(&self, viewport_px: (f32, f32)) -> ScreenTransform {
@@ -222,12 +139,8 @@ impl TacticalCamera {
     }
 }
 
-fn nearest_gap_bias(
-    rooms: &LevelRooms,
-    room_id: Option<usize>,
-    player_pos: (f32, f32),
-) -> ((f32, f32), f32, bool) {
-    let mut nearest = None::<(f32, f32, f32)>;
+fn is_near_gap(rooms: &LevelRooms, room_id: Option<usize>, player_pos: (f32, f32)) -> bool {
+    let radius_sq = GAP_NEAR_RADIUS * GAP_NEAR_RADIUS;
 
     if !rooms.gap_edges.is_empty() {
         for edge in &rooms.gap_edges {
@@ -240,68 +153,21 @@ fn nearest_gap_bias(
             }
             let dx = edge.pos.0 - player_pos.0;
             let dy = edge.pos.1 - player_pos.1;
-            let d2 = dx * dx + dy * dy;
-            match nearest {
-                Some((_, _, best_d2)) if d2 >= best_d2 => {}
-                _ => nearest = Some((dx, dy, d2)),
+            if dx * dx + dy * dy <= radius_sq {
+                return true;
             }
         }
     }
 
-    if nearest.is_none() {
-        for &(gx, gy) in &rooms.gaps {
-            let dx = gx - player_pos.0;
-            let dy = gy - player_pos.1;
-            let d2 = dx * dx + dy * dy;
-            match nearest {
-                Some((_, _, best_d2)) if d2 >= best_d2 => {}
-                _ => nearest = Some((dx, dy, d2)),
-            }
+    for &(gx, gy) in &rooms.gaps {
+        let dx = gx - player_pos.0;
+        let dy = gy - player_pos.1;
+        if dx * dx + dy * dy <= radius_sq {
+            return true;
         }
     }
 
-    let Some((dx, dy, d2)) = nearest else {
-        return ((0.0, 0.0), 0.0, false);
-    };
-    let dist = d2.sqrt();
-    if dist > GAP_NEAR_RADIUS {
-        return ((0.0, 0.0), 0.0, false);
-    }
-    let dir = vec2::normalize((dx, dy));
-    let pull = 1.0 - (dist / GAP_NEAR_RADIUS);
-    (dir, pull, true)
-}
-
-fn clamp_visibility_region(
-    center: (f32, f32),
-    player_pos: (f32, f32),
-    vision_range: f32,
-    max_drift: f32,
-) -> (f32, f32) {
-    let allowed = (vision_range * VISIBILITY_DRIFT_FRAC)
-        .max(MIN_VISIBILITY_DRIFT)
-        .min(max_drift);
-    vec2::clamp_to_radius(center, player_pos, allowed)
-}
-
-fn apply_response_curve(offset: (f32, f32)) -> (f32, f32) {
-    let mag = vec2::length(offset);
-    if mag <= f32::EPSILON {
-        return (0.0, 0.0);
-    }
-    let norm = (mag / MAX_OFFSET_RADIUS).clamp(0.0, 1.0);
-    let curved = norm.powf(OFFSET_RESPONSE_GAMMA) * MAX_OFFSET_RADIUS;
-    let dir = (offset.0 / mag, offset.1 / mag);
-    (dir.0 * curved, dir.1 * curved)
-}
-
-fn aim_distance_scale(aim_dist: f32) -> f32 {
-    if aim_dist <= AIM_DEADZONE {
-        return 0.0;
-    }
-    let span = (AIM_FULL_DISTANCE - AIM_DEADZONE).max(1.0e-4);
-    let normalized = ((aim_dist - AIM_DEADZONE) / span).clamp(0.0, 1.0);
-    normalized.powf(AIM_RESPONSE_GAMMA)
+    false
 }
 
 #[cfg(test)]
@@ -350,11 +216,8 @@ mod tests {
 
         let mut cam = TacticalCamera::new((4.0, 4.0));
         cam.update(CameraStepInput {
-            dt: 1.0 / 60.0,
             viewport_px: (1280.0, 720.0),
             player_pos: (4.0, 1.1),
-            mouse_world: (4.0, 0.1),
-            player_vision_range: px_to_tiles(420.0),
             bounds: CameraBounds::from_min_max(0.0, 0.0, 20.0, 20.0),
             rooms: &rooms,
             desired_state: CameraBehaviorState::Exploration,
@@ -362,13 +225,5 @@ mod tests {
 
         assert_eq!(cam.state(), CameraBehaviorState::PeekTension);
         assert!(cam.near_gap());
-    }
-
-    #[test]
-    fn aim_distance_scale_uses_deadzone_and_caps() {
-        assert_eq!(aim_distance_scale(AIM_DEADZONE * 0.5), 0.0);
-        assert_eq!(aim_distance_scale(AIM_DEADZONE), 0.0);
-        assert!((aim_distance_scale(AIM_FULL_DISTANCE) - 1.0).abs() < 1.0e-4);
-        assert!((aim_distance_scale(AIM_FULL_DISTANCE * 2.0) - 1.0).abs() < 1.0e-4);
     }
 }

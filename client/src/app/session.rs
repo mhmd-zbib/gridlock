@@ -6,9 +6,10 @@ use super::App;
 
 impl App {
     pub(super) fn start_lobby_session(&mut self) {
+        let name = self.player_name.trim().to_string();
         self.net = Some(NetClient::connect(
             "127.0.0.1:7777".parse().unwrap(),
-            "Player".into(),
+            name,
         ));
         self.net_seq = 0;
         self.server_me = None;
@@ -41,6 +42,7 @@ impl App {
     }
 
     pub(super) fn enter_play_state(&mut self, sw: f32, sh: f32) {
+        self.my_team = self.lobby_state.as_ref().map(|s| s.your_team).unwrap_or(0);
         if let Some(level) = scan_first_level() {
             self.game
                 .load_level(&level, px_to_tiles(sw), px_to_tiles(sh));

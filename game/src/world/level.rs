@@ -46,6 +46,10 @@ pub struct LevelData {
     /// `None` means no spawn defined yet (editor hasn't placed one).
     pub player_spawn: Option<Pos>,
     #[serde(default)]
+    pub team1_spawn: Option<Pos>,
+    #[serde(default)]
+    pub team2_spawn: Option<Pos>,
+    #[serde(default)]
     pub enemies: Vec<Pos>,
     #[serde(default)]
     pub target_enemies: Vec<Pos>,
@@ -61,6 +65,8 @@ impl Default for LevelData {
             id: "level_2".to_string(),
             map_bounds: None,
             player_spawn: None,
+            team1_spawn: None,
+            team2_spawn: None,
             enemies: Vec::new(),
             target_enemies: Vec::new(),
             walls: Vec::new(),

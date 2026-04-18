@@ -3,7 +3,6 @@
 /// Wire layout: [kind: u8] [team: u8]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct LobbyCommand {
-    /// Which command should be applied.
     pub kind: LobbyCommandKind,
     /// Team index in `[1, 2]` for [`LobbyCommandKind::SelectTeam`], ignored for
     /// [`LobbyCommandKind::StartGame`].
@@ -44,17 +43,46 @@ impl LobbyCommandKind {
     }
 }
 
-/// Current lobby state sent from server → client (4 bytes on the wire).
+// ── LobbyPlayer ───────────────────────────────────────────────────────────────
+
+/// One player entry in the lobby roster (17 bytes on the wire).
 ///
-/// Wire layout: [game_started: u8] [your_team: u8] [team1_count: u8] [team2_count: u8]
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+/// Wire layout: [name: [u8; 16]] [team: u8]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct LobbyPlayer {
+    /// Display name as UTF-8, zero-padded to 16 bytes.
+    pub name: [u8; 16],
+    /// Team (`0` = none, `1` = team 1, `2` = team 2).
+    pub team: u8,
+}
+
+impl LobbyPlayer {
+    pub fn name_str(&self) -> &str {
+        let end = self.name.iter().position(|&b| b == 0).unwrap_or(16);
+        std::str::from_utf8(&self.name[..end]).unwrap_or("?")
+    }
+}
+
+// ── LobbyState ────────────────────────────────────────────────────────────────
+
+/// Current lobby state sent from server → client.
+///
+/// Wire layout:
+///   [game_started: u8] [your_team: u8] [team1_count: u8] [team2_count: u8]
+///   [is_creator: u8]
+///   [player_count: u8] [players: player_count × 17 B]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct LobbyState {
-    /// `true` after the match has started; no new clients can join.
+    /// `true` once the creator has pressed Start Game.
     pub game_started: bool,
     /// Team selection for this client (`0` = none, `1` = team 1, `2` = team 2).
     pub your_team: u8,
-    /// Number of players currently assigned to team 1.
+    /// Number of non-spectator players assigned to team 1.
     pub team1_count: u8,
-    /// Number of players currently assigned to team 2.
+    /// Number of non-spectator players assigned to team 2.
     pub team2_count: u8,
+    /// Whether this client is the room creator (can press Start Game).
+    pub is_creator: bool,
+    /// All players currently in the session for roster display.
+    pub players: Vec<LobbyPlayer>,
 }

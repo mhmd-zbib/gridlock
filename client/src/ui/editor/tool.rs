@@ -26,13 +26,15 @@ pub const EDITOR_PAN_STEP_PX: f32 = 20.0;
 #[derive(Default, Clone, Copy, PartialEq)]
 pub enum Tool {
     #[default]
-    PlayerSpawn, // key 1 — green
-    Enemy,       // key 2 — red
-    Wall,        // key 3 — brown, 2-point thin wall
-    TargetDummy, // key 4 — yellow
-    Breakable,   // key 5 — cyan, 2-point thin breakable wall
-    Prop,        // key 6 — id-backed prop
-    BaseMap,     // key 7 — 2-point map bounds rectangle
+    PlayerSpawn,  // key 1 — green
+    Enemy,        // key 2 — red
+    Wall,         // key 3 — brown, 2-point thin wall
+    TargetDummy,  // key 4 — yellow
+    Breakable,    // key 5 — cyan, 2-point thin breakable wall
+    Prop,         // key 6 — id-backed prop
+    BaseMap,      // key 7 — 2-point map bounds rectangle
+    Team1Spawn,   // key 8 — blue
+    Team2Spawn,   // key 9 — orange
 }
 
 // ---------------------------------------------------------------------------

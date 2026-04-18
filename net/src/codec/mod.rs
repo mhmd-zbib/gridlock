@@ -101,6 +101,7 @@ mod tests {
                 to_x: 10.0,
                 to_y: 15.0,
                 hit_player_id: 0,
+                shooter_team: 1,
             }],
             sounds: vec![SoundEvent {
                 kind: SoundKind::Gunshot,

@@ -6,14 +6,34 @@ use super::shared::{net_status_line, ts};
 
 pub fn play_texts(
     sw: f32,
-    _sh: f32,
+    sh: f32,
     view: &HudView<'_>,
     camera: &TacticalCamera,
 ) -> Vec<TextSection> {
     let ammo_display = view.player.ammo;
     let reloading = view.player.reloading;
+    let health = view.health;
+    let dead = health == 0;
+
+    // Health bar: 20 filled/empty segments.
+    let filled = (health as usize * 20 / 100).min(20);
+    let bar: String = std::iter::repeat('█').take(filled)
+        .chain(std::iter::repeat('░').take(20 - filled))
+        .collect();
+    let hp_color = if health > 60 {
+        [0.2, 1.0, 0.2, 1.0]
+    } else if health > 25 {
+        [1.0, 0.75, 0.1, 1.0]
+    } else {
+        [1.0, 0.2, 0.2, 1.0]
+    };
+
+    let respawn_timer = view.match_state.map(|m| m.timer).unwrap_or(0);
+    let score1 = view.match_state.map(|m| m.score_team1).unwrap_or(0);
+    let score2 = view.match_state.map(|m| m.score_team2).unwrap_or(0);
 
     let mut out = vec![
+        // Top-left: controls hint
         ts(
             8.0,
             6.0,
@@ -21,6 +41,7 @@ pub fn play_texts(
             13.0,
             [0.5, 0.5, 0.5, 1.0],
         ),
+        // Weapon line
         ts(
             8.0,
             22.0,
@@ -35,6 +56,7 @@ pub fn play_texts(
             13.0,
             [0.5, 0.5, 0.5, 1.0],
         ),
+        // Attachments
         ts(
             8.0,
             38.0,
@@ -42,21 +64,47 @@ pub fn play_texts(
             13.0,
             [0.45, 0.45, 0.45, 1.0],
         ),
+        // Health bar (bottom-left)
         ts(
-            sw - 170.0,
+            8.0,
+            sh - 52.0,
+            format!("HP  {} {}/100", bar, health),
+            15.0,
+            hp_color,
+        ),
+        // Score (top-center)
+        ts(
+            sw * 0.5 - 80.0,
             6.0,
-            "SHOOTING GAME",
-            13.0,
-            [0.35, 0.35, 0.35, 1.0],
+            format!("Team 1: {}  —  Team 2: {}", score1, score2),
+            16.0,
+            [0.9, 0.9, 0.9, 1.0],
         ),
-        ts(
-            sw - 210.0,
-            20.0,
-            net_status_line(view.net),
-            12.0,
-            [0.35, 0.35, 0.35, 1.0],
-        ),
+        // Top-right: game title + net
+        ts(sw - 170.0, 6.0, "SHOOTING GAME", 13.0, [0.35, 0.35, 0.35, 1.0]),
+        ts(sw - 210.0, 20.0, net_status_line(view.net), 12.0, [0.35, 0.35, 0.35, 1.0]),
     ];
+
+    // Dead / spectating overlay (centre screen)
+    if dead {
+        out.push(ts(
+            sw * 0.5 - 90.0,
+            sh * 0.44,
+            "SPECTATING",
+            26.0,
+            [0.8, 0.8, 0.8, 0.85],
+        ));
+    }
+    if respawn_timer > 0 {
+        let msg = if dead {
+            format!("YOU DIED — respawning in {}s", respawn_timer)
+        } else {
+            format!("Round over — next round in {}s", respawn_timer)
+        };
+        out.push(ts(sw * 0.5 - 200.0, sh * 0.5, msg, 22.0, [1.0, 0.3, 0.3, 1.0]));
+    } else if dead {
+        out.push(ts(sw * 0.5 - 80.0, sh * 0.5, "YOU DIED", 22.0, [1.0, 0.2, 0.2, 1.0]));
+    }
 
     if view.enemies.is_empty() && view.player.room_idx.is_none() && view.player.speed == 0.0 {
         // Non-debug mode: enemies vec is empty, no room info, skip debug block.
@@ -92,17 +140,14 @@ pub fn play_texts(
         CameraBehaviorState::Exploration => "explore",
     };
     let cam_center = camera.center();
-    let cam_offset = camera.offset();
     out.push(ts(
         px,
         py,
         format!(
-            "Cam: {}  center({:.2},{:.2})  off({:.2},{:.2})  room:{}  gap:{}",
+            "Cam: {}  center({:.2},{:.2})  room:{}  gap:{}",
             camera_state,
             cam_center.0,
             cam_center.1,
-            cam_offset.0,
-            cam_offset.1,
             if camera.in_room() { "Y" } else { "n" },
             if camera.near_gap() { "Y" } else { "n" }
         ),

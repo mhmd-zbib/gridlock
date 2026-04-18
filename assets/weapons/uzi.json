@@ -9,17 +9,17 @@
     "stock": ["light_stock"],
     "underbarrel": ["laser_pointer"]
   },
-  "visibility_range_px": 235.0,
-  "visibility_half_angle_deg": 42.0,
-  "aim_cone_render_range_px": 130.0,
+  "visibility_range_px": 220.0,
+  "visibility_half_angle_deg": 38.0,
+  "aim_cone_render_range_px": 125.0,
   "aim_base_half_angle_deg": 2.6,
-  "movement_spread_max_deg": 10.0,
+  "movement_spread_max_deg": 9.8,
   "bullet_speed_px_per_sec": 560.0,
-  "bullet_damage": 1,
-  "recoil_per_shot_deg": 1.7,
-  "recoil_max_deg": 14.0,
-  "recoil_decay_deg_per_sec": 12.5,
-  "fire_rate_rps": 16.0,
+  "bullet_damage": 16,
+  "recoil_per_shot_deg": 1.2,
+  "recoil_max_deg": 11.0,
+  "recoil_decay_deg_per_sec": 13.5,
+  "fire_rate_rps": 15.5,
   "mag_size": 32,
-  "reload_time_secs": 1.7
+  "reload_time_secs": 2.1
 }

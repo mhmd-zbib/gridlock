@@ -82,6 +82,22 @@ impl Editor {
             ));
         }
 
+        if let Some(spawn) = self.level.team1_spawn {
+            out.push(self.world_quad(
+                (spawn.x, spawn.y),
+                (px_to_tiles(10.0), px_to_tiles(10.0)),
+                [0.2, 0.5, 1.0, 1.0],
+            ));
+        }
+
+        if let Some(spawn) = self.level.team2_spawn {
+            out.push(self.world_quad(
+                (spawn.x, spawn.y),
+                (px_to_tiles(10.0), px_to_tiles(10.0)),
+                [1.0, 0.5, 0.1, 1.0],
+            ));
+        }
+
         for enemy in &self.level.enemies {
             out.push(self.world_quad(
                 (enemy.x, enemy.y),
@@ -123,6 +139,16 @@ impl Editor {
                 (mx, my),
                 (px_to_tiles(8.0), px_to_tiles(8.0)),
                 [1.0, 0.85, 0.2, 0.35],
+            )),
+            Tool::Team1Spawn => out.push(self.world_quad(
+                (mx, my),
+                (px_to_tiles(10.0), px_to_tiles(10.0)),
+                [0.2, 0.5, 1.0, 0.35],
+            )),
+            Tool::Team2Spawn => out.push(self.world_quad(
+                (mx, my),
+                (px_to_tiles(10.0), px_to_tiles(10.0)),
+                [1.0, 0.5, 0.1, 0.35],
             )),
             Tool::Prop => self.push_prop_preview(out, mx, my),
             Tool::BaseMap => self.push_bounds_preview(out, mx, my),

@@ -35,8 +35,14 @@ pub fn step_combat(st: &mut ServerState, walls: &mut Vec<Wall>, dt: f32) -> Vec<
         let mut impact_dist = wall_dist;
         let mut hit_target_addr: Option<SocketAddr> = None;
 
+        let shooter_team = st.sessions.get(&shooter_addr).map(|s| s.team).unwrap_or(0);
+
         for (&target_addr, target) in &st.sessions {
             if target_addr == shooter_addr || target.health == 0 {
+                continue;
+            }
+            // No friendly fire: skip teammates (both must be on a named team).
+            if shooter_team != 0 && target.team == shooter_team {
                 continue;
             }
             if let Some(hit_dist) =
@@ -75,6 +81,7 @@ pub fn step_combat(st: &mut ServerState, walls: &mut Vec<Wall>, dt: f32) -> Vec<
             to_x: impact_x,
             to_y: impact_y,
             hit_player_id,
+            shooter_team,
         });
     }
 

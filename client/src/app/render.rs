@@ -2,11 +2,11 @@ use crate::net::ConnState;
 use crate::render::entities::entity_quads;
 use crate::render::fog::vision_cone_mask;
 use crate::render::geometry::play_geometry;
-use crate::render::hud::{editor_texts, loadout_texts, lobby_texts, main_menu_texts, play_texts};
+use crate::render::hud::{editor_texts, loadout_texts, lobby_texts, main_menu_texts, name_entry_texts, play_texts};
 use crate::render::views::{
     AimConeView, DebugRoomView, DebugRoomsView, EnemyBodyView, EnemyConeView, EnemyDebugView,
-    EntitiesView, FogView, GeometryView, HudEnemyRow, HudPlayerView, HudView, ImpactView, PropView,
-    SightConeView, WorldView,
+    EntitiesView, FogView, GeometryView, HudEnemyRow, HudPlayerView, HudView, ImpactView,
+    PlayerCircleView, PropView, SightConeView, TeammateConeFog, WorldView,
 };
 use crate::render::world::world_quads;
 use game::render::geometry::GeoVertex;
@@ -25,6 +25,11 @@ use super::{App, AppState};
 impl App {
     pub(super) fn build_mask(&self, viewport_px: (f32, f32)) -> Vec<GeoVertex> {
         if matches!(&self.app_state, AppState::Playing) {
+            // Dead players and spectators see the full map — no fog mask.
+            let is_dead_or_spectating = self.server_me.map(|m| m.health == 0).unwrap_or(false);
+            if is_dead_or_spectating {
+                return vec![];
+            }
             let view = self.playing_fog_view();
             vision_cone_mask(&view, &self.camera, viewport_px)
         } else {
@@ -47,23 +52,42 @@ impl App {
         mx: f32,
         my: f32,
     ) -> (Vec<QuadInstance>, Vec<QuadInstance>) {
+        let (sw, sh) = viewport_px;
         match &self.app_state {
             AppState::MainMenu(menu) => {
                 (menu.instances(viewport_px.0, viewport_px.1, mx, my), vec![])
             }
+            AppState::NameEntry => {
+                // Dark panel behind the name input.
+                (
+                    vec![
+                        QuadInstance {
+                            center: [sw * 0.5, sh * 0.5],
+                            half_size: [sw * 0.30, sh * 0.14],
+                            color: [0.06, 0.06, 0.08, 0.96],
+                        },
+                        // Input box outline
+                        QuadInstance {
+                            center: [sw * 0.5, sh * 0.56],
+                            half_size: [sw * 0.22, sh * 0.04],
+                            color: [0.18, 0.18, 0.22, 1.0],
+                        },
+                    ],
+                    vec![],
+                )
+            }
             AppState::Loadout(loadout) => (loadout.instances(viewport_px.0, viewport_px.1), vec![]),
             AppState::Lobby(lobby) => {
-                let selected_team = self.lobby_state.as_ref().map(|s| s.your_team).unwrap_or(0);
-                let can_start = self
+                let ls = self.lobby_state.as_ref();
+                let selected_team = ls.map(|s| s.your_team).unwrap_or(0);
+                let is_creator = ls.map(|s| s.is_creator).unwrap_or(false);
+                let game_started = ls.map(|s| s.game_started).unwrap_or(false);
+                let connected = self
                     .net
                     .as_ref()
                     .map(|n| matches!(n.state(), ConnState::Connected { .. }))
-                    .unwrap_or(false)
-                    && !self
-                        .lobby_state
-                        .as_ref()
-                        .map(|s| s.game_started)
-                        .unwrap_or(false);
+                    .unwrap_or(false);
+                let can_start = connected && !game_started && is_creator;
 
                 (
                     lobby.instances(
@@ -73,6 +97,7 @@ impl App {
                         my,
                         selected_team,
                         can_start,
+                        is_creator,
                     ),
                     vec![],
                 )
@@ -99,6 +124,7 @@ impl App {
     pub(super) fn build_texts(&self, sw: f32, sh: f32, _mx: f32, _my: f32) -> Vec<TextSection> {
         match &self.app_state {
             AppState::MainMenu(_) => main_menu_texts(sw, sh),
+            AppState::NameEntry => name_entry_texts(sw, sh, &self.player_name),
             AppState::Loadout(loadout) => loadout_texts(sw, sh, loadout),
             AppState::Lobby(_) => lobby_texts(sw, sh, self.net.as_ref(), self.lobby_state.as_ref()),
             AppState::Playing => {
@@ -111,6 +137,17 @@ impl App {
 
     fn playing_fog_view(&self) -> FogView<'_> {
         let player = &self.game.player;
+        let teammate_cones = self
+            .teammate_sight_cones
+            .iter()
+            .map(|tv| TeammateConeFog {
+                pos: (tv.x, tv.y),
+                sight_direction: decode_rotation(tv.rotation),
+                sight_half_angle: tv.sight_half_angle,
+                sight_range: tv.sight_range,
+                sight_circle_radius: tv.sight_circle_radius,
+            })
+            .collect();
         FogView {
             player_pos: (player.movement.x, player.movement.y),
             sight_direction: self
@@ -120,6 +157,7 @@ impl App {
             sight_half_angle: player.sight.half_angle,
             sight_range: player.sight.range,
             sight_circle_radius: player.sight.circle_radius,
+            teammate_cones,
             walls: &self.game.walls,
         }
     }
@@ -200,6 +238,32 @@ impl App {
             None
         };
 
+        let teammate_cones: Vec<TeammateConeFog> = self
+            .teammate_sight_cones
+            .iter()
+            .map(|tv| TeammateConeFog {
+                pos: (tv.x, tv.y),
+                sight_direction: decode_rotation(tv.rotation),
+                sight_half_angle: tv.sight_half_angle,
+                sight_range: tv.sight_range,
+                sight_circle_radius: tv.sight_circle_radius,
+            })
+            .collect();
+
+        // Local player: light blue. Teammates: white. Enemies: red.
+        let mut player_circles = vec![PlayerCircleView {
+            pos: player_pos,
+            color: [0.45, 0.80, 1.0, 1.0],
+        }];
+        for remote in &self.net_players {
+            let color = if self.my_team != 0 && remote.team == self.my_team {
+                [1.0, 1.0, 1.0, 1.0]
+            } else {
+                [1.0, 0.20, 0.20, 1.0]
+            };
+            player_circles.push(PlayerCircleView { pos: (remote.x, remote.y), color });
+        }
+
         GeometryView {
             walls: &self.game.walls,
             player_sight: SightConeView {
@@ -216,6 +280,8 @@ impl App {
             },
             impacts,
             enemy_cones,
+            teammate_cones,
+            player_circles,
             debug_rooms,
         }
     }
@@ -254,7 +320,6 @@ impl App {
             .collect();
 
         EntitiesView {
-            player_pos: (self.game.player.movement.x, self.game.player.movement.y),
             enemies,
             bullet_positions,
             remote_players: &self.net_players,
@@ -352,6 +417,8 @@ impl App {
             .map(|me| me.reload_progress > 0)
             .unwrap_or(player.is_reloading());
 
+        let health = self.server_me.map(|me| me.health).unwrap_or(100);
+
         HudView {
             player: HudPlayerView {
                 weapon_name: player.weapon_name(),
@@ -367,6 +434,8 @@ impl App {
             },
             enemies: debug_rows,
             net: self.net.as_ref(),
+            health,
+            match_state: self.match_state,
         }
     }
 }

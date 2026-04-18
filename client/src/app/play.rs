@@ -39,7 +39,7 @@ impl App {
             self.game.update(FIXED_STEP, &local_input);
         }
 
-        self.update_play_camera(viewport_px, sw, sh, mouse_world);
+        self.update_play_camera(viewport_px, sw, sh);
 
         if esc {
             self.leave_online_session();
@@ -61,7 +61,10 @@ impl App {
                 net,
                 &mut self.server_me,
                 &mut self.net_players,
+                &mut self.teammate_sight_cones,
                 &mut self.net_bullet_traces,
+                &mut self.match_state,
+                self.my_team,
             );
         }
     }
@@ -87,13 +90,7 @@ impl App {
         self.net_bullet_traces.retain(|trace| trace.ttl > 0.0);
     }
 
-    fn update_play_camera(
-        &mut self,
-        viewport_px: (f32, f32),
-        sw: f32,
-        sh: f32,
-        mouse_world: (f32, f32),
-    ) {
+    fn update_play_camera(&mut self, viewport_px: (f32, f32), sw: f32, sh: f32) {
         let desired_state = if enemies_in_combat(&self.game.enemies) {
             CameraBehaviorState::Combat
         } else {
@@ -101,11 +98,8 @@ impl App {
         };
 
         self.camera.update(CameraStepInput {
-            dt: FIXED_STEP,
             viewport_px,
             player_pos: (self.game.player.movement.x, self.game.player.movement.y),
-            mouse_world,
-            player_vision_range: self.game.player.sight.range,
             bounds: infer_world_bounds(&self.game, px_to_tiles(sw), px_to_tiles(sh)),
             rooms: &self.game.rooms,
             desired_state,

@@ -12,6 +12,8 @@ pub struct NetBulletTrace {
     pub to_x: f32,
     pub to_y: f32,
     pub ttl: f32,
+    /// True when the shooter is on the local player's team (or is the local player).
+    pub friendly: bool,
 }
 
 /// Total lifetime of a network bullet tracer in seconds.
@@ -30,21 +32,6 @@ pub fn entity_quads(
 ) -> (Vec<QuadInstance>, Vec<QuadInstance>) {
     let mut scene = Vec::new();
     let mut masked = Vec::new();
-
-    // Local player — always visible, masked by vision cone.
-    let player_screen = camera.world_to_screen(view.player_pos, viewport_px);
-    push_quad(
-        &mut masked,
-        player_screen,
-        (10.0, 10.0),
-        [1.0, 1.0, 1.0, 1.0],
-    );
-
-    // Remote players (server-authoritative positions).
-    for remote in view.remote_players {
-        let p = camera.world_to_screen((remote.x, remote.y), viewport_px);
-        push_quad(&mut masked, p, (9.0, 9.0), [0.95, 0.25, 0.25, 1.0]);
-    }
 
     // Enemies.
     for e in &view.enemies {

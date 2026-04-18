@@ -12,6 +12,8 @@ pub fn editor_texts(sw: f32, sh: f32, editor: &Editor) -> Vec<TextSection> {
         Tool::Breakable => "Breakable Wall (2-point)",
         Tool::Prop => "Prop",
         Tool::BaseMap => "Base Map (2-point bounds)",
+        Tool::Team1Spawn => "Team 1 Spawn (blue)",
+        Tool::Team2Spawn => "Team 2 Spawn (orange)",
     };
     let prop_info = match editor.selected_prop_asset() {
         Some(asset) => format!(
@@ -75,7 +77,7 @@ pub fn editor_texts(sw: f32, sh: f32, editor: &Editor) -> Vec<TextSection> {
         ts(
             6.0,
             sh - 38.0,
-            "1: Spawn   2: Enemy   3: Wall   4: Target   5: Breakable   6: Prop   7: Base Map   Q/E: Prop Id",
+            "1: Spawn   2: Enemy   3: Wall   4: Target   5: Breakable   6: Prop   7: Base Map   8: Team1 Spawn   9: Team2 Spawn   Q/E: Prop Id",
             13.0,
             [0.55, 0.55, 0.55, 1.0],
         ),

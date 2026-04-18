@@ -4,6 +4,7 @@ mod systems;
 mod util;
 
 use std::net::SocketAddr;
+use std::io::ErrorKind;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -14,7 +15,10 @@ use tokio::time::{Instant as TokioInstant, sleep_until};
 
 use network::recv::recv_loop;
 use systems::{
-    combat::step_combat, movement::apply_session_input, snapshot::build_snapshot_for_player,
+    combat::step_combat,
+    movement::apply_session_input,
+    rounds::step_rounds,
+    snapshot::build_snapshot_for_player,
 };
 use util::load_first_level;
 
@@ -25,6 +29,8 @@ use util::load_first_level;
 const TICK_RATE: u64 = 60;
 const TICK_DURATION: Duration = Duration::from_nanos(1_000_000_000 / TICK_RATE);
 const UDP_PORT: u16 = 7777;
+const UDP_PORT_ENV: &str = "SERVER_UDP_PORT";
+const UDP_BIND_ADDR_ENV: &str = "SERVER_BIND_ADDR";
 
 // ---------------------------------------------------------------------------
 // Entry point
@@ -32,11 +38,32 @@ const UDP_PORT: u16 = 7777;
 
 #[tokio::main]
 async fn main() {
-    let socket: Arc<NetSocket> = Arc::new(
-        NetSocket::bind(format!("0.0.0.0:{UDP_PORT}").parse().unwrap())
-            .await
-            .expect("failed to bind UDP socket"),
-    );
+    let bind_addr = match resolve_bind_addr() {
+        Ok(addr) => addr,
+        Err(err) => {
+            eprintln!("[server] {err}");
+            std::process::exit(2);
+        }
+    };
+    let socket: Arc<NetSocket> = match NetSocket::bind(bind_addr).await {
+        Ok(sock) => Arc::new(sock),
+        Err(err) if err.kind() == ErrorKind::AddrInUse => {
+            eprintln!(
+                "[server] failed to bind UDP socket at {bind_addr}: address already in use"
+            );
+            eprintln!(
+                "[server] stop the running server process or set {UDP_BIND_ADDR_ENV}/{UDP_PORT_ENV} to a different address."
+            );
+            std::process::exit(1);
+        }
+        Err(err) => {
+            eprintln!("[server] failed to bind UDP socket at {bind_addr}: {err}");
+            std::process::exit(1);
+        }
+    };
+    if let Ok(local_addr) = socket.local_addr() {
+        println!("[server] listening on {local_addr}");
+    }
 
     let state: Shared = Arc::new(Mutex::new(ServerState::new()));
 
@@ -59,6 +86,8 @@ async fn main() {
         {
             let mut st = state.lock().unwrap();
             st.spawn = (game.player.movement.x, game.player.movement.y);
+            st.team1_spawn = level.team1_spawn.map(|p| (p.x, p.y));
+            st.team2_spawn = level.team2_spawn.map(|p| (p.x, p.y));
         }
         println!(
             "[server] loaded level '{}' (spawn={:.2},{:.2})",
@@ -71,6 +100,26 @@ async fn main() {
     }
 
     tick_loop(socket, state, game).await;
+}
+
+fn resolve_bind_addr() -> Result<SocketAddr, String> {
+    if let Ok(raw_addr) = std::env::var(UDP_BIND_ADDR_ENV) {
+        return raw_addr
+            .parse()
+            .map_err(|e| format!("invalid {UDP_BIND_ADDR_ENV}='{raw_addr}': {e}"));
+    }
+
+    let port = match std::env::var(UDP_PORT_ENV) {
+        Ok(raw_port) => raw_port
+            .parse::<u16>()
+            .map_err(|e| format!("invalid {UDP_PORT_ENV}='{raw_port}': {e}"))?,
+        Err(std::env::VarError::NotPresent) => UDP_PORT,
+        Err(std::env::VarError::NotUnicode(_)) => {
+            return Err(format!("{UDP_PORT_ENV} contains non-unicode bytes"));
+        }
+    };
+
+    Ok(SocketAddr::from(([0, 0, 0, 0], port)))
 }
 
 // ---------------------------------------------------------------------------
@@ -105,10 +154,13 @@ async fn tick_loop(socket: Arc<NetSocket>, state: Shared, mut game: Game) {
             (st.game_started, addrs)
         };
 
-        // Combat is only stepped once the match has started.
+        // Combat and round logic are only active once the match has started.
         let bullets = if game_started {
+            let dt = TICK_DURATION.as_secs_f32();
             let mut st = state.lock().unwrap();
-            step_combat(&mut st, &mut game.walls, TICK_DURATION.as_secs_f32())
+            let b = step_combat(&mut st, &mut game.walls, dt);
+            step_rounds(&mut st, dt);
+            b
         } else {
             vec![]
         };

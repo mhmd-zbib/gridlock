@@ -2,10 +2,10 @@ use super::{error::DecodeError, io::BufReader};
 use crate::proto::{
     client::{ClientPacket, InputFlags},
     handshake::{AnyPacket, ConnectAck, ConnectRequest, ConnectResult, PacketKind},
-    lobby::{LobbyCommand, LobbyCommandKind, LobbyState},
+    lobby::{LobbyCommand, LobbyCommandKind, LobbyPlayer, LobbyState},
     server::{
         BulletEvent, MatchState, MovementState, PlayerState, SelfState, ServerPacket, SoundEvent,
-        SoundKind,
+        SoundKind, TeammateView,
     },
 };
 
@@ -62,12 +62,29 @@ pub fn decode(buf: &[u8]) -> Result<AnyPacket, DecodeError> {
             let team = r.u8()?;
             AnyPacket::LobbyCommand(LobbyCommand { kind, team })
         }
-        PacketKind::LobbyState => AnyPacket::LobbyState(LobbyState {
-            game_started: r.u8()? != 0,
-            your_team: r.u8()?,
-            team1_count: r.u8()?,
-            team2_count: r.u8()?,
-        }),
+        PacketKind::LobbyState => {
+            let game_started = r.u8()? != 0;
+            let your_team = r.u8()?;
+            let team1_count = r.u8()?;
+            let team2_count = r.u8()?;
+            let is_creator = r.u8()? != 0;
+            let player_count = r.u8()? as usize;
+            let mut players = Vec::with_capacity(player_count);
+            for _ in 0..player_count {
+                let mut name = [0u8; 16];
+                name.copy_from_slice(r.bytes(16)?);
+                let team = r.u8()?;
+                players.push(LobbyPlayer { name, team });
+            }
+            AnyPacket::LobbyState(LobbyState {
+                game_started,
+                your_team,
+                team1_count,
+                team2_count,
+                is_creator,
+                players,
+            })
+        }
         PacketKind::Disconnect => AnyPacket::Disconnect,
         PacketKind::Ping => AnyPacket::Ping(r.u32()?),
         PacketKind::Pong => AnyPacket::Pong(r.u32()?),
@@ -100,6 +117,7 @@ fn decode_snapshot(r: &mut BufReader<'_>) -> Result<ServerPacket, DecodeError> {
             rotation: r.u16()?,
             movement_state: MovementState(r.u8()?),
             weapon: r.u8()?,
+            team: r.u8()?,
         });
     }
 
@@ -113,6 +131,7 @@ fn decode_snapshot(r: &mut BufReader<'_>) -> Result<ServerPacket, DecodeError> {
             to_x: r.f32()?,
             to_y: r.f32()?,
             hit_player_id: r.u16()?,
+            shooter_team: r.u8()?,
         });
     }
 
@@ -129,6 +148,19 @@ fn decode_snapshot(r: &mut BufReader<'_>) -> Result<ServerPacket, DecodeError> {
         });
     }
 
+    let teammate_count = r.u8()? as usize;
+    let mut teammate_views = Vec::with_capacity(teammate_count);
+    for _ in 0..teammate_count {
+        teammate_views.push(TeammateView {
+            x: r.f32()?,
+            y: r.f32()?,
+            rotation: r.u16()?,
+            sight_range: r.f32()?,
+            sight_half_angle: r.f32()?,
+            sight_circle_radius: r.f32()?,
+        });
+    }
+
     let match_state = MatchState {
         timer: r.u16()?,
         score_team1: r.u8()?,
@@ -142,6 +174,7 @@ fn decode_snapshot(r: &mut BufReader<'_>) -> Result<ServerPacket, DecodeError> {
         players,
         bullets,
         sounds,
+        teammate_views,
         match_state,
     })
 }

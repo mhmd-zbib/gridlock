@@ -10,16 +10,16 @@
     "underbarrel": ["laser_pointer"]
   },
   "visibility_range_px": 255.0,
-  "visibility_half_angle_deg": 44.0,
+  "visibility_half_angle_deg": 41.0,
   "aim_cone_render_range_px": 145.0,
   "aim_base_half_angle_deg": 2.2,
-  "movement_spread_max_deg": 9.2,
-  "bullet_speed_px_per_sec": 610.0,
-  "bullet_damage": 1,
+  "movement_spread_max_deg": 9.4,
+  "bullet_speed_px_per_sec": 625.0,
+  "bullet_damage": 20,
   "recoil_per_shot_deg": 1.9,
   "recoil_max_deg": 14.0,
-  "recoil_decay_deg_per_sec": 12.0,
-  "fire_rate_rps": 14.8,
+  "recoil_decay_deg_per_sec": 11.8,
+  "fire_rate_rps": 12.8,
   "mag_size": 50,
-  "reload_time_secs": 2.6
+  "reload_time_secs": 2.7
 }

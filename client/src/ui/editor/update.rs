@@ -94,6 +94,12 @@ impl Editor {
         if input.key_7 && !self.prev_key_7 {
             self.select_tool(Tool::BaseMap);
         }
+        if input.key_8 && !self.prev_key_8 {
+            self.select_tool(Tool::Team1Spawn);
+        }
+        if input.key_9 && !self.prev_key_9 {
+            self.select_tool(Tool::Team2Spawn);
+        }
     }
 
     fn handle_snap_toggles(&mut self, input: &InputState) {
@@ -195,6 +201,8 @@ impl Editor {
         self.prev_key_5 = input.key_5;
         self.prev_key_6 = input.key_6;
         self.prev_key_7 = input.key_7;
+        self.prev_key_8 = input.key_8;
+        self.prev_key_9 = input.key_9;
         self.prev_key_q = input.key_q;
         self.prev_key_e = input.key_e;
         self.prev_key_g = input.key_g;

@@ -16,11 +16,11 @@
   "aim_base_half_angle_deg": 0.95,
   "movement_spread_max_deg": 9.0,
   "bullet_speed_px_per_sec": 840.0,
-  "bullet_damage": 1,
+  "bullet_damage": 100,
   "recoil_per_shot_deg": 2.2,
   "recoil_max_deg": 10.0,
   "recoil_decay_deg_per_sec": 5.5,
-  "fire_rate_rps": 950,
-  "mag_size": 200,
-  "reload_time_secs": 1
+  "fire_rate_rps": 0.95,
+  "mag_size": 20,
+  "reload_time_secs": 1.6
 }

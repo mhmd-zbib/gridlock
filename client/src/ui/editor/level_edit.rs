@@ -19,6 +19,12 @@ impl Editor {
             Tool::PlayerSpawn => {
                 self.level.player_spawn = Some(Pos { x, y });
             }
+            Tool::Team1Spawn => {
+                self.level.team1_spawn = Some(Pos { x, y });
+            }
+            Tool::Team2Spawn => {
+                self.level.team2_spawn = Some(Pos { x, y });
+            }
             Tool::Enemy => {
                 self.level.enemies.push(Pos { x, y });
             }
@@ -62,6 +68,18 @@ impl Editor {
         if let Some(sp) = self.level.player_spawn {
             if dist(sp.x, sp.y, x, y) < R {
                 self.level.player_spawn = None;
+                return;
+            }
+        }
+        if let Some(sp) = self.level.team1_spawn {
+            if dist(sp.x, sp.y, x, y) < R {
+                self.level.team1_spawn = None;
+                return;
+            }
+        }
+        if let Some(sp) = self.level.team2_spawn {
+            if dist(sp.x, sp.y, x, y) < R {
+                self.level.team2_spawn = None;
             }
         }
     }

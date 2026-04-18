@@ -51,7 +51,7 @@ impl LobbyMenu {
         let selected = selected_team == 1;
         Button {
             x,
-            y: sh * 0.44,
+            y: sh * 0.30,
             w: bw,
             h: bh,
             color: if selected {
@@ -70,7 +70,7 @@ impl LobbyMenu {
         let selected = selected_team == 2;
         Button {
             x,
-            y: sh * 0.44,
+            y: sh * 0.30,
             w: bw,
             h: bh,
             color: if selected {
@@ -84,10 +84,10 @@ impl LobbyMenu {
 
     fn start_button(sw: f32, sh: f32) -> Button {
         let bw = sw * 0.40;
-        let bh = sh * 0.10;
+        let bh = sh * 0.09;
         Button {
             x: sw * 0.5 - bw * 0.5,
-            y: sh * 0.62,
+            y: sh * 0.70,
             w: bw,
             h: bh,
             color: [0.55, 0.34, 0.06, 1.0],
@@ -103,20 +103,29 @@ impl LobbyMenu {
         my: f32,
         selected_team: u8,
         can_start: bool,
+        is_creator: bool,
     ) -> Vec<QuadInstance> {
         let team1 = Self::team1_button(sw, sh, selected_team);
         let team2 = Self::team2_button(sw, sh, selected_team);
-        let start = Self::start_button(sw, sh);
-        vec![
+
+        let mut quads = vec![
+            // Background panel
             QuadInstance {
                 center: [sw * 0.5, sh * 0.5],
-                half_size: [sw * 0.45, sh * 0.36],
+                half_size: [sw * 0.45, sh * 0.42],
                 color: [0.06, 0.06, 0.08, 0.95],
             },
             team1.instance(mx, my, true),
             team2.instance(mx, my, true),
-            start.instance(mx, my, can_start),
-        ]
+        ];
+
+        // Only draw the start button for the room creator.
+        if is_creator {
+            let start = Self::start_button(sw, sh);
+            quads.push(start.instance(mx, my, can_start));
+        }
+
+        quads
     }
 
     pub fn click(
@@ -129,15 +138,17 @@ impl LobbyMenu {
     ) -> Option<LobbyChoice> {
         let team1 = Self::team1_button(sw, sh, 0);
         let team2 = Self::team2_button(sw, sh, 0);
-        let start = Self::start_button(sw, sh);
         if team1.contains(mx, my) {
             return Some(LobbyChoice::Team1);
         }
         if team2.contains(mx, my) {
             return Some(LobbyChoice::Team2);
         }
-        if can_start && start.contains(mx, my) {
-            return Some(LobbyChoice::StartGame);
+        if can_start {
+            let start = Self::start_button(sw, sh);
+            if start.contains(mx, my) {
+                return Some(LobbyChoice::StartGame);
+            }
         }
         None
     }

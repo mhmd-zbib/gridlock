@@ -6,10 +6,11 @@
 ///   [player_count: u8] [players: player_count × 14 B]
 ///   [bullet_count: u8] [bullets: bullet_count × 20 B]
 ///   [sound_count:  u8] [sounds:  sound_count  × 10 B]
+///   [teammate_count: u8] [teammates: teammate_count × 22 B]
 ///   [match_state: 4 B]
 ///
-/// Maximum wire size with reasonable counts (64 players, 32 bullets, 16 sounds):
-///   8 + 18 + 1 + 64×14 + 1 + 32×20 + 1 + 16×10 + 4 = 1,729 B
+/// Maximum wire size with reasonable counts (64 players, 32 bullets, 16 sounds, 4 teammates):
+///   8 + 18 + 1 + 64×14 + 1 + 32×20 + 1 + 16×10 + 1 + 4×22 + 4 = 1,825 B
 /// Keep player/bullet/sound counts small to stay under the 1 400 B MTU ceiling.
 #[derive(Debug, Clone)]
 pub struct ServerPacket {
@@ -24,6 +25,7 @@ pub struct ServerPacket {
     pub me: SelfState,
 
     /// All other visible players (does **not** include the receiving client).
+    /// Teammates are always included regardless of line-of-sight.
     pub players: Vec<PlayerState>,
 
     /// Projectile traces resolved this tick (for hit-scan / visual feedback).
@@ -32,8 +34,29 @@ pub struct ServerPacket {
     /// Spatial sound events the client should play.
     pub sounds: Vec<SoundEvent>,
 
+    /// Sight cones of living teammates, for shared-vision fog-of-war rendering.
+    pub teammate_views: Vec<TeammateView>,
+
     /// Current match metadata.
     pub match_state: MatchState,
+}
+
+// ── TeammateView ──────────────────────────────────────────────────────────────
+
+/// Sight cone of one living teammate (22 bytes on the wire).
+///
+/// Wire layout: [x: f32] [y: f32] [rotation: u16]
+///              [sight_range: f32] [sight_half_angle: f32] [sight_circle_radius: f32]
+#[derive(Debug, Clone, Copy)]
+pub struct TeammateView {
+    pub x: f32,
+    pub y: f32,
+    /// Aim direction compressed to `[0, 65535]`.
+    pub rotation: u16,
+    pub sight_range: f32,
+    /// In radians.
+    pub sight_half_angle: f32,
+    pub sight_circle_radius: f32,
 }
 
 // ── SelfState ─────────────────────────────────────────────────────────────────
@@ -73,9 +96,9 @@ pub struct SelfState {
 
 // ── PlayerState ───────────────────────────────────────────────────────────────
 
-/// One remote player's state (14 bytes on the wire).
+/// One remote player's state (15 bytes on the wire).
 ///
-/// Wire layout: [id: u16] [x: f32] [y: f32] [rotation: u16] [movement_state: u8] [weapon: u8]
+/// Wire layout: [id: u16] [x: f32] [y: f32] [rotation: u16] [movement_state: u8] [weapon: u8] [team: u8]
 #[derive(Debug, Clone, Copy)]
 pub struct PlayerState {
     /// Server-assigned player identifier (`0` is reserved / invalid).
@@ -96,15 +119,18 @@ pub struct PlayerState {
 
     /// Index into the server's weapon catalogue (`WeaponId` cast to `u8`).
     pub weapon: u8,
+
+    /// Team assignment (`0` = none, `1` = team 1, `2` = team 2).
+    pub team: u8,
 }
 
 // ── BulletEvent ───────────────────────────────────────────────────────────────
 
-/// A hitscan trace resolved this tick (20 bytes on the wire).
+/// A hitscan trace resolved this tick (21 bytes on the wire).
 ///
 /// Wire layout:
 ///   [shooter_id: u16] [from_x: f32] [from_y: f32]
-///   [to_x: f32] [to_y: f32] [hit_player_id: u16]
+///   [to_x: f32] [to_y: f32] [hit_player_id: u16] [shooter_team: u8]
 #[derive(Debug, Clone, Copy)]
 pub struct BulletEvent {
     /// `PlayerState::id` of the shooter (`0` = environment / unknown).
@@ -124,6 +150,9 @@ pub struct BulletEvent {
 
     /// Victim's `PlayerState::id`; `0` means the shot missed all players.
     pub hit_player_id: u16,
+
+    /// Shooter's team (`0` = no team / unknown).
+    pub shooter_team: u8,
 }
 
 // ── SoundEvent ────────────────────────────────────────────────────────────────

@@ -1,7 +1,7 @@
 use crate::camera::TacticalCamera;
 use crate::render::entities::{NET_BULLET_TTL, NetBulletTrace};
 use crate::render::sight_geometry::{aim_cone_arc_pts, circle_arc_pts_raw, cone_arc_pts_raw};
-use crate::render::views::{DebugRoomsView, GeometryView};
+use crate::render::views::{DebugRoomsView, GeometryView, PlayerCircleView};
 use game::render::geometry::{
     GeoVertex, push_circle_fan, push_cone_fan, push_diamond, push_line_segment, push_rect,
 };
@@ -32,25 +32,52 @@ pub fn play_geometry(
         push_rooms_debug(&mut scene, rooms, camera, viewport_px);
     }
 
-    // Player sight circle and cone (semi-transparent fill).
-    let circle = camera.world_points_to_screen(
-        circle_arc_pts_raw(player_pos, walls, 64, view.player_sight.circle_radius),
-        viewport_px,
-    );
-    push_cone_fan(&mut scene, player_px, &circle, [0.3, 0.7, 1.0, 0.07]);
 
-    let arc = camera.world_points_to_screen(
-        cone_arc_pts_raw(
-            player_pos,
-            walls,
-            60,
-            view.player_sight.direction,
-            view.player_sight.half_angle,
-            view.player_sight.range,
-        ),
-        viewport_px,
-    );
-    push_cone_fan(&mut scene, player_px, &arc, [0.3, 0.7, 1.0, 0.16]);
+    // Player sight circle and cone (semi-transparent fill).
+    {
+        let circle = camera.world_points_to_screen(
+            circle_arc_pts_raw(player_pos, walls, 64, view.player_sight.circle_radius),
+            viewport_px,
+        );
+        push_cone_fan(&mut scene, player_px, &circle, [0.3, 0.7, 1.0, 0.07]);
+
+        let arc = camera.world_points_to_screen(
+            cone_arc_pts_raw(
+                player_pos,
+                walls,
+                60,
+                view.player_sight.direction,
+                view.player_sight.half_angle,
+                view.player_sight.range,
+            ),
+            viewport_px,
+        );
+        push_cone_fan(&mut scene, player_px, &arc, [0.3, 0.7, 1.0, 0.16]);
+    }
+
+    // Teammate cones — same color as the player's own cone.
+    for tm in &view.teammate_cones {
+        let tm_px = camera.world_to_screen(tm.pos, viewport_px);
+
+        let circle = camera.world_points_to_screen(
+            circle_arc_pts_raw(tm.pos, walls, 64, tm.sight_circle_radius),
+            viewport_px,
+        );
+        push_cone_fan(&mut scene, tm_px, &circle, [0.3, 0.7, 1.0, 0.07]);
+
+        let arc = camera.world_points_to_screen(
+            cone_arc_pts_raw(
+                tm.pos,
+                walls,
+                60,
+                tm.sight_direction,
+                tm.sight_half_angle,
+                tm.sight_range,
+            ),
+            viewport_px,
+        );
+        push_cone_fan(&mut scene, tm_px, &arc, [0.3, 0.7, 1.0, 0.16]);
+    }
 
     // Aim cone (orange, wall-clipped).
     let aim_arc = camera.world_points_to_screen(
@@ -76,6 +103,11 @@ pub fn play_geometry(
             [1.0, 0.95, 0.2, 0.22 * impact.alpha],
             18,
         );
+    }
+
+    // Players rendered as filled circles in the masked layer.
+    for p in &view.player_circles {
+        push_player_circle(&mut masked, p, camera, viewport_px);
     }
 
     // Enemy sight circles and cones.
@@ -120,12 +152,24 @@ pub fn play_geometry(
             let s = max_trace_px / dist;
             to = (from.0 + dx * s, from.1 + dy * s);
         }
-        push_line_segment(&mut masked, from, to, 4.0, [1.0, 0.97, 0.85, life * 0.75]);
-        push_line_segment(&mut masked, from, to, 2.0, [1.0, 1.0, 1.0, life]);
-        push_circle_fan(&mut masked, to, 4.5, [1.0, 1.0, 0.35, life * 0.85], 10);
+        // Friendly bullets go in scene (always visible); enemy bullets stay masked.
+        let buf = if trace.friendly { &mut scene } else { &mut masked };
+        push_line_segment(buf, from, to, 4.0, [1.0, 0.97, 0.85, life * 0.75]);
+        push_line_segment(buf, from, to, 2.0, [1.0, 1.0, 1.0, life]);
+        push_circle_fan(buf, to, 4.5, [1.0, 1.0, 0.35, life * 0.85], 10);
     }
 
     (scene, masked)
+}
+
+fn push_player_circle(
+    out: &mut Vec<GeoVertex>,
+    p: &PlayerCircleView,
+    camera: &TacticalCamera,
+    viewport_px: (f32, f32),
+) {
+    let center = camera.world_to_screen(p.pos, viewport_px);
+    push_circle_fan(out, center, 8.0, p.color, 24);
 }
 
 fn push_rooms_debug(

@@ -22,7 +22,7 @@ use game::input::InputHandler;
 use game::render::state::State;
 use game::timing::GameLoop;
 use game::game::Game;
-use net::{LobbyState, PlayerState, SelfState};
+use net::{LobbyState, MatchState, PlayerState, SelfState, TeammateView};
 
 // ---------------------------------------------------------------------------
 // App state machine
@@ -30,6 +30,7 @@ use net::{LobbyState, PlayerState, SelfState};
 
 enum AppState {
     MainMenu(MainMenu),
+    NameEntry,
     Loadout(LoadoutMenu),
     Lobby(LobbyMenu),
     Playing,
@@ -56,13 +57,21 @@ pub struct App {
     prev_f1: bool,
     prev_f8: bool,
     prev_click: bool,
+    prev_backspace: bool,
 
     debug_mode: bool,
     net_seq: u16,
     net_bullet_traces: Vec<NetBulletTrace>,
     server_me: Option<SelfState>,
     net_players: Vec<PlayerState>,
+    teammate_sight_cones: Vec<TeammateView>,
     lobby_state: Option<LobbyState>,
+    match_state: Option<MatchState>,
+
+    /// Persisted player display name (editable on the name-entry screen).
+    player_name: String,
+    /// This client's team (`0` = none, `1` = team 1, `2` = team 2).
+    my_team: u8,
 }
 
 impl Default for App {
@@ -83,14 +92,28 @@ impl Default for App {
             prev_f1: false,
             prev_f8: false,
             prev_click: false,
+            prev_backspace: false,
             debug_mode: false,
             net_seq: 0,
             net_bullet_traces: Vec::new(),
             server_me: None,
             net_players: Vec::new(),
+            teammate_sight_cones: Vec::new(),
             lobby_state: None,
+            match_state: None,
+            player_name: default_player_name(),
+            my_team: 0,
         }
     }
+}
+
+fn default_player_name() -> String {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    let n = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis() as u32)
+        .unwrap_or(1234);
+    format!("Player{}", n % 9999 + 1)
 }
 
 // ---------------------------------------------------------------------------
@@ -158,8 +181,9 @@ impl App {
             let enter = input.enter && !self.prev_enter;
             let f1 = input.f1 && !self.prev_f1;
             let click = input.mouse_left && !self.prev_click;
+            let backspace = input.backspace && !self.prev_backspace;
 
-            if let Some(next_state) = self.tick(sw, sh, mx, my, esc, enter, f1, click, &input) {
+            if let Some(next_state) = self.tick(sw, sh, mx, my, esc, enter, f1, click, backspace, &input) {
                 self.app_state = next_state;
             }
 
@@ -168,6 +192,7 @@ impl App {
             self.prev_f1 = input.f1;
             self.prev_f8 = input.f8;
             self.prev_click = input.mouse_left;
+            self.prev_backspace = input.backspace;
             self.input.end_frame();
         }
     }

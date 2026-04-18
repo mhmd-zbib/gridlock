@@ -3,7 +3,7 @@ use crate::proto::{
     client::ClientPacket,
     handshake::{AnyPacket, PacketKind},
     lobby::{LobbyCommand, LobbyState},
-    server::{ServerPacket, SoundEvent},
+    server::{ServerPacket, SoundEvent, TeammateView},
 };
 
 /// Serialise `packet` into a byte vector ready for the socket layer.
@@ -72,6 +72,7 @@ fn encode_snapshot(w: &mut BufWriter, p: &ServerPacket) {
         w.u16(pl.rotation);
         w.u8(pl.movement_state.0);
         w.u8(pl.weapon);
+        w.u8(pl.team);
     }
     // bullets
     w.u8(p.bullets.len().min(255) as u8);
@@ -82,16 +83,31 @@ fn encode_snapshot(w: &mut BufWriter, p: &ServerPacket) {
         w.f32(b.to_x);
         w.f32(b.to_y);
         w.u16(b.hit_player_id);
+        w.u8(b.shooter_team);
     }
     // sounds
     w.u8(p.sounds.len().min(255) as u8);
     for s in p.sounds.iter().take(255) {
         encode_sound(w, s);
     }
+    // teammate sight cones (shared-vision fog-of-war)
+    w.u8(p.teammate_views.len().min(255) as u8);
+    for t in p.teammate_views.iter().take(255) {
+        encode_teammate_view(w, t);
+    }
     // match state
     w.u16(p.match_state.timer);
     w.u8(p.match_state.score_team1);
     w.u8(p.match_state.score_team2);
+}
+
+fn encode_teammate_view(w: &mut BufWriter, t: &TeammateView) {
+    w.f32(t.x);
+    w.f32(t.y);
+    w.u16(t.rotation);
+    w.f32(t.sight_range);
+    w.f32(t.sight_half_angle);
+    w.f32(t.sight_circle_radius);
 }
 
 fn encode_sound(w: &mut BufWriter, s: &SoundEvent) {
@@ -113,6 +129,12 @@ fn encode_lobby_state(w: &mut BufWriter, p: &LobbyState) {
     w.u8(p.your_team);
     w.u8(p.team1_count);
     w.u8(p.team2_count);
+    w.u8(p.is_creator as u8);
+    w.u8(p.players.len().min(255) as u8);
+    for pl in p.players.iter().take(255) {
+        w.bytes(&pl.name);
+        w.u8(pl.team);
+    }
 }
 
 /// Compress a radian angle to a `u16` for wire transmission.
