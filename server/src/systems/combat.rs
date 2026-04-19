@@ -4,9 +4,9 @@ use crate::session::ServerState;
 use game::world::ray::cast_ray;
 use game::world::units::px_to_tiles;
 use game::world::wall::Wall;
+use net::MoveSpeed;
 use net::decode_rotation;
 use net::proto::server::BulletEvent;
-use net::MoveSpeed;
 
 const PLAYER_HALF: f32 = px_to_tiles(10.0);
 const BULLET_MAX_RANGE: f32 = px_to_tiles(1500.0);
@@ -27,7 +27,7 @@ pub fn step_combat(st: &mut ServerState, walls: &mut Vec<Wall>, dt: f32) -> Vec<
     let mut bullets = Vec::new();
 
     for shooter_addr in shooter_addrs {
-        let Some((shooter_id, origin, dir, damage)) = tick_shooter(st, shooter_addr, dt) else {
+        let Some((shooter_id, shooter_name, origin, dir, damage)) = tick_shooter(st, shooter_addr, dt) else {
             continue;
         };
 
@@ -76,6 +76,7 @@ pub fn step_combat(st: &mut ServerState, walls: &mut Vec<Wall>, dt: f32) -> Vec<
 
         bullets.push(BulletEvent {
             shooter_id,
+            shooter_name,
             from_x: origin.0,
             from_y: origin.1,
             to_x: impact_x,
@@ -101,7 +102,7 @@ fn tick_shooter(
     st: &mut ServerState,
     shooter_addr: SocketAddr,
     dt: f32,
-) -> Option<(u16, (f32, f32), (f32, f32), u32)> {
+) -> Option<(u16, [u8; 16], (f32, f32), (f32, f32), u32)> {
     let shooter = st.sessions.get_mut(&shooter_addr)?;
     if shooter.health == 0 {
         return None;
@@ -140,11 +141,16 @@ fn tick_shooter(
     }
 
     let dir = shooter.aim_cone.sample_direction();
-    shooter
-        .aim_cone
-        .on_shot(weapon_stats.recoil_per_shot_deg, weapon_stats.recoil_max_deg);
+    shooter.aim_cone.on_shot(
+        weapon_stats.recoil_per_shot_deg,
+        weapon_stats.recoil_max_deg,
+    );
+    let mut name_buf = [0u8; 16];
+    let nb = shooter.name.as_bytes();
+    name_buf[..nb.len().min(16)].copy_from_slice(&nb[..nb.len().min(16)]);
     Some((
         shooter.player_id,
+        name_buf,
         (shooter.x, shooter.y),
         dir,
         weapon_stats.bullet_damage,

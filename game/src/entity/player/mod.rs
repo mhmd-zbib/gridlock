@@ -104,6 +104,9 @@ impl Player {
     pub fn apply_loadout(&mut self, config: &PlayerLoadoutConfig) {
         self.loadout.set_weapon(config.weapon);
         self.loadout.set_attachments(config.attachments.clone());
+        let stats = self.loadout.active_stats();
+        self.sight.range = stats.visibility_range;
+        self.sight.half_angle = stats.visibility_half_angle_deg.to_radians();
     }
 
     pub fn update(

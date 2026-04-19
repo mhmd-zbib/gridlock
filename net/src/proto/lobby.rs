@@ -23,6 +23,15 @@ impl LobbyCommand {
             team: 0,
         }
     }
+
+    /// Send the client's chosen weapon by catalog index.
+    /// The `team` wire field is repurposed as `weapon_index`.
+    pub fn select_weapon(catalog_index: u8) -> Self {
+        Self {
+            kind: LobbyCommandKind::SelectWeapon,
+            team: catalog_index,
+        }
+    }
 }
 
 /// Discriminant for [`LobbyCommand`].
@@ -31,6 +40,7 @@ impl LobbyCommand {
 pub enum LobbyCommandKind {
     SelectTeam = 0,
     StartGame = 1,
+    SelectWeapon = 2,
 }
 
 impl LobbyCommandKind {
@@ -38,6 +48,7 @@ impl LobbyCommandKind {
         match v {
             0 => Some(Self::SelectTeam),
             1 => Some(Self::StartGame),
+            2 => Some(Self::SelectWeapon),
             _ => None,
         }
     }

@@ -105,6 +105,12 @@ impl Game {
         self.player_loadout.clone()
     }
 
+    /// Catalog index of the player's currently selected weapon.
+    /// Matches `WeaponId::catalog_index()` — safe to cast to `u8` for the wire.
+    pub fn player_weapon_catalog_index(&self) -> usize {
+        self.player_loadout.weapon.catalog_index()
+    }
+
     pub fn load_level(&mut self, level: &LevelData, level_width: f32, level_height: f32) {
         self.player = match level.player_spawn {
             Some(sp) => Player::new(sp.x, sp.y),

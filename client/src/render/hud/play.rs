@@ -17,7 +17,8 @@ pub fn play_texts(
 
     // Health bar: 20 filled/empty segments.
     let filled = (health as usize * 20 / 100).min(20);
-    let bar: String = std::iter::repeat('█').take(filled)
+    let bar: String = std::iter::repeat('█')
+        .take(filled)
         .chain(std::iter::repeat('░').take(20 - filled))
         .collect();
     let hp_color = if health > 60 {
@@ -81,29 +82,57 @@ pub fn play_texts(
             [0.9, 0.9, 0.9, 1.0],
         ),
         // Top-right: game title + net
-        ts(sw - 170.0, 6.0, "SHOOTING GAME", 13.0, [0.35, 0.35, 0.35, 1.0]),
-        ts(sw - 210.0, 20.0, net_status_line(view.net), 12.0, [0.35, 0.35, 0.35, 1.0]),
+        ts(
+            sw - 170.0,
+            6.0,
+            "SHOOTING GAME",
+            13.0,
+            [0.35, 0.35, 0.35, 1.0],
+        ),
+        ts(
+            sw - 210.0,
+            20.0,
+            net_status_line(view.net),
+            12.0,
+            [0.35, 0.35, 0.35, 1.0],
+        ),
     ];
 
-    // Dead / spectating overlay (centre screen)
+    // "SPECTATING" label at the bottom when dead.
     if dead {
         out.push(ts(
-            sw * 0.5 - 90.0,
-            sh * 0.44,
+            sw * 0.5 - 60.0,
+            sh - 26.0,
             "SPECTATING",
-            26.0,
+            18.0,
             [0.8, 0.8, 0.8, 0.85],
         ));
     }
+
+    // Kill notification — shown for 3 seconds, fades naturally when removed.
+    if let Some(killer) = &view.kill_notification {
+        out.push(ts(
+            sw * 0.5 - 220.0,
+            sh * 0.38,
+            format!("YOU HAVE BEEN KILLED BY {}", killer),
+            24.0,
+            [1.0, 0.2, 0.2, 1.0],
+        ));
+    }
+
     if respawn_timer > 0 {
         let msg = if dead {
-            format!("YOU DIED — respawning in {}s", respawn_timer)
+            format!("Respawning in {}s", respawn_timer)
         } else {
             format!("Round over — next round in {}s", respawn_timer)
         };
-        out.push(ts(sw * 0.5 - 200.0, sh * 0.5, msg, 22.0, [1.0, 0.3, 0.3, 1.0]));
-    } else if dead {
-        out.push(ts(sw * 0.5 - 80.0, sh * 0.5, "YOU DIED", 22.0, [1.0, 0.2, 0.2, 1.0]));
+        out.push(ts(
+            sw * 0.5 - 160.0,
+            sh * 0.5,
+            msg,
+            22.0,
+            [1.0, 0.3, 0.3, 1.0],
+        ));
     }
 
     if view.enemies.is_empty() && view.player.room_idx.is_none() && view.player.speed == 0.0 {

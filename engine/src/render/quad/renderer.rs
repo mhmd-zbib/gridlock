@@ -310,6 +310,30 @@ impl Renderer {
         );
     }
 
+    pub fn draw_inside_cone(
+        &self,
+        encoder: &mut wgpu::CommandEncoder,
+        view: &wgpu::TextureView,
+        stencil_view: &wgpu::TextureView,
+        queue: &wgpu::Queue,
+        screen_w: f32,
+        screen_h: f32,
+        instances: &[QuadInstance],
+    ) {
+        self.write_uniforms(queue, screen_w, screen_h);
+        if !instances.is_empty() {
+            queue.write_buffer(&self.instance_buf, 0, bytemuck::cast_slice(instances));
+        }
+        self.draw_pass_stenciled(
+            encoder,
+            view,
+            stencil_view,
+            &self.pipeline_stencil_equal,
+            &self.instance_buf,
+            instances,
+        );
+    }
+
     pub fn draw_masked(
         &self,
         encoder: &mut wgpu::CommandEncoder,

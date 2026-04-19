@@ -126,11 +126,12 @@ pub struct PlayerState {
 
 // ── BulletEvent ───────────────────────────────────────────────────────────────
 
-/// A hitscan trace resolved this tick (21 bytes on the wire).
+/// A hitscan trace resolved this tick (37 bytes on the wire).
 ///
 /// Wire layout:
 ///   [shooter_id: u16] [from_x: f32] [from_y: f32]
 ///   [to_x: f32] [to_y: f32] [hit_player_id: u16] [shooter_team: u8]
+///   [shooter_name: 16 bytes, null-padded UTF-8]
 #[derive(Debug, Clone, Copy)]
 pub struct BulletEvent {
     /// `PlayerState::id` of the shooter (`0` = environment / unknown).
@@ -153,6 +154,17 @@ pub struct BulletEvent {
 
     /// Shooter's team (`0` = no team / unknown).
     pub shooter_team: u8,
+
+    /// Shooter's display name, null-padded to 16 bytes.
+    pub shooter_name: [u8; 16],
+}
+
+impl BulletEvent {
+    /// Decode `shooter_name` as a UTF-8 string, trimming null padding.
+    pub fn shooter_name_str(&self) -> &str {
+        let end = self.shooter_name.iter().position(|&b| b == 0).unwrap_or(16);
+        std::str::from_utf8(&self.shooter_name[..end]).unwrap_or("?")
+    }
 }
 
 // ── SoundEvent ────────────────────────────────────────────────────────────────

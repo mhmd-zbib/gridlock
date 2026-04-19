@@ -89,8 +89,16 @@ impl App {
                     if let Some(choice) = menu.click(sw, sh, mx, my, can_start) {
                         if let Some(net) = &self.net {
                             match choice {
-                                LobbyChoice::Team1 => net.send_lobby_select_team(1),
-                                LobbyChoice::Team2 => net.send_lobby_select_team(2),
+                                LobbyChoice::Team1 => {
+                                    let idx = self.game.player_weapon_catalog_index() as u8;
+                                    net.send_lobby_select_weapon(idx);
+                                    net.send_lobby_select_team(1);
+                                }
+                                LobbyChoice::Team2 => {
+                                    let idx = self.game.player_weapon_catalog_index() as u8;
+                                    net.send_lobby_select_weapon(idx);
+                                    net.send_lobby_select_team(2);
+                                }
                                 LobbyChoice::StartGame => net.send_lobby_start_game(),
                             }
                         }

@@ -1,6 +1,6 @@
 use crate::camera::TacticalCamera;
-use game::input::InputState;
 use game::game::Game;
+use game::input::InputState;
 use game::world::units::tiles_to_px;
 use net::{ClientPacket, InputFlags, MoveSpeed, encode_rotation};
 

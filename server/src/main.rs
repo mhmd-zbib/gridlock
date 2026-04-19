@@ -3,8 +3,8 @@ mod session;
 mod systems;
 mod util;
 
-use std::net::SocketAddr;
 use std::io::ErrorKind;
+use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -15,9 +15,7 @@ use tokio::time::{Instant as TokioInstant, sleep_until};
 
 use network::recv::recv_loop;
 use systems::{
-    combat::step_combat,
-    movement::apply_session_input,
-    rounds::step_rounds,
+    combat::step_combat, movement::apply_session_input, rounds::step_rounds,
     snapshot::build_snapshot_for_player,
 };
 use util::load_first_level;
@@ -48,9 +46,7 @@ async fn main() {
     let socket: Arc<NetSocket> = match NetSocket::bind(bind_addr).await {
         Ok(sock) => Arc::new(sock),
         Err(err) if err.kind() == ErrorKind::AddrInUse => {
-            eprintln!(
-                "[server] failed to bind UDP socket at {bind_addr}: address already in use"
-            );
+            eprintln!("[server] failed to bind UDP socket at {bind_addr}: address already in use");
             eprintln!(
                 "[server] stop the running server process or set {UDP_BIND_ADDR_ENV}/{UDP_PORT_ENV} to a different address."
             );
@@ -133,11 +129,24 @@ async fn tick_loop(socket: Arc<NetSocket>, state: Shared, mut game: Game) {
     loop {
         sleep_until(next_tick).await;
 
-        // Apply latest input for every live session.
+        // Evict players who have been silent for more than 60 seconds.
+        {
+            let mut st = state.lock().unwrap();
+            let now = std::time::Instant::now();
+            st.sessions
+                .retain(|_, s| now.duration_since(s.last_seen).as_secs() < 60);
+            if st.sessions.is_empty() {
+                st.reset_room();
+            }
+        }
+
+        // Apply latest input for every session.
+        // Dead players (health == 0) still get input processed for spectator movement.
         let (game_started, addrs): (bool, Vec<SocketAddr>) = {
             let mut st = state.lock().unwrap();
             for session in st.sessions.values_mut() {
-                if session.health == 0 {
+                // Pure mid-game spectators with no team skip movement processing.
+                if session.is_spectator && session.team == 0 {
                     continue;
                 }
                 if let Some(input) = session.latest_input {

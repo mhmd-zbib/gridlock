@@ -124,14 +124,24 @@ fn decode_snapshot(r: &mut BufReader<'_>) -> Result<ServerPacket, DecodeError> {
     let bullet_count = r.u8()? as usize;
     let mut bullets = Vec::with_capacity(bullet_count);
     for _ in 0..bullet_count {
+        let shooter_id = r.u16()?;
+        let from_x = r.f32()?;
+        let from_y = r.f32()?;
+        let to_x = r.f32()?;
+        let to_y = r.f32()?;
+        let hit_player_id = r.u16()?;
+        let shooter_team = r.u8()?;
+        let mut shooter_name = [0u8; 16];
+        shooter_name.copy_from_slice(r.bytes(16)?);
         bullets.push(BulletEvent {
-            shooter_id: r.u16()?,
-            from_x: r.f32()?,
-            from_y: r.f32()?,
-            to_x: r.f32()?,
-            to_y: r.f32()?,
-            hit_player_id: r.u16()?,
-            shooter_team: r.u8()?,
+            shooter_id,
+            from_x,
+            from_y,
+            to_x,
+            to_y,
+            hit_player_id,
+            shooter_team,
+            shooter_name,
         });
     }
 

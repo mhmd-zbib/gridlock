@@ -96,6 +96,12 @@ impl NetClient {
             .try_send(Cmd::SendLobbyCommand(LobbyCommand::start_game()));
     }
 
+    pub fn send_lobby_select_weapon(&self, catalog_index: u8) {
+        let _ = self
+            .cmd_tx
+            .try_send(Cmd::SendLobbyCommand(LobbyCommand::select_weapon(catalog_index)));
+    }
+
     /// Drain all server snapshots received since the last call, oldest first.
     ///
     /// Returns an empty `Vec` if no new snapshots have arrived.

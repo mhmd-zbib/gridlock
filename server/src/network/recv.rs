@@ -2,7 +2,7 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 
 use crate::session::{ServerState, Session, Shared};
-use crate::util::{default_weapon_state, server_time_ms, spawn_offset};
+use crate::util::{default_weapon_state, server_time_ms, spawn_offset, weapon_state_for_index};
 use net::proto::server::MovementState;
 use net::{
     AnyPacket, ConnectAck, ConnectResult, LobbyCommandKind, LobbyPlayer, LobbyState, NetSocket,
@@ -30,15 +30,20 @@ pub async fn recv_loop(socket: Arc<NetSocket>, state: Shared) {
 // ---------------------------------------------------------------------------
 
 async fn handle_packet(packet: AnyPacket, addr: SocketAddr, socket: &NetSocket, state: &Shared) {
+    // Refresh the inactivity timer on every packet from a known session.
+    {
+        let mut st = state.lock().unwrap();
+        if let Some(session) = st.sessions.get_mut(&addr) {
+            session.last_seen = std::time::Instant::now();
+        }
+    }
+
     match packet {
         AnyPacket::ConnectRequest(req) => handle_connect(req, addr, socket, state).await,
         AnyPacket::Disconnect => handle_disconnect(addr, socket, state).await,
         AnyPacket::ClientInput(input) => {
             if let Some(session) = state.lock().unwrap().sessions.get_mut(&addr) {
-                // Spectators don't send movement inputs to the server simulation.
-                if !session.is_spectator {
-                    session.latest_input = Some(input);
-                }
+                session.latest_input = Some(input);
             }
         }
         AnyPacket::LobbyCommand(cmd) => handle_lobby_command(cmd, addr, socket, state).await,
@@ -97,6 +102,8 @@ async fn handle_connect(
                     team: 0,
                     is_spectator,
                     latest_input: None,
+                    last_seen: std::time::Instant::now(),
+                    peek_origin: None,
                 },
             );
 
@@ -150,6 +157,12 @@ async fn handle_disconnect(addr: SocketAddr, socket: &NetSocket, state: &Shared)
     {
         let mut st = state.lock().unwrap();
         st.sessions.remove(&addr);
+        if st.sessions.is_empty() {
+            // Last player left — wipe all match state so the next connection
+            // starts a fresh lobby rather than joining a ghost room.
+            st.reset_room();
+            return;
+        }
         // Transfer creator role to the next connected player when the creator
         // leaves before the game has started.
         if st.creator_addr == Some(addr) && !st.game_started {
@@ -170,6 +183,11 @@ async fn handle_lobby_command(
         let mut st = state.lock().unwrap();
 
         match cmd.kind {
+            LobbyCommandKind::SelectWeapon => {
+                if let Some(session) = st.sessions.get_mut(&addr) {
+                    session.weapon = weapon_state_for_index(cmd.team as usize);
+                }
+            }
             LobbyCommandKind::SelectTeam => {
                 let game_started = st.game_started;
                 if let Some(session) = st.sessions.get_mut(&addr) {

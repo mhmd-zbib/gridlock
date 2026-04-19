@@ -23,6 +23,10 @@ impl WeaponState {
         self.id.stats()
     }
 
+    pub fn weapon_id(&self) -> WeaponId {
+        self.id
+    }
+
     pub fn ammo_in_mag(&self) -> u32 {
         self.rounds_in_mag
     }

@@ -13,15 +13,14 @@ use winit::window::{Fullscreen, Window, WindowId};
 use crate::camera::TacticalCamera;
 use crate::net::NetClient;
 use crate::render::entities::NetBulletTrace;
-use crate::render::geometry::OUTSIDE_CONE_DIM;
 use crate::ui::editor::Editor;
 use crate::ui::loadout::LoadoutMenu;
 use crate::ui::lobby::LobbyMenu;
 use crate::ui::menu::MainMenu;
+use game::game::Game;
 use game::input::InputHandler;
 use game::render::state::State;
 use game::timing::GameLoop;
-use game::game::Game;
 use net::{LobbyState, MatchState, PlayerState, SelfState, TeammateView};
 
 // ---------------------------------------------------------------------------
@@ -67,6 +66,8 @@ pub struct App {
     teammate_sight_cones: Vec<TeammateView>,
     lobby_state: Option<LobbyState>,
     match_state: Option<MatchState>,
+    /// "YOU HAVE BEEN KILLED BY [name]" — Some((name, remaining_secs)).
+    kill_notification: Option<(String, f32)>,
 
     /// Persisted player display name (editable on the name-entry screen).
     player_name: String,
@@ -101,6 +102,7 @@ impl Default for App {
             teammate_sight_cones: Vec::new(),
             lobby_state: None,
             match_state: None,
+            kill_notification: None,
             player_name: default_player_name(),
             my_team: 0,
         }
@@ -183,7 +185,9 @@ impl App {
             let click = input.mouse_left && !self.prev_click;
             let backspace = input.backspace && !self.prev_backspace;
 
-            if let Some(next_state) = self.tick(sw, sh, mx, my, esc, enter, f1, click, backspace, &input) {
+            if let Some(next_state) =
+                self.tick(sw, sh, mx, my, esc, enter, f1, click, backspace, &input)
+            {
                 self.app_state = next_state;
             }
 
@@ -198,6 +202,7 @@ impl App {
     }
 
     fn render_frame(&mut self, sw: f32, sh: f32, mx: f32, my: f32) {
+        const OUTSIDE_CONE_DIM: f32 = 0.60;
         let viewport_px = (sw, sh);
         let (scene_quads, masked_quads) = self.build_quads(viewport_px, mx, my);
         let mask = self.build_mask(viewport_px);

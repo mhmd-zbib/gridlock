@@ -7,10 +7,11 @@ use super::App;
 impl App {
     pub(super) fn start_lobby_session(&mut self) {
         let name = self.player_name.trim().to_string();
-        self.net = Some(NetClient::connect(
-            "127.0.0.1:7777".parse().unwrap(),
-            name,
-        ));
+        const SERVER_ADDR: &str = match option_env!("SERVER_ADDR") {
+            Some(a) => a,
+            None => "127.0.0.1:7777",
+        };
+        self.net = Some(NetClient::connect(SERVER_ADDR.parse().expect("invalid SERVER_ADDR"), name));
         self.net_seq = 0;
         self.server_me = None;
         self.net_bullet_traces.clear();

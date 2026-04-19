@@ -4,7 +4,35 @@ use crate::input::InputState;
 use crate::spawn::SpawnQueue;
 use crate::world::bounds::clamp_actor_to_level_bounds;
 use crate::world::level::LevelBounds;
+use crate::world::units::px_to_tiles;
 use crate::world::wall::{self, Wall};
+
+pub const PEEK_DISTANCE: f32 = px_to_tiles(18.0);
+pub const PEEK_LERP_SPEED: f32 = 12.0;
+
+/// Step-march `origin` in `dir` up to `max_dist`, stopping before a wall hit.
+/// Returns the farthest safe distance the actor can peek to.
+pub fn clamped_peek_distance(
+    origin: (f32, f32),
+    dir: (f32, f32),
+    max_dist: f32,
+    half_size: f32,
+    walls: &[Wall],
+) -> f32 {
+    const PEEK_STEP: f32 = px_to_tiles(0.5);
+    let mut safe_dist = 0.0;
+    let mut d = 0.0;
+    while d < max_dist {
+        d = (d + PEEK_STEP).min(max_dist);
+        let cx = origin.0 + dir.0 * d;
+        let cy = origin.1 + dir.1 * d;
+        if walls.iter().any(|w| w.overlaps(cx, cy, half_size)) {
+            break;
+        }
+        safe_dist = d;
+    }
+    safe_dist
+}
 
 /// Move an actor by a raw direction vector at a given speed, resolve wall
 /// collisions, and clamp to level bounds.

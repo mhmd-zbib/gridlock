@@ -4,7 +4,9 @@ use crate::session::{ServerState, Session};
 use game::world::sight::Sight;
 use game::world::wall::Wall;
 use net::decode_rotation;
-use net::proto::server::{BulletEvent, MatchState, PlayerState, SelfState, ServerPacket, TeammateView};
+use net::proto::server::{
+    BulletEvent, MatchState, PlayerState, SelfState, ServerPacket, TeammateView,
+};
 
 /// Build the server snapshot sent to one recipient this tick.
 ///
@@ -41,8 +43,9 @@ pub fn build_snapshot_for_player(
     let my_team = recipient.team;
 
     // Build teammate sight cones so the client can union them into the fog mask.
+    // Spectators receive these too — their fog is the union of all teammate cones.
     let mut teammate_views: Vec<TeammateView> = Vec::new();
-    if my_team != 0 && !recipient_is_spectator {
+    if my_team != 0 {
         for (&addr, session) in st.sessions.iter() {
             if addr == recipient_addr || session.health == 0 || session.team != my_team {
                 continue;
@@ -75,7 +78,8 @@ pub fn build_snapshot_for_player(
                 // Teammates are always visible; enemies require LOS through the
                 // recipient's cone or any teammate's cone.
                 if !is_teammate {
-                    let visible_to_me = viewer_sight.can_see(viewer_pos, (session.x, session.y), walls);
+                    let visible_to_me =
+                        viewer_sight.can_see(viewer_pos, (session.x, session.y), walls);
                     let visible_to_team = teammate_views.iter().any(|tv| {
                         let mut tm_sight = Sight::player();
                         tm_sight.direction = decode_rotation(tv.rotation);
@@ -95,7 +99,7 @@ pub fn build_snapshot_for_player(
                 y: session.y,
                 rotation: session.rotation,
                 movement_state: session.movement_state,
-                weapon: 0,
+                weapon: session.weapon.weapon_id().catalog_index().min(255) as u8,
                 team: session.team,
             })
         })

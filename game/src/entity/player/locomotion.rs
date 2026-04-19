@@ -6,24 +6,25 @@ use crate::world::wall::Wall;
 const WALK_SPEED: f32 = px_to_tiles(40.0);
 const NORMAL_SPEED: f32 = px_to_tiles(85.0);
 pub const RUN_SPEED: f32 = px_to_tiles(200.0);
-const SPRINT_BURST_SECS: f32 = 1.2;
-const SPRINT_COOLDOWN_SECS: f32 = 8.0;
+const SPRINT_MAX_SECS: f32 = 1.2;
+/// Cooldown ratio: each second of sprint used costs this many seconds of cooldown.
+const SPRINT_COOLDOWN_RATIO: f32 = 3.0;
 const PEEK_DISTANCE: f32 = px_to_tiles(18.0);
 
 const PEEK_LERP_SPEED: f32 = 12.0; // higher = faster slide to position
 
 pub struct LocomotionState {
     peek_origin: Option<(f32, f32)>,
-    sprint_time_left: f32,
-    sprint_cooldown_left: f32,
+    sprint_left: f32,
+    sprint_cooldown: f32,
 }
 
 impl LocomotionState {
     pub fn new() -> Self {
         Self {
             peek_origin: None,
-            sprint_time_left: SPRINT_BURST_SECS,
-            sprint_cooldown_left: 0.0,
+            sprint_left: SPRINT_MAX_SECS,
+            sprint_cooldown: 0.0,
         }
     }
 
@@ -35,19 +36,20 @@ impl LocomotionState {
         half_size: f32,
         walls: &[Wall],
     ) {
-        if self.sprint_cooldown_left > 0.0 {
-            self.sprint_cooldown_left = (self.sprint_cooldown_left - dt).max(0.0);
-            if self.sprint_cooldown_left <= 0.0 {
-                self.sprint_time_left = SPRINT_BURST_SECS;
-            }
+        // Tick cooldown; refill sprint proportionally as it expires.
+        if self.sprint_cooldown > 0.0 {
+            let recovered = dt.min(self.sprint_cooldown) / SPRINT_COOLDOWN_RATIO;
+            self.sprint_left = (self.sprint_left + recovered).min(SPRINT_MAX_SECS);
+            self.sprint_cooldown = (self.sprint_cooldown - dt).max(0.0);
         }
 
-        let sprinting =
-            input.shift && self.sprint_cooldown_left <= 0.0 && self.sprint_time_left > 0.0;
+        let sprinting = input.shift && self.sprint_cooldown <= 0.0 && self.sprint_left > 0.0;
         if sprinting {
-            self.sprint_time_left = (self.sprint_time_left - dt).max(0.0);
-            if self.sprint_time_left <= 0.0 {
-                self.sprint_cooldown_left = SPRINT_COOLDOWN_SECS;
+            let used = dt.min(self.sprint_left);
+            self.sprint_left -= used;
+            if self.sprint_left <= 0.0 {
+                // Burned the full burst — pay the full cooldown cost.
+                self.sprint_cooldown = SPRINT_MAX_SECS * SPRINT_COOLDOWN_RATIO;
             }
         }
 

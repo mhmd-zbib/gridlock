@@ -85,6 +85,7 @@ fn respawn_all(st: &mut ServerState) {
         session.x = base.0 + offset.0;
         session.y = base.1 + offset.1;
         session.health = MAX_HEALTH;
+        session.peek_origin = None;
         // Mid-game spectators who have a team now join the fight.
         session.is_spectator = false;
     }

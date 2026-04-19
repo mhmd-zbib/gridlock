@@ -1,4 +1,4 @@
-use game::entity::weapon::{WeaponState, all_weapon_ids};
+use game::entity::weapon::{WeaponId, WeaponState, all_weapon_ids};
 use game::world::level::LevelData;
 use game::world::units::px_to_tiles;
 
@@ -9,6 +9,16 @@ pub fn default_weapon_state() -> WeaponState {
         .copied()
         .expect("weapon catalog is empty");
     WeaponState::new(default_weapon)
+}
+
+/// Return a weapon state for the given catalog index (sent by the client).
+/// Falls back to the default weapon if the index is out of range.
+pub fn weapon_state_for_index(index: usize) -> WeaponState {
+    let ids = all_weapon_ids();
+    let id = ids.get(index).copied().unwrap_or_else(|| {
+        ids.first().copied().expect("weapon catalog is empty")
+    });
+    WeaponState::new(id)
 }
 
 /// Compute a small circular spawn offset for player `player_id` so that

@@ -1,13 +1,19 @@
 use crate::camera::TacticalCamera;
 use crate::render::entities::{NET_BULLET_TTL, NetBulletTrace};
-use crate::render::sight_geometry::{aim_cone_arc_pts, circle_arc_pts_raw, cone_arc_pts_raw};
+use crate::render::sight_geometry::{aim_cone_arc_pts, cone_arc_pts_raw};
 use crate::render::views::{DebugRoomsView, GeometryView, PlayerCircleView};
 use game::render::geometry::{
     GeoVertex, push_circle_fan, push_cone_fan, push_diamond, push_line_segment, push_rect,
 };
+use game::world::units::px_to_tiles;
+use game::world::wall::Wall;
 
-/// Alpha of the black overlay applied outside the player's vision cone.
-pub const OUTSIDE_CONE_DIM: f32 = 0.9;
+const COLLIDER_OUTLINE_COLOR: [f32; 4] = [1.0, 1.0, 1.0, 0.90];
+const COLLIDER_OUTLINE_WIDTH_PX: f32 = 1.0;
+// Half a pixel in world units — shifts the line fully inside the wall boundary.
+const COLLIDER_INSET_WORLD: f32 = px_to_tiles(0.5);
+
+type EdgeSegment = ((f32, f32), (f32, f32));
 
 /// Build all geometry overlays for the play state.
 ///
@@ -32,66 +38,26 @@ pub fn play_geometry(
         push_rooms_debug(&mut scene, rooms, camera, viewport_px);
     }
 
-
-    // Player sight circle and cone (semi-transparent fill).
-    {
-        let circle = camera.world_points_to_screen(
-            circle_arc_pts_raw(player_pos, walls, 64, view.player_sight.circle_radius),
-            viewport_px,
-        );
-        push_cone_fan(&mut scene, player_px, &circle, [0.3, 0.7, 1.0, 0.07]);
-
-        let arc = camera.world_points_to_screen(
-            cone_arc_pts_raw(
+    // Aim cone (orange, wall-clipped) — hidden while spectating.
+    if !view.is_spectating {
+        let aim_arc = camera.world_points_to_screen(
+            aim_cone_arc_pts(
                 player_pos,
                 walls,
-                60,
-                view.player_sight.direction,
-                view.player_sight.half_angle,
-                view.player_sight.range,
+                16,
+                view.aim_cone.direction,
+                view.aim_cone.half_angle,
+                view.aim_cone.render_range,
             ),
             viewport_px,
         );
-        push_cone_fan(&mut scene, player_px, &arc, [0.3, 0.7, 1.0, 0.16]);
+        push_cone_fan(&mut scene, player_px, &aim_arc, [1.0, 0.6, 0.1, 0.20]);
     }
 
-    // Teammate cones — same color as the player's own cone.
-    for tm in &view.teammate_cones {
-        let tm_px = camera.world_to_screen(tm.pos, viewport_px);
-
-        let circle = camera.world_points_to_screen(
-            circle_arc_pts_raw(tm.pos, walls, 64, tm.sight_circle_radius),
-            viewport_px,
-        );
-        push_cone_fan(&mut scene, tm_px, &circle, [0.3, 0.7, 1.0, 0.07]);
-
-        let arc = camera.world_points_to_screen(
-            cone_arc_pts_raw(
-                tm.pos,
-                walls,
-                60,
-                tm.sight_direction,
-                tm.sight_half_angle,
-                tm.sight_range,
-            ),
-            viewport_px,
-        );
-        push_cone_fan(&mut scene, tm_px, &arc, [0.3, 0.7, 1.0, 0.16]);
-    }
-
-    // Aim cone (orange, wall-clipped).
-    let aim_arc = camera.world_points_to_screen(
-        aim_cone_arc_pts(
-            player_pos,
-            walls,
-            16,
-            view.aim_cone.direction,
-            view.aim_cone.half_angle,
-            view.aim_cone.render_range,
-        ),
-        viewport_px,
-    );
-    push_cone_fan(&mut scene, player_px, &aim_arc, [1.0, 0.6, 0.1, 0.45]);
+    // Wall outlines go into masked: the GPU stencil (vision cone) hides them
+    // outside the FOV. The line is outset by half a pixel so it sits in the
+    // stencil=1 zone (between player and wall face), not inside the wall.
+    push_collider_outlines(&mut masked, view, camera, viewport_px);
 
     // Bullet impact marks.
     for impact in &view.impacts {
@@ -153,13 +119,67 @@ pub fn play_geometry(
             to = (from.0 + dx * s, from.1 + dy * s);
         }
         // Friendly bullets go in scene (always visible); enemy bullets stay masked.
-        let buf = if trace.friendly { &mut scene } else { &mut masked };
+        let buf = if trace.friendly {
+            &mut scene
+        } else {
+            &mut masked
+        };
         push_line_segment(buf, from, to, 4.0, [1.0, 0.97, 0.85, life * 0.75]);
         push_line_segment(buf, from, to, 2.0, [1.0, 1.0, 1.0, life]);
         push_circle_fan(buf, to, 4.5, [1.0, 1.0, 0.35, life * 0.85], 10);
     }
 
     (scene, masked)
+}
+
+fn push_collider_outlines(
+    out: &mut Vec<GeoVertex>,
+    view: &GeometryView<'_>,
+    camera: &TacticalCamera,
+    viewport_px: (f32, f32),
+) {
+    for wall in view.walls {
+        for (x, y, w, h) in wall_outline_rects(wall) {
+            // Outset by half a pixel so the 1px line sits just outside the wall
+            // face, fully within stencil=1 (vision cone zone), never inside the wall.
+            let i = COLLIDER_INSET_WORLD;
+            for (from, to) in rect_outline_edges((x - i, y - i, w + 2.0 * i, h + 2.0 * i)) {
+                let from_px = camera.world_to_screen(from, viewport_px);
+                let to_px = camera.world_to_screen(to, viewport_px);
+                push_line_segment(out, from_px, to_px, COLLIDER_OUTLINE_WIDTH_PX, COLLIDER_OUTLINE_COLOR);
+            }
+        }
+    }
+}
+
+fn wall_outline_rects(wall: &Wall) -> Vec<(f32, f32, f32, f32)> {
+    if wall.breakable && !wall.segments.is_empty() {
+        let n = wall.segments.len();
+        return wall
+            .segments
+            .iter()
+            .enumerate()
+            .filter_map(|(idx, alive)| {
+                if *alive {
+                    Some(wall.segment_rect(idx, n))
+                } else {
+                    None
+                }
+            })
+            .collect();
+    }
+
+    vec![(wall.x, wall.y, wall.w, wall.h)]
+}
+
+fn rect_outline_edges(rect: (f32, f32, f32, f32)) -> [EdgeSegment; 4] {
+    let (x, y, w, h) = rect;
+    [
+        ((x, y), (x + w, y)),
+        ((x + w, y), (x + w, y + h)),
+        ((x + w, y + h), (x, y + h)),
+        ((x, y + h), (x, y)),
+    ]
 }
 
 fn push_player_circle(

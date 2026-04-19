@@ -98,6 +98,8 @@ pub struct GeometryView<'a> {
     pub player_circles: Vec<PlayerCircleView>,
     /// `Some` only when debug mode is active.
     pub debug_rooms: Option<DebugRoomsView>,
+    /// True when the local player is dead/spectating — suppresses the aim cone.
+    pub is_spectating: bool,
 }
 
 // ---------------------------------------------------------------------------
@@ -179,4 +181,6 @@ pub struct HudView<'a> {
     pub net: Option<&'a crate::net::NetClient>,
     pub health: u8,
     pub match_state: Option<net::MatchState>,
+    /// Kill notification text shown for 3 seconds after death.
+    pub kill_notification: Option<String>,
 }

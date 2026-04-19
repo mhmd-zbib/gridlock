@@ -2,20 +2,22 @@ use crate::net::ConnState;
 use crate::render::entities::entity_quads;
 use crate::render::fog::vision_cone_mask;
 use crate::render::geometry::play_geometry;
-use crate::render::hud::{editor_texts, loadout_texts, lobby_texts, main_menu_texts, name_entry_texts, play_texts};
+use crate::render::hud::{
+    editor_texts, loadout_texts, lobby_texts, main_menu_texts, name_entry_texts, play_texts,
+};
 use crate::render::views::{
     AimConeView, DebugRoomView, DebugRoomsView, EnemyBodyView, EnemyConeView, EnemyDebugView,
     EntitiesView, FogView, GeometryView, HudEnemyRow, HudPlayerView, HudView, ImpactView,
     PlayerCircleView, PropView, SightConeView, TeammateConeFog, WorldView,
 };
 use crate::render::world::world_quads;
-use game::render::geometry::GeoVertex;
-use game::render::quad::QuadInstance;
-use game::render::text::TextSection;
 use game::ai::awareness::AiState;
 use game::entity::enemy::EnemyKind;
 use game::entity::weapon::attachment::AttachmentCategory;
 use game::game::IMPACT_TTL;
+use game::render::geometry::GeoVertex;
+use game::render::quad::QuadInstance;
+use game::render::text::TextSection;
 use game::world::prop;
 use game::world::units::tiles_to_px;
 use net::decode_rotation;
@@ -25,11 +27,6 @@ use super::{App, AppState};
 impl App {
     pub(super) fn build_mask(&self, viewport_px: (f32, f32)) -> Vec<GeoVertex> {
         if matches!(&self.app_state, AppState::Playing) {
-            // Dead players and spectators see the full map — no fog mask.
-            let is_dead_or_spectating = self.server_me.map(|m| m.health == 0).unwrap_or(false);
-            if is_dead_or_spectating {
-                return vec![];
-            }
             let view = self.playing_fog_view();
             vision_cone_mask(&view, &self.camera, viewport_px)
         } else {
@@ -137,6 +134,8 @@ impl App {
 
     fn playing_fog_view(&self) -> FogView<'_> {
         let player = &self.game.player;
+        let is_spectating = self.server_me.map(|m| m.health == 0).unwrap_or(false);
+
         let teammate_cones = self
             .teammate_sight_cones
             .iter()
@@ -148,6 +147,21 @@ impl App {
                 sight_circle_radius: tv.sight_circle_radius,
             })
             .collect();
+
+        // Spectators have no sight cone of their own — fog is purely the union
+        // of living teammates' cones (sent by the server for spectators too).
+        if is_spectating {
+            return FogView {
+                player_pos: (player.movement.x, player.movement.y),
+                sight_direction: 0.0,
+                sight_half_angle: 0.0,
+                sight_range: 0.0,
+                sight_circle_radius: 0.0,
+                teammate_cones,
+                walls: &self.game.walls,
+            };
+        }
+
         FogView {
             player_pos: (player.movement.x, player.movement.y),
             sight_direction: self
@@ -250,18 +264,27 @@ impl App {
             })
             .collect();
 
-        // Local player: light blue. Teammates: white. Enemies: red.
-        let mut player_circles = vec![PlayerCircleView {
-            pos: player_pos,
-            color: [0.45, 0.80, 1.0, 1.0],
-        }];
+        let is_spectating = self.server_me.map(|m| m.health == 0).unwrap_or(false);
+
+        // Local player circle — omitted when spectating (no character on the map).
+        let mut player_circles: Vec<PlayerCircleView> = if is_spectating {
+            vec![]
+        } else {
+            vec![PlayerCircleView {
+                pos: player_pos,
+                color: [0.45, 0.80, 1.0, 1.0],
+            }]
+        };
         for remote in &self.net_players {
             let color = if self.my_team != 0 && remote.team == self.my_team {
                 [1.0, 1.0, 1.0, 1.0]
             } else {
                 [1.0, 0.20, 0.20, 1.0]
             };
-            player_circles.push(PlayerCircleView { pos: (remote.x, remote.y), color });
+            player_circles.push(PlayerCircleView {
+                pos: (remote.x, remote.y),
+                color,
+            });
         }
 
         GeometryView {
@@ -283,6 +306,7 @@ impl App {
             teammate_cones,
             player_circles,
             debug_rooms,
+            is_spectating,
         }
     }
 
@@ -436,6 +460,7 @@ impl App {
             net: self.net.as_ref(),
             health,
             match_state: self.match_state,
+            kill_notification: self.kill_notification.as_ref().map(|(name, _)| name.clone()),
         }
     }
 }

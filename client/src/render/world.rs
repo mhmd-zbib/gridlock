@@ -2,6 +2,8 @@ use crate::camera::TacticalCamera;
 use crate::render::views::WorldView;
 use game::render::quad::{QuadInstance, push_world_quad};
 
+const WALL_COLOR: [f32; 4] = [0.0, 0.0, 0.0, 1.0];
+
 /// Build quad instances for the static world: level floor, walls, and props.
 ///
 /// All returned quads go into the "scene" (always-visible, dimmed outside the
@@ -37,7 +39,7 @@ pub fn world_quads(
                     &transform,
                     (sx + sw * 0.5, sy + sh * 0.5),
                     (sw * 0.5, sh * 0.5),
-                    [0.2, 0.8, 0.95, 1.0],
+                    WALL_COLOR,
                 );
             }
         } else {
@@ -46,11 +48,7 @@ pub fn world_quads(
                 &transform,
                 (w.x + w.w * 0.5, w.y + w.h * 0.5),
                 (w.w * 0.5, w.h * 0.5),
-                if w.breakable {
-                    [0.2, 0.8, 0.95, 1.0]
-                } else {
-                    [0.45, 0.4, 0.35, 1.0]
-                },
+                WALL_COLOR,
             );
         }
     }

@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
+use std::time::Instant;
 
 use game::entity::weapon::WeaponState;
 use game::world::aim_cone::AimCone;
@@ -30,6 +31,12 @@ pub struct Session {
     pub is_spectator: bool,
     /// Latest input packet received from this client (updated every tick).
     pub latest_input: Option<ClientPacket>,
+    /// Wall-clock time of the last packet received from this client.
+    /// Used to evict players who disconnect without sending a Disconnect packet.
+    pub last_seen: Instant,
+    /// Peek state: world position the player started peeking from.
+    /// `None` when not peeking.
+    pub peek_origin: Option<(f32, f32)>,
 }
 
 // ---------------------------------------------------------------------------
@@ -72,6 +79,18 @@ impl ServerState {
             respawn_timer: 0.0,
             creator_addr: None,
         }
+    }
+
+    /// Reset all match state so the next connection starts a fresh lobby.
+    /// Preserves the spawn points loaded from the level file.
+    pub fn reset_room(&mut self) {
+        self.sessions.clear();
+        self.next_player_id = 1;
+        self.game_started = false;
+        self.team1_rounds = 0;
+        self.team2_rounds = 0;
+        self.respawn_timer = 0.0;
+        self.creator_addr = None;
     }
 }
 

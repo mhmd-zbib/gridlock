@@ -1,4 +1,5 @@
 use crate::camera::{CameraBehaviorState, CameraStepInput};
+use crate::net::ConnState;
 use crate::systems::input::build_client_packet;
 use crate::systems::network::apply_server_snapshots;
 use crate::util::{enemies_in_combat, infer_world_bounds};
@@ -31,6 +32,7 @@ impl App {
             self.consume_server_snapshots();
             self.apply_server_authoritative_player_state(net_connected);
             self.update_bullet_traces();
+            self.tick_kill_notification();
         } else {
             // Single-player: game runs the full simulation locally.
             let mut local_input = input.clone();
@@ -56,8 +58,15 @@ impl App {
     }
 
     fn consume_server_snapshots(&mut self) {
+        let my_player_id = self.net.as_ref().and_then(|n| {
+            if let ConnState::Connected { player_id } = n.state() {
+                Some(player_id)
+            } else {
+                None
+            }
+        });
         if let Some(net) = &self.net {
-            apply_server_snapshots(
+            if let Some(killer) = apply_server_snapshots(
                 net,
                 &mut self.server_me,
                 &mut self.net_players,
@@ -65,7 +74,19 @@ impl App {
                 &mut self.net_bullet_traces,
                 &mut self.match_state,
                 self.my_team,
-            );
+                my_player_id,
+            ) {
+                self.kill_notification = Some((killer, 3.0));
+            }
+        }
+    }
+
+    fn tick_kill_notification(&mut self) {
+        if let Some((_, remaining)) = &mut self.kill_notification {
+            *remaining -= FIXED_STEP;
+            if *remaining <= 0.0 {
+                self.kill_notification = None;
+            }
         }
     }
 

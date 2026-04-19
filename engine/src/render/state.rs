@@ -111,8 +111,7 @@ impl State {
     ///
     /// `masked_quads` — non-world entities hidden completely outside the cone.
     ///
-    /// `outside_dim` — alpha of the black overlay applied outside the cone
-    ///   (0.0 = no dim, 1.0 = full black).  Ignored when `mask_verts` is empty.
+    /// `outside_dim` — black overlay alpha applied only outside the cone.
     ///
     /// `geo_verts` — overlays always visible on top (UI/debug visuals).
     /// `masked_geo_verts` — overlays hidden outside the cone (impacts/traces).
@@ -164,21 +163,10 @@ impl State {
                 sh,
                 mask_verts,
             );
-            // Pass 2: scene quads (walls, props, floor) — always visible,
-            // no stencil test.  LoadOp::Load preserves the black background.
+            // Pass 2: draw scene quads everywhere (normal brightness baseline).
             self.renderer
                 .draw_load(&mut encoder, &view, &self.queue, sw, sh, scene_quads);
-            // Pass 3: masked quads (non-world entities) — hidden outside the cone.
-            self.renderer.draw_masked(
-                &mut encoder,
-                &view,
-                &self.stencil_view,
-                &self.queue,
-                sw,
-                sh,
-                masked_quads,
-            );
-            // Pass 4: dim overlay — darkens scene quads outside the cone.
+            // Pass 3: darken only outside the cone.
             self.renderer.draw_dim_overlay(
                 &mut encoder,
                 &view,
@@ -187,6 +175,16 @@ impl State {
                 sw,
                 sh,
                 outside_dim,
+            );
+            // Pass 4: masked quads (non-world entities) — hidden outside the cone.
+            self.renderer.draw_masked(
+                &mut encoder,
+                &view,
+                &self.stencil_view,
+                &self.queue,
+                sw,
+                sh,
+                masked_quads,
             );
             // Pass 5: masked overlays (impacts, traces, particles).
             self.geo.draw_masked(

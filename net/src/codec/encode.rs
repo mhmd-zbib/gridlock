@@ -84,6 +84,7 @@ fn encode_snapshot(w: &mut BufWriter, p: &ServerPacket) {
         w.f32(b.to_y);
         w.u16(b.hit_player_id);
         w.u8(b.shooter_team);
+        w.bytes(&b.shooter_name);
     }
     // sounds
     w.u8(p.sounds.len().min(255) as u8);
