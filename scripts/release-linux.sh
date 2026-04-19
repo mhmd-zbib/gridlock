@@ -12,7 +12,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-VERSION="$(grep '^version' "$ROOT/Cargo.toml" | head -1 | grep -o '".*"' | tr -d '"')"
+VERSION="$(grep '^version' "$ROOT/server/Cargo.toml" | head -1 | sed 's/version = "\(.*\)"/\1/')"
 TARGET="x86_64-unknown-linux-gnu"
 DIST="$ROOT/dist/linux"
 

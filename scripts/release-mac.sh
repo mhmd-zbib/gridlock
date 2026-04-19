@@ -11,12 +11,12 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-VERSION="$(grep '^version' "$ROOT/Cargo.toml" | head -1 | grep -o '".*"' | tr -d '"')"
+VERSION="$(grep '^version' "$ROOT/server/Cargo.toml" | head -1 | sed 's/version = "\(.*\)"/\1/')"
 DIST="$ROOT/dist/mac"
 
 # ── Parse arguments ───────────────────────────────────────────────────────────
 
-SERVER_HOST=""
+SERVER_HOST="2.59.156.14:7777"
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --server) SERVER_HOST="$2"; shift 2 ;;

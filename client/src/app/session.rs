@@ -9,7 +9,7 @@ impl App {
         let name = self.player_name.trim().to_string();
         const SERVER_ADDR: &str = match option_env!("SERVER_ADDR") {
             Some(a) => a,
-            None => "127.0.0.1:7777",
+            None => "2.59.156.14:7777",
         };
         self.net = Some(NetClient::connect(SERVER_ADDR.parse().expect("invalid SERVER_ADDR"), name));
         self.net_seq = 0;
