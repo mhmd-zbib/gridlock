@@ -16,7 +16,7 @@
   "aim_base_half_angle_deg": 1.1,
   "movement_spread_max_deg": 14.0,
   "bullet_speed_px_per_sec": 860.0,
-  "bullet_damage": 2,
+  "bullet_damage": 40,
   "recoil_per_shot_deg": 4.8,
   "recoil_max_deg": 28.0,
   "recoil_decay_deg_per_sec": 7.3,
