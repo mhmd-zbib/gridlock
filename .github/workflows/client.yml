@@ -1,0 +1,194 @@
+name: Client
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'client/**'
+      - 'engine/**'
+      - 'game/**'
+      - 'net/**'
+      - 'assets/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
+      release_exists: ${{ steps.check.outputs.exists }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Read version
+        id: version
+        run: |
+          VERSION=$(grep '^version' client/Cargo.toml | head -1 | sed 's/version = "\(.*\)"/\1/')
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "tag=v$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Check if release exists
+        id: check
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if gh release view "v${{ steps.version.outputs.version }}" &>/dev/null; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+          fi
+
+  build-mac:
+    needs: prepare
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust targets
+        run: rustup target add aarch64-apple-darwin x86_64-apple-darwin
+
+      - name: Cache Cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: mac-cargo-${{ hashFiles('Cargo.lock') }}
+          restore-keys: mac-cargo-
+
+      - name: Build (arm64)
+        env:
+          SERVER_ADDR: ${{ vars.SERVER_ADDR }}
+        run: cargo build --release -p client --target aarch64-apple-darwin
+
+      - name: Build (x86_64)
+        env:
+          SERVER_ADDR: ${{ vars.SERVER_ADDR }}
+        run: cargo build --release -p client --target x86_64-apple-darwin
+
+      - name: Create universal binary and archive
+        run: |
+          mkdir -p dist/mac
+          lipo -create \
+            target/aarch64-apple-darwin/release/client \
+            target/x86_64-apple-darwin/release/client \
+            -output dist/mac/client
+          chmod +x dist/mac/client
+          cp -r assets dist/mac/assets
+          tar -czf gridlock-${{ needs.prepare.outputs.version }}-mac.tar.gz -C dist mac
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mac
+          path: gridlock-${{ needs.prepare.outputs.version }}-mac.tar.gz
+
+  build-linux:
+    needs: prepare
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libxkbcommon-dev libwayland-dev libegl1-mesa-dev libx11-dev
+
+      - name: Cache Cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: linux-cargo-${{ hashFiles('Cargo.lock') }}
+          restore-keys: linux-cargo-
+
+      - name: Build
+        env:
+          SERVER_ADDR: ${{ vars.SERVER_ADDR }}
+        run: cargo build --release -p client
+
+      - name: Archive
+        run: |
+          mkdir -p dist/linux
+          cp target/release/client dist/linux/client
+          chmod +x dist/linux/client
+          cp -r assets dist/linux/assets
+          tar -czf gridlock-${{ needs.prepare.outputs.version }}-linux.tar.gz -C dist linux
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux
+          path: gridlock-${{ needs.prepare.outputs.version }}-linux.tar.gz
+
+  build-windows:
+    needs: prepare
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install mingw
+        run: sudo apt-get update && sudo apt-get install -y gcc-mingw-w64-x86-64
+
+      - name: Install Rust target
+        run: rustup target add x86_64-pc-windows-gnu
+
+      - name: Cache Cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: windows-cargo-${{ hashFiles('Cargo.lock') }}
+          restore-keys: windows-cargo-
+
+      - name: Build
+        env:
+          SERVER_ADDR: ${{ vars.SERVER_ADDR }}
+          CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER: x86_64-w64-mingw32-gcc
+        run: cargo build --release -p client --target x86_64-pc-windows-gnu
+
+      - name: Archive
+        run: |
+          mkdir -p dist/windows
+          cp target/x86_64-pc-windows-gnu/release/client.exe dist/windows/client.exe
+          cp -r assets dist/windows/assets
+          cd dist && zip -r ../gridlock-${{ needs.prepare.outputs.version }}-windows.zip windows
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: gridlock-${{ needs.prepare.outputs.version }}-windows.zip
+
+  release:
+    needs: [prepare, build-mac, build-linux, build-windows]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Create or update release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+          TAG: ${{ needs.prepare.outputs.tag }}
+          EXISTS: ${{ needs.prepare.outputs.release_exists }}
+        run: |
+          if [ "$EXISTS" = "true" ]; then
+            gh release upload "$TAG" artifacts/* --clobber \
+              --repo ${{ github.repository }}
+          else
+            gh release create "$TAG" artifacts/* \
+              --repo ${{ github.repository }} \
+              --title "gridlock $TAG" \
+              --notes "Client release $TAG" \
+              --latest
+          fi
