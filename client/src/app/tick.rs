@@ -44,6 +44,7 @@ impl App {
                         }
                         MenuChoice::Editor => {
                             self.editor.refresh_prop_assets();
+                            self.editor.refresh_floor_assets();
                             return Some(AppState::Editing);
                         }
                     }

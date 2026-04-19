@@ -1,6 +1,7 @@
 use std::cmp::Ordering;
 use std::collections::HashSet;
 
+use game::world::floor::LevelFloor;
 use game::world::level::Pos;
 use game::world::prop::LevelProp;
 use game::world::units::px_to_tiles;
@@ -38,6 +39,13 @@ impl Editor {
                 let prop_id = asset.id.clone();
                 self.level.props.push(LevelProp { x, y, id: prop_id });
             }
+            Tool::Floor => {
+                let Some(asset) = self.selected_floor_definition() else {
+                    return;
+                };
+                let floor_id = asset.id.clone();
+                self.level.floors.push(LevelFloor { x, y, id: floor_id });
+            }
             Tool::Wall | Tool::Breakable | Tool::BaseMap => {}
         }
     }
@@ -47,6 +55,12 @@ impl Editor {
         if let Some((edge, _cell)) = self.nearest_edge_at(x, y, EDGE_REMOVE_RADIUS) {
             self.edges.remove(&edge);
             self.rebuild_walls_from_edges();
+            return;
+        }
+
+        const FLOOR_REMOVE_RADIUS: f32 = px_to_tiles(20.0);
+        if let Some(idx) = self.nearest_floor_idx(x, y, FLOOR_REMOVE_RADIUS) {
+            self.level.floors.remove(idx);
             return;
         }
 
@@ -246,6 +260,17 @@ impl Editor {
             .iter()
             .enumerate()
             .map(|(idx, prop)| (idx, dist(prop.x, prop.y, x, y)))
+            .filter(|(_, d)| *d < max_dist)
+            .min_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(Ordering::Equal))
+            .map(|(idx, _)| idx)
+    }
+
+    fn nearest_floor_idx(&self, x: f32, y: f32, max_dist: f32) -> Option<usize> {
+        self.level
+            .floors
+            .iter()
+            .enumerate()
+            .map(|(idx, floor)| (idx, dist(floor.x, floor.y, x, y)))
             .filter(|(_, d)| *d < max_dist)
             .min_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(Ordering::Equal))
             .map(|(idx, _)| idx)

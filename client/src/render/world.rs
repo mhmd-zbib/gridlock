@@ -26,6 +26,13 @@ pub fn world_quads(
         );
     }
 
+    // Floors are rendered below walls and props.
+    for f in &view.floors {
+        if f.texture_handle.is_none() {
+            push_world_quad(&mut out, &transform, f.pos, f.half_size, f.color);
+        }
+    }
+
     for w in view.walls {
         if w.breakable && !w.segments.is_empty() {
             let n = w.segments.len();
@@ -54,7 +61,10 @@ pub fn world_quads(
     }
 
     for p in &view.props {
-        push_world_quad(&mut out, &transform, p.pos, p.half_size, p.color);
+        // Textured props are emitted as SpriteCommands in build_sprites().
+        if p.texture_handle.is_none() {
+            push_world_quad(&mut out, &transform, p.pos, p.half_size, p.color);
+        }
     }
 
     out

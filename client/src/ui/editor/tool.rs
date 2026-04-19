@@ -35,6 +35,7 @@ pub enum Tool {
     BaseMap,     // key 7 — 2-point map bounds rectangle
     Team1Spawn,  // key 8 — blue
     Team2Spawn,  // key 9 — orange
+    Floor,       // key 0 — id-backed floor tile
 }
 
 // ---------------------------------------------------------------------------

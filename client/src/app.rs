@@ -3,7 +3,7 @@ mod render;
 mod session;
 mod tick;
 
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
 
 use winit::application::ApplicationHandler;
@@ -20,6 +20,7 @@ use crate::ui::lobby::LobbyMenu;
 use crate::ui::menu::MainMenu;
 use game::game::Game;
 use game::input::InputHandler;
+use game::render::sprite::AssetHandle;
 use game::render::state::State;
 use game::timing::GameLoop;
 use net::{ClientPacket, LobbyState, MatchState, PlayerState, SelfState, TeammateView};
@@ -79,6 +80,10 @@ pub struct App {
     player_name: String,
     /// This client's team (`0` = none, `1` = team 1, `2` = team 2).
     my_team: u8,
+    /// prop id → GPU texture handle, populated once after the GPU is ready.
+    prop_textures: HashMap<String, AssetHandle>,
+    /// floor id → GPU texture handle, populated once after the GPU is ready.
+    floor_textures: HashMap<String, AssetHandle>,
 }
 
 impl Default for App {
@@ -116,6 +121,41 @@ impl Default for App {
             kill_notification: None,
             player_name: default_player_name(),
             my_team: 0,
+            prop_textures: HashMap::new(),
+            floor_textures: HashMap::new(),
+        }
+    }
+}
+
+impl App {
+    /// Upload every prop texture that has a path in its asset def.
+    /// Silently skips props whose PNG is not present on disk yet — those
+    /// props fall back to the solid-color quad renderer until the file arrives.
+    fn load_prop_textures(&mut self) {
+        let Some(state) = self.wgpu_state.as_mut() else {
+            return;
+        };
+        let prop_defs = game::world::prop::load_assets();
+        for def in prop_defs {
+            if let Some(ref path) = def.texture {
+                if let Some(handle) = state.load_texture(path) {
+                    self.prop_textures.insert(def.id, handle);
+                }
+            }
+        }
+    }
+
+    fn load_floor_textures(&mut self) {
+        let Some(state) = self.wgpu_state.as_mut() else {
+            return;
+        };
+        let floor_defs = game::world::floor::load_assets();
+        for def in floor_defs {
+            if let Some(ref path) = def.texture {
+                if let Some(handle) = state.load_texture(path) {
+                    self.floor_textures.insert(def.id, handle);
+                }
+            }
         }
     }
 }
@@ -145,6 +185,8 @@ impl ApplicationHandler for App {
                 .unwrap(),
         );
         self.wgpu_state = Some(pollster::block_on(State::new(window)));
+        self.load_prop_textures();
+        self.load_floor_textures();
     }
 
     fn window_event(&mut self, event_loop: &ActiveEventLoop, _id: WindowId, event: WindowEvent) {
@@ -218,6 +260,7 @@ impl App {
         let (scene_quads, masked_quads) = self.build_quads(viewport_px, mx, my);
         let mask = self.build_mask(viewport_px);
         let (geo, masked_geo) = self.build_geo(viewport_px);
+        let scene_sprites = self.build_sprites(viewport_px);
         let texts = self.build_texts(sw, sh, mx, my);
 
         if let Some(state) = self.wgpu_state.as_mut() {
@@ -225,6 +268,7 @@ impl App {
                 &mask,
                 &scene_quads,
                 &masked_quads,
+                &scene_sprites,
                 &geo,
                 &masked_geo,
                 &texts,

@@ -10,6 +10,7 @@ pub use tool::{SnapMode, Tool};
 
 use std::collections::HashMap;
 
+use game::world::floor::{self as floor_world, FloorAssetDef};
 use game::world::level::LevelData;
 use game::world::prop::{self, PropAssetDef};
 
@@ -24,6 +25,8 @@ pub struct Editor {
     pub zoom: f32,
     prop_assets: Vec<PropAssetDef>,
     selected_prop_asset: usize,
+    floor_assets: Vec<FloorAssetDef>,
+    selected_floor_asset: usize,
     edges: HashMap<EdgeKey, EdgeCell>,
     view_origin: (f32, f32),
 
@@ -44,6 +47,7 @@ pub struct Editor {
     prev_key_7: bool,
     prev_key_8: bool,
     prev_key_9: bool,
+    prev_key_0: bool,
     prev_key_q: bool,
     prev_key_e: bool,
     prev_key_g: bool,
@@ -53,6 +57,7 @@ pub struct Editor {
 impl Editor {
     pub fn new() -> Self {
         let prop_assets = prop::load_assets();
+        let floor_assets = floor_world::load_assets();
         Self {
             tool: Tool::default(),
             level: LevelData::default(),
@@ -61,6 +66,8 @@ impl Editor {
             zoom: 1.0,
             prop_assets,
             selected_prop_asset: 0,
+            floor_assets,
+            selected_floor_asset: 0,
             edges: HashMap::new(),
             view_origin: (0.0, 0.0),
             wall_start: None,
@@ -79,6 +86,7 @@ impl Editor {
             prev_key_7: false,
             prev_key_8: false,
             prev_key_9: false,
+            prev_key_0: false,
             prev_key_q: false,
             prev_key_e: false,
             prev_key_g: false,
@@ -103,6 +111,25 @@ impl Editor {
 
     pub fn selected_prop_asset_index(&self) -> usize {
         self.selected_prop_asset
+    }
+
+    pub fn refresh_floor_assets(&mut self) {
+        self.floor_assets = floor_world::load_assets();
+        if self.selected_floor_asset >= self.floor_assets.len() {
+            self.selected_floor_asset = 0;
+        }
+    }
+
+    pub fn floor_assets(&self) -> &[FloorAssetDef] {
+        &self.floor_assets
+    }
+
+    pub fn selected_floor_asset(&self) -> Option<&FloorAssetDef> {
+        self.floor_assets.get(self.selected_floor_asset)
+    }
+
+    pub fn selected_floor_asset_index(&self) -> usize {
+        self.selected_floor_asset
     }
 
     pub fn active_snap_label(&self) -> &'static str {

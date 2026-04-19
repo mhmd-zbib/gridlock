@@ -33,8 +33,9 @@ pub struct InputState {
     pub key_7: bool, // editor tool: base map bounds
     pub key_8: bool, // editor tool: team 1 spawn
     pub key_9: bool, // editor tool: team 2 spawn
-    pub key_q: bool, // editor: previous prop id
-    pub key_e: bool, // editor: next prop id
+    pub key_0: bool, // editor tool: floor
+    pub key_q: bool, // editor: previous prop/floor id
+    pub key_e: bool, // editor: next prop/floor id
     pub key_g: bool, // toggle grid snap
     pub key_h: bool, // toggle inner grid visibility
     pub key_l: bool, // load level
@@ -139,6 +140,7 @@ impl InputHandler {
                 "7" => self.state.key_7 = pressed,
                 "8" => self.state.key_8 = pressed,
                 "9" => self.state.key_9 = pressed,
+                "0" => self.state.key_0 = pressed,
                 "-" | "_" => self.state.key_minus = pressed,
                 "=" | "+" => self.state.key_equals = pressed,
                 "q" | "Q" => self.state.key_q = pressed,

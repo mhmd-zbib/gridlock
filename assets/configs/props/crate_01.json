@@ -1,0 +1,7 @@
+{
+  "id": "crate_01",
+  "width": 1.0,
+  "height": 1.0,
+  "is_collider": true,
+  "texture": "assets/textures/props/crate_01.png"
+}

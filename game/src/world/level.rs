@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use super::{prop::LevelProp, wall::Wall};
+use super::{floor::LevelFloor, prop::LevelProp, wall::Wall};
 
 /// A 2-D position stored in the level file.
 #[derive(Serialize, Deserialize, Clone, Copy, Default)]
@@ -56,6 +56,8 @@ pub struct LevelData {
     #[serde(default)]
     pub walls: Vec<Wall>,
     #[serde(default)]
+    pub floors: Vec<LevelFloor>,
+    #[serde(default)]
     pub props: Vec<LevelProp>,
 }
 
@@ -70,6 +72,7 @@ impl Default for LevelData {
             enemies: Vec::new(),
             target_enemies: Vec::new(),
             walls: Vec::new(),
+            floors: Vec::new(),
             props: Vec::new(),
         }
     }
@@ -100,6 +103,15 @@ fn validate_level_data(level: &LevelData) -> Result<(), Box<dyn std::error::Erro
             format!("level id '{}' must be snake_case", level.id),
         );
         return Err(Box::new(err));
+    }
+    for floor in &level.floors {
+        if !is_snake_case_id(&floor.id) {
+            let err = std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                format!("level floor id '{}' must be snake_case", floor.id),
+            );
+            return Err(Box::new(err));
+        }
     }
     for prop in &level.props {
         if !is_snake_case_id(&prop.id) {

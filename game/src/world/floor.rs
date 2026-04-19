@@ -3,42 +3,40 @@ use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 
-/// A prop placement stored inside level JSON.
-/// `id` must match one entry from `assets/props/*.json`.
+/// A floor tile placement stored inside level JSON.
 #[derive(Serialize, Deserialize, Clone, Default)]
-pub struct LevelProp {
+pub struct LevelFloor {
     pub x: f32,
     pub y: f32,
-    #[serde(alias = "asset")]
     pub id: String,
 }
 
-/// One placeable prop definition loaded from an asset JSON file.
+/// One placeable floor definition loaded from an asset JSON file.
 #[derive(Serialize, Deserialize, Clone)]
-pub struct PropAssetDef {
-    #[serde(alias = "asset")]
+pub struct FloorAssetDef {
     pub id: String,
+    #[serde(default = "default_one")]
     pub width: f32,
+    #[serde(default = "default_one")]
     pub height: f32,
-    #[serde(default, alias = "is collider", alias = "isCollider")]
-    pub is_collider: bool,
-    /// Path to the sprite texture for this prop (relative to workspace root).
-    /// `None` means no texture — the renderer falls back to a solid color quad.
     #[serde(default)]
     pub texture: Option<String>,
 }
 
+fn default_one() -> f32 {
+    1.0
+}
+
 #[derive(Clone)]
-pub struct ResolvedProp {
+pub struct ResolvedFloor {
     pub x: f32,
     pub y: f32,
     pub width: f32,
     pub height: f32,
     pub id: String,
-    pub is_collider: bool,
 }
 
-pub fn load_assets() -> Vec<PropAssetDef> {
+pub fn load_assets() -> Vec<FloorAssetDef> {
     let Some(dir) = resolve_assets_dir() else {
         return Vec::new();
     };
@@ -64,53 +62,49 @@ pub fn load_assets() -> Vec<PropAssetDef> {
     out
 }
 
-pub fn resolve_level_props(
-    level_props: &[LevelProp],
-    assets: &[PropAssetDef],
-) -> Vec<ResolvedProp> {
-    let by_id: HashMap<&str, &PropAssetDef> =
+pub fn resolve_level_floors(
+    level_floors: &[LevelFloor],
+    assets: &[FloorAssetDef],
+) -> Vec<ResolvedFloor> {
+    let by_id: HashMap<&str, &FloorAssetDef> =
         assets.iter().map(|def| (def.id.as_str(), def)).collect();
-    let mut out = Vec::with_capacity(level_props.len());
+    let mut out = Vec::with_capacity(level_floors.len());
 
-    for prop in level_props {
-        let Some(def) = by_id.get(prop.id.as_str()) else {
+    for floor in level_floors {
+        let Some(def) = by_id.get(floor.id.as_str()) else {
             continue;
         };
-        out.push(ResolvedProp {
-            x: prop.x,
-            y: prop.y,
+        out.push(ResolvedFloor {
+            x: floor.x,
+            y: floor.y,
             width: def.width,
             height: def.height,
             id: def.id.clone(),
-            is_collider: def.is_collider,
         });
     }
 
     out
 }
 
-pub fn asset_color(id: &str, is_collider: bool, alpha: f32) -> [f32; 4] {
+pub fn asset_color(id: &str, alpha: f32) -> [f32; 4] {
     let mut hash: u32 = 0x811C9DC5;
     for b in id.bytes() {
         hash ^= b as u32;
         hash = hash.wrapping_mul(0x01000193);
     }
 
-    let r = 0.25 + ((hash & 0xFF) as f32 / 255.0) * 0.55;
-    let g = 0.25 + (((hash >> 8) & 0xFF) as f32 / 255.0) * 0.55;
-    let b = 0.25 + (((hash >> 16) & 0xFF) as f32 / 255.0) * 0.55;
+    // Muted, desaturated earth tones so floors stay visually beneath props/walls.
+    let r = 0.18 + ((hash & 0xFF) as f32 / 255.0) * 0.22;
+    let g = 0.16 + (((hash >> 8) & 0xFF) as f32 / 255.0) * 0.20;
+    let b = 0.12 + (((hash >> 16) & 0xFF) as f32 / 255.0) * 0.16;
 
-    if is_collider {
-        [r, (g + 0.25).min(1.0), (b * 0.75).min(1.0), alpha]
-    } else {
-        [r, g, b, alpha]
-    }
+    [r, g, b, alpha]
 }
 
 fn resolve_assets_dir() -> Option<PathBuf> {
     let cwd_assets = std::env::current_dir()
         .ok()
-        .map(|cwd| cwd.join("assets").join("configs").join("props"))
+        .map(|cwd| cwd.join("assets").join("configs").join("floors"))
         .filter(|path| path.is_dir());
     if let Some(path) = cwd_assets {
         return Some(path);
@@ -119,14 +113,14 @@ fn resolve_assets_dir() -> Option<PathBuf> {
     let manifest_assets = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("assets")
         .join("configs")
-        .join("props");
+        .join("floors");
     if manifest_assets.is_dir() {
         return Some(manifest_assets);
     }
 
     let workspace_assets = Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
-        .map(|root| root.join("assets").join("configs").join("props"))
+        .map(|root| root.join("assets").join("configs").join("floors"))
         .filter(|path| path.is_dir());
     if let Some(path) = workspace_assets {
         return Some(path);
@@ -135,11 +129,11 @@ fn resolve_assets_dir() -> Option<PathBuf> {
     None
 }
 
-fn load_asset_file(path: &Path) -> Option<PropAssetDef> {
+fn load_asset_file(path: &Path) -> Option<FloorAssetDef> {
     let Ok(json) = fs::read_to_string(path) else {
         return None;
     };
-    let Ok(parsed) = serde_json::from_str::<PropAssetDef>(&json) else {
+    let Ok(parsed) = serde_json::from_str::<FloorAssetDef>(&json) else {
         return None;
     };
 

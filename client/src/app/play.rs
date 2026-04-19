@@ -72,6 +72,7 @@ impl App {
         }
         if f1 {
             self.editor.refresh_prop_assets();
+            self.editor.refresh_floor_assets();
             return Some(AppState::Editing);
         }
         if input.f8 && !self.prev_f8 {

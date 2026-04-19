@@ -1,5 +1,6 @@
 use game::render::quad::QuadInstance;
-use game::world::prop::{self};
+use game::world::floor;
+use game::world::prop;
 use game::world::units::px_to_tiles;
 
 use super::helpers::{
@@ -48,6 +49,18 @@ impl Editor {
                 self.view_origin,
                 self.zoom,
             );
+        }
+
+        for floor_instance in &self.level.floors {
+            let (half_w, half_h) = match self.find_floor_asset(&floor_instance.id) {
+                Some(asset) => (asset.width * 0.5, asset.height * 0.5),
+                None => (0.5, 0.5),
+            };
+            out.push(self.world_quad(
+                (floor_instance.x, floor_instance.y),
+                (half_w, half_h),
+                floor::asset_color(&floor_instance.id, 1.0),
+            ));
         }
 
         for wall in &self.level.walls {
@@ -151,6 +164,7 @@ impl Editor {
                 [1.0, 0.5, 0.1, 0.35],
             )),
             Tool::Prop => self.push_prop_preview(out, mx, my),
+            Tool::Floor => self.push_floor_preview(out, mx, my),
             Tool::BaseMap => self.push_bounds_preview(out, mx, my),
         }
     }
@@ -219,6 +233,23 @@ impl Editor {
             (mx, my),
             (px_to_tiles(5.0), px_to_tiles(5.0)),
             [0.95, 0.2, 0.2, 0.5],
+        ));
+    }
+
+    fn push_floor_preview(&self, out: &mut Vec<QuadInstance>, mx: f32, my: f32) {
+        if let Some(asset) = self.selected_floor_definition() {
+            out.push(self.world_quad(
+                (mx, my),
+                (asset.width * 0.5, asset.height * 0.5),
+                floor::asset_color(&asset.id, 0.45),
+            ));
+            return;
+        }
+
+        out.push(self.world_quad(
+            (mx, my),
+            (0.5, 0.5),
+            [0.4, 0.3, 0.2, 0.5],
         ));
     }
 

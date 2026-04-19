@@ -7,8 +7,8 @@ use crate::render::hud::{
 };
 use crate::render::views::{
     AimConeView, DebugRoomView, DebugRoomsView, EnemyBodyView, EnemyConeView, EnemyDebugView,
-    EntitiesView, FogView, GeometryView, HudEnemyRow, HudPlayerView, HudView, ImpactView,
-    PlayerCircleView, PropView, SightConeView, TeammateConeFog, WorldView,
+    EntitiesView, FloorView, FogView, GeometryView, HudEnemyRow, HudPlayerView, HudView,
+    ImpactView, PlayerCircleView, PropView, SightConeView, TeammateConeFog, WorldView,
 };
 use crate::render::world::world_quads;
 use game::ai::awareness::AiState;
@@ -17,7 +17,9 @@ use game::entity::weapon::attachment::AttachmentCategory;
 use game::game::IMPACT_TTL;
 use game::render::geometry::GeoVertex;
 use game::render::quad::QuadInstance;
+use game::render::sprite::SpriteCommand;
 use game::render::text::TextSection;
+use game::world::floor;
 use game::world::prop;
 use game::world::units::tiles_to_px;
 use net::decode_rotation;
@@ -350,6 +352,18 @@ impl App {
     }
 
     fn playing_world_view(&self) -> WorldView<'_> {
+        let floors = self
+            .game
+            .floors
+            .iter()
+            .map(|f| FloorView {
+                pos: (f.x, f.y),
+                half_size: (f.width * 0.5, f.height * 0.5),
+                color: floor::asset_color(&f.id, 1.0),
+                texture_handle: self.floor_textures.get(&f.id).copied(),
+            })
+            .collect();
+
         let props = self
             .game
             .props
@@ -358,12 +372,14 @@ impl App {
                 pos: (prop_instance.x, prop_instance.y),
                 half_size: (prop_instance.width * 0.5, prop_instance.height * 0.5),
                 color: prop::asset_color(&prop_instance.id, prop_instance.is_collider, 1.0),
+                texture_handle: self.prop_textures.get(&prop_instance.id).copied(),
             })
             .collect();
 
         WorldView {
             level_bounds: self.game.level_bounds,
             walls: &self.game.walls,
+            floors,
             props,
         }
     }
@@ -464,6 +480,43 @@ impl App {
                 .as_ref()
                 .map(|(name, _)| name.clone()),
         }
+    }
+
+    /// Collect textured sprite draw commands for the current frame.
+    ///
+    /// Only props whose texture was successfully loaded into the GPU cache
+    /// emit a sprite command; the rest continue to render as solid-color quads.
+    pub(super) fn build_sprites(&self, viewport_px: (f32, f32)) -> Vec<SpriteCommand> {
+        let AppState::Playing = &self.app_state else {
+            return vec![];
+        };
+
+        let world_view = self.playing_world_view();
+        let transform = self.camera.screen_transform(viewport_px);
+        let mut cmds = Vec::new();
+
+        // Floors first so they render beneath props.
+        for f in &world_view.floors {
+            let Some(handle) = f.texture_handle else {
+                continue;
+            };
+            let (cx, cy) = transform.world_to_screen(f.pos);
+            let hw = f.half_size.0 * transform.pixels_per_unit;
+            let hh = f.half_size.1 * transform.pixels_per_unit;
+            cmds.push(SpriteCommand::simple(handle, [cx, cy], [hw, hh], 1.0));
+        }
+
+        for p in &world_view.props {
+            let Some(handle) = p.texture_handle else {
+                continue;
+            };
+            let (cx, cy) = transform.world_to_screen(p.pos);
+            let hw = p.half_size.0 * transform.pixels_per_unit;
+            let hh = p.half_size.1 * transform.pixels_per_unit;
+            cmds.push(SpriteCommand::simple(handle, [cx, cy], [hw, hh], 1.0));
+        }
+
+        cmds
     }
 }
 

@@ -1,0 +1,7 @@
+{
+  "id": "plant_01",
+  "width": 0.5,
+  "height": 0.5,
+  "is_collider": false,
+  "texture": "assets/textures/props/plant_01.png"
+}

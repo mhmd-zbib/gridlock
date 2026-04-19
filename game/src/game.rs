@@ -5,6 +5,7 @@ use super::spawn::SpawnQueue;
 pub use super::systems::projectile::ImpactEvent;
 use super::systems::{movement, projectile, spawn as spawn_system, visibility};
 use super::world::level::{LevelBounds, LevelData};
+use super::world::floor::{self as floor_world, ResolvedFloor};
 use super::world::prop::{self, ResolvedProp};
 use super::world::rooms::LevelRooms;
 use super::world::units::px_to_tiles;
@@ -59,6 +60,7 @@ pub struct Game {
     pub bullets: Vec<Bullet>,
     pub impacts: Vec<ImpactMark>,
     pub walls: Vec<Wall>,
+    pub floors: Vec<ResolvedFloor>,
     pub props: Vec<ResolvedProp>,
     pub rooms: LevelRooms,
     pub level_bounds: Option<LevelBounds>,
@@ -85,6 +87,7 @@ impl Game {
             bullets: Vec::new(),
             impacts: Vec::new(),
             walls: Vec::new(),
+            floors: Vec::new(),
             props: Vec::new(),
             rooms: LevelRooms::default(),
             level_bounds: None,
@@ -131,6 +134,8 @@ impl Game {
             )
             .collect();
 
+        let floor_assets = floor_world::load_assets();
+        self.floors = floor_world::resolve_level_floors(&level.floors, &floor_assets);
         let prop_assets = prop::load_assets();
         self.props = prop::resolve_level_props(&level.props, &prop_assets);
         self.walls = level.walls.clone();

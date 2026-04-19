@@ -100,6 +100,9 @@ impl Editor {
         if input.key_9 && !self.prev_key_9 {
             self.select_tool(Tool::Team2Spawn);
         }
+        if input.key_0 && !self.prev_key_0 {
+            self.select_tool(Tool::Floor);
+        }
     }
 
     fn handle_snap_toggles(&mut self, input: &InputState) {
@@ -112,14 +115,24 @@ impl Editor {
     }
 
     fn handle_prop_cycle(&mut self, input: &InputState) {
-        if self.tool != Tool::Prop {
-            return;
-        }
-        if input.key_q && !self.prev_key_q {
-            self.cycle_prop_asset(-1);
-        }
-        if input.key_e && !self.prev_key_e {
-            self.cycle_prop_asset(1);
+        match self.tool {
+            Tool::Prop => {
+                if input.key_q && !self.prev_key_q {
+                    self.cycle_prop_asset(-1);
+                }
+                if input.key_e && !self.prev_key_e {
+                    self.cycle_prop_asset(1);
+                }
+            }
+            Tool::Floor => {
+                if input.key_q && !self.prev_key_q {
+                    self.cycle_floor_asset(-1);
+                }
+                if input.key_e && !self.prev_key_e {
+                    self.cycle_floor_asset(1);
+                }
+            }
+            _ => {}
         }
     }
 

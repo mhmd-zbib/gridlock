@@ -94,7 +94,7 @@ pub(super) fn load_catalog() -> Vec<WeaponEntry> {
 pub(super) fn resolve_weapons_dir() -> PathBuf {
     let cwd_weapons = std::env::current_dir()
         .ok()
-        .map(|cwd| cwd.join("assets").join("weapons"))
+        .map(|cwd| cwd.join("assets").join("configs").join("weapons"))
         .filter(|path| path.is_dir());
     if let Some(path) = cwd_weapons {
         return path;
@@ -102,6 +102,7 @@ pub(super) fn resolve_weapons_dir() -> PathBuf {
 
     let manifest_weapons = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("assets")
+        .join("configs")
         .join("weapons");
     if manifest_weapons.is_dir() {
         return manifest_weapons;
@@ -109,17 +110,17 @@ pub(super) fn resolve_weapons_dir() -> PathBuf {
 
     let workspace_weapons = Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
-        .map(|root| root.join("assets").join("weapons"));
+        .map(|root| root.join("assets").join("configs").join("weapons"));
     if let Some(path) = workspace_weapons.as_ref().filter(|path| path.is_dir()) {
         return path.to_path_buf();
     }
 
     panic!(
-        "weapons directory not found (checked './assets/weapons', '{}/assets/weapons', and '{}')",
+        "weapons directory not found (checked './assets/configs/weapons', '{}/assets/configs/weapons', and '{}')",
         env!("CARGO_MANIFEST_DIR"),
         workspace_weapons
             .map(|path| path.display().to_string())
-            .unwrap_or_else(|| "<workspace-root-unavailable>/assets/weapons".to_string())
+            .unwrap_or_else(|| "<workspace-root-unavailable>/assets/configs/weapons".to_string())
     );
 }
 

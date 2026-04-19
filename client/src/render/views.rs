@@ -3,6 +3,7 @@
 /// Render functions never import `Game` or any game logic type.
 /// All view assembly (including server-authoritative overrides) happens in
 /// `app/render.rs` — the single translation boundary between game and render.
+use game::render::sprite::AssetHandle;
 use game::world::level::LevelBounds;
 use game::world::wall::Wall;
 use net::PlayerState;
@@ -131,15 +132,26 @@ pub struct EntitiesView<'a> {
 // World quads
 // ---------------------------------------------------------------------------
 
-pub struct PropView {
+pub struct FloorView {
     pub pos: (f32, f32),
     pub half_size: (f32, f32),
     pub color: [f32; 4],
+    pub texture_handle: Option<AssetHandle>,
+}
+
+pub struct PropView {
+    pub pos: (f32, f32),
+    pub half_size: (f32, f32),
+    /// Fallback solid color used when `texture_handle` is `None`.
+    pub color: [f32; 4],
+    /// Some → render as a textured sprite; None → render as a color quad.
+    pub texture_handle: Option<AssetHandle>,
 }
 
 pub struct WorldView<'a> {
     pub level_bounds: Option<LevelBounds>,
     pub walls: &'a [Wall],
+    pub floors: Vec<FloorView>,
     pub props: Vec<PropView>,
 }
 

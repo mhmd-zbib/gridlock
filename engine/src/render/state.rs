@@ -4,8 +4,11 @@ use wgpu::{CurrentSurfaceTexture, Device, Queue, Surface, SurfaceConfiguration};
 use winit::dpi::PhysicalSize;
 use winit::window::Window;
 
+use crate::asset::{AssetHandle, TextureCache};
+
 use super::geometry::{GeoVertex, GeometryRenderer, MaskGeometryRenderer};
 use super::quad::{QuadInstance, Renderer};
+use super::sprite::{SpriteCommand, SpriteRenderer};
 use super::text::{TextRenderer, TextSection};
 
 pub struct State {
@@ -18,6 +21,8 @@ pub struct State {
     renderer: Renderer,
     geo: GeometryRenderer,
     text: TextRenderer,
+    sprite: SpriteRenderer,
+    texture_cache: TextureCache,
     /// Depth24PlusStencil8 texture used as the FOV visibility mask.
     stencil_tex: wgpu::Texture,
     stencil_view: wgpu::TextureView,
@@ -70,6 +75,8 @@ impl State {
         let text = TextRenderer::new(&device, &queue, format);
         let mask = MaskGeometryRenderer::new(&device, format);
         let (stencil_tex, stencil_view) = create_stencil_texture(&device, size.width, size.height);
+        let texture_cache = TextureCache::new(&device);
+        let sprite = SpriteRenderer::new(&device, format, &texture_cache.bgl);
 
         Self {
             window,
@@ -81,6 +88,8 @@ impl State {
             renderer,
             geo,
             text,
+            sprite,
+            texture_cache,
             stencil_tex,
             stencil_view,
             mask,
@@ -101,25 +110,53 @@ impl State {
         self.stencil_view = view;
     }
 
+    // ── Asset API ─────────────────────────────────────────────────────────────
+
+    /// Load a PNG from `path`, upload it to the GPU, and return its handle.
+    ///
+    /// Subsequent calls for the same path are deduplicated: the texture is
+    /// only uploaded once and the ref-count is incremented.
+    /// Returns `None` if the file is missing or the format is unsupported.
+    pub fn load_texture(&mut self, path: &str) -> Option<AssetHandle> {
+        self.texture_cache.load(&self.device, &self.queue, path)
+    }
+
+    /// Decrement the ref-count for a previously loaded texture.
+    /// Call `gc_textures()` to reclaim zero-count entries.
+    pub fn release_texture(&mut self, handle: AssetHandle) {
+        self.texture_cache.release(handle);
+    }
+
+    /// Free all textures whose ref-count has dropped to zero.
+    pub fn gc_textures(&mut self) {
+        self.texture_cache.collect_garbage();
+    }
+
+    // ── Render ────────────────────────────────────────────────────────────────
+
     /// Render a frame.
     ///
-    /// `mask_verts` — cone geometry written into the stencil buffer.
+    /// `mask_verts`      — cone geometry written into the stencil buffer.
     ///   Empty slice = no masking (menus use the plain unmasked path).
     ///
-    /// `scene_quads` — walls, props, floor.  Always fully visible;
+    /// `scene_quads`     — walls, props, floor. Always fully visible;
     ///   outside the cone they receive the `outside_dim` dark overlay.
     ///
-    /// `masked_quads` — non-world entities hidden completely outside the cone.
+    /// `masked_quads`    — non-world entities hidden completely outside the cone.
     ///
-    /// `outside_dim` — black overlay alpha applied only outside the cone.
+    /// `scene_sprites`   — textured quads composited after scene quads.
+    ///   Subject to the same dim overlay as scene quads.
     ///
-    /// `geo_verts` — overlays always visible on top (UI/debug visuals).
-    /// `masked_geo_verts` — overlays hidden outside the cone (impacts/traces).
+    /// `outside_dim`     — black overlay alpha applied only outside the cone.
+    ///
+    /// `geo_verts`       — overlays always visible on top (UI/debug visuals).
+    /// `masked_geo_verts`— overlays hidden outside the cone (impacts/traces).
     pub fn render(
         &mut self,
         mask_verts: &[GeoVertex],
         scene_quads: &[QuadInstance],
         masked_quads: &[QuadInstance],
+        scene_sprites: &[SpriteCommand],
         geo_verts: &[GeoVertex],
         masked_geo_verts: &[GeoVertex],
         texts: &[TextSection],
@@ -146,9 +183,17 @@ impl State {
 
         if mask_verts.is_empty() {
             // ── Unmasked path (menus, lobby, etc.) ────────────────────────────
-            // All quads drawn normally; masked_quads ignored.
             self.renderer
                 .draw(&mut encoder, &view, &self.queue, sw, sh, scene_quads);
+            self.sprite.draw(
+                &mut encoder,
+                &view,
+                &self.queue,
+                sw,
+                sh,
+                scene_sprites,
+                &self.texture_cache,
+            );
             self.geo
                 .draw(&mut encoder, &view, &self.queue, sw, sh, masked_geo_verts);
         } else {
@@ -166,6 +211,16 @@ impl State {
             // Pass 2: draw scene quads everywhere (normal brightness baseline).
             self.renderer
                 .draw_load(&mut encoder, &view, &self.queue, sw, sh, scene_quads);
+            // Pass 2.5: draw scene sprites on top of scene quads.
+            self.sprite.draw(
+                &mut encoder,
+                &view,
+                &self.queue,
+                sw,
+                sh,
+                scene_sprites,
+                &self.texture_cache,
+            );
             // Pass 3: darken only outside the cone.
             self.renderer.draw_dim_overlay(
                 &mut encoder,
