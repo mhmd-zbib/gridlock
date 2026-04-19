@@ -2,11 +2,14 @@ use crate::camera::{CameraBehaviorState, CameraStepInput};
 use crate::net::ConnState;
 use crate::systems::input::build_client_packet;
 use crate::systems::network::apply_server_snapshots;
+use crate::systems::prediction::{
+    predict_local_player, push_pending_input, reconcile_local_player,
+};
 use crate::util::{enemies_in_combat, infer_world_bounds};
 use game::input::InputState;
 use game::timing::FIXED_STEP;
 use game::world::units::{px_to_tiles, tiles_to_px};
-use net::decode_rotation;
+use net::ClientPacket;
 
 use super::{App, AppState};
 
@@ -26,15 +29,27 @@ impl App {
         let net_connected = self.is_net_connected();
 
         if net_connected {
-            // Server is the source of truth: send inputs, apply authoritative
-            // state received back, and skip local simulation entirely.
-            self.send_play_input(input, mouse_world);
-            self.consume_server_snapshots();
-            self.apply_server_authoritative_player_state(net_connected);
+            // Predict locally for smooth movement, then reconcile to snapshots.
+            if let Some(packet) = self.send_play_input(input, mouse_world) {
+                let authoritative_health = self.server_me.map(|me| me.health);
+                push_pending_input(&mut self.pending_local_inputs, packet);
+                predict_local_player(
+                    &mut self.game,
+                    &packet,
+                    &mut self.predicted_peek_origin,
+                    authoritative_health,
+                );
+            }
+            if let Some(latest_ack_timestamp) = self.consume_server_snapshots() {
+                self.reconcile_predicted_player_state(latest_ack_timestamp);
+            }
             self.update_bullet_traces();
             self.tick_kill_notification();
         } else {
             // Single-player: game runs the full simulation locally.
+            self.pending_local_inputs.clear();
+            self.predicted_peek_origin = None;
+            self.last_server_tick = None;
             let mut local_input = input.clone();
             local_input.mouse_x = tiles_to_px(mouse_world.0) as f64;
             local_input.mouse_y = tiles_to_px(mouse_world.1) as f64;
@@ -57,7 +72,7 @@ impl App {
         None
     }
 
-    fn consume_server_snapshots(&mut self) {
+    fn consume_server_snapshots(&mut self) -> Option<u32> {
         let my_player_id = self.net.as_ref().and_then(|n| {
             if let ConnState::Connected { player_id } = n.state() {
                 Some(player_id)
@@ -66,19 +81,23 @@ impl App {
             }
         });
         if let Some(net) = &self.net {
-            if let Some(killer) = apply_server_snapshots(
+            let result = apply_server_snapshots(
                 net,
                 &mut self.server_me,
                 &mut self.net_players,
                 &mut self.teammate_sight_cones,
                 &mut self.net_bullet_traces,
                 &mut self.match_state,
+                &mut self.last_server_tick,
                 self.my_team,
                 my_player_id,
-            ) {
+            );
+            if let Some(killer) = result.killer {
                 self.kill_notification = Some((killer, 3.0));
             }
+            return result.latest_ack_timestamp;
         }
+        None
     }
 
     fn tick_kill_notification(&mut self) {
@@ -90,17 +109,15 @@ impl App {
         }
     }
 
-    fn apply_server_authoritative_player_state(&mut self, net_connected: bool) {
-        if !net_connected {
-            return;
-        }
-
-        if let Some(me) = self.server_me.as_ref() {
-            self.game.player.movement.x = me.x;
-            self.game.player.movement.y = me.y;
-            let rotation = decode_rotation(me.rotation);
-            self.game.player.sight.direction = rotation;
-            self.game.player.aim_cone.direction = rotation;
+    fn reconcile_predicted_player_state(&mut self, latest_ack_timestamp: u32) {
+        if let Some(server_me) = self.server_me {
+            reconcile_local_player(
+                &mut self.game,
+                server_me,
+                &mut self.pending_local_inputs,
+                &mut self.predicted_peek_origin,
+                latest_ack_timestamp,
+            );
         }
     }
 
@@ -127,13 +144,19 @@ impl App {
         });
     }
 
-    fn send_play_input(&mut self, input: &InputState, mouse_world: (f32, f32)) {
+    fn send_play_input(
+        &mut self,
+        input: &InputState,
+        mouse_world: (f32, f32),
+    ) -> Option<ClientPacket> {
         if let Some(net) = &self.net {
             if matches!(net.state(), crate::net::ConnState::Connected { .. }) {
                 let packet = build_client_packet(self.net_seq, input, mouse_world, &self.game);
                 net.send_input(packet);
                 self.net_seq = self.net_seq.wrapping_add(1);
+                return Some(packet);
             }
         }
+        None
     }
 }

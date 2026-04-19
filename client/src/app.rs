@@ -3,6 +3,7 @@ mod render;
 mod session;
 mod tick;
 
+use std::collections::VecDeque;
 use std::sync::Arc;
 
 use winit::application::ApplicationHandler;
@@ -21,7 +22,7 @@ use game::game::Game;
 use game::input::InputHandler;
 use game::render::state::State;
 use game::timing::GameLoop;
-use net::{LobbyState, MatchState, PlayerState, SelfState, TeammateView};
+use net::{ClientPacket, LobbyState, MatchState, PlayerState, SelfState, TeammateView};
 
 // ---------------------------------------------------------------------------
 // App state machine
@@ -60,6 +61,9 @@ pub struct App {
 
     debug_mode: bool,
     net_seq: u16,
+    pending_local_inputs: VecDeque<ClientPacket>,
+    predicted_peek_origin: Option<(f32, f32)>,
+    last_server_tick: Option<u32>,
     net_bullet_traces: Vec<NetBulletTrace>,
     server_me: Option<SelfState>,
     net_players: Vec<PlayerState>,
@@ -96,6 +100,9 @@ impl Default for App {
             prev_backspace: false,
             debug_mode: false,
             net_seq: 0,
+            pending_local_inputs: VecDeque::new(),
+            predicted_peek_origin: None,
+            last_server_tick: None,
             net_bullet_traces: Vec::new(),
             server_me: None,
             net_players: Vec::new(),

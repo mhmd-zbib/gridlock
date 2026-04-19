@@ -11,8 +11,14 @@ impl App {
             Some(a) => a,
             None => "2.59.156.14:7777",
         };
-        self.net = Some(NetClient::connect(SERVER_ADDR.parse().expect("invalid SERVER_ADDR"), name));
+        self.net = Some(NetClient::connect(
+            SERVER_ADDR.parse().expect("invalid SERVER_ADDR"),
+            name,
+        ));
         self.net_seq = 0;
+        self.pending_local_inputs.clear();
+        self.predicted_peek_origin = None;
+        self.last_server_tick = None;
         self.server_me = None;
         self.net_bullet_traces.clear();
         self.net_players.clear();
@@ -38,6 +44,9 @@ impl App {
         if let Some(net) = self.net.take() {
             net.disconnect();
         }
+        self.pending_local_inputs.clear();
+        self.predicted_peek_origin = None;
+        self.last_server_tick = None;
         self.net_players.clear();
         self.lobby_state = None;
     }
@@ -50,6 +59,9 @@ impl App {
         }
         self.camera
             .reset((self.game.player.movement.x, self.game.player.movement.y));
+        self.pending_local_inputs.clear();
+        self.predicted_peek_origin = None;
+        self.last_server_tick = None;
         self.server_me = None;
         self.net_bullet_traces.clear();
         self.net_players.clear();
