@@ -18,9 +18,11 @@ impl App {
         self.net_seq = 0;
         self.pending_local_inputs.clear();
         self.predicted_peek_origin = None;
+        self.predicted_shot_cooldown = 0.0;
         self.last_server_tick = None;
         self.server_me = None;
         self.net_bullet_traces.clear();
+        self.remote_player_targets.clear();
         self.net_players.clear();
         self.lobby_state = None;
     }
@@ -46,7 +48,9 @@ impl App {
         }
         self.pending_local_inputs.clear();
         self.predicted_peek_origin = None;
+        self.predicted_shot_cooldown = 0.0;
         self.last_server_tick = None;
+        self.remote_player_targets.clear();
         self.net_players.clear();
         self.lobby_state = None;
     }
@@ -61,9 +65,11 @@ impl App {
             .reset((self.game.player.movement.x, self.game.player.movement.y));
         self.pending_local_inputs.clear();
         self.predicted_peek_origin = None;
+        self.predicted_shot_cooldown = 0.0;
         self.last_server_tick = None;
         self.server_me = None;
         self.net_bullet_traces.clear();
+        self.remote_player_targets.clear();
         self.net_players.clear();
         self.lobby_state = None;
     }

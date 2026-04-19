@@ -1,4 +1,5 @@
 use std::collections::VecDeque;
+use std::f32::consts::{PI, TAU};
 
 use game::game::{Game, PLAYER_HALF};
 use game::systems::movement::{
@@ -13,6 +14,8 @@ const WALK_SPEED: f32 = px_to_tiles(40.0);
 const NORMAL_SPEED: f32 = px_to_tiles(85.0);
 const RUN_SPEED: f32 = px_to_tiles(200.0);
 const SPECTATOR_SPEED: f32 = RUN_SPEED;
+const RECONCILE_SMOOTH_BLEND: f32 = 0.45;
+const RECONCILE_HARD_SNAP_DIST: f32 = px_to_tiles(96.0);
 
 pub const MAX_PENDING_LOCAL_INPUTS: usize = 256;
 
@@ -135,6 +138,11 @@ pub fn reconcile_local_player(
     peek_origin: &mut Option<(f32, f32)>,
     latest_ack_timestamp: u32,
 ) {
+    let before_x = game.player.movement.x;
+    let before_y = game.player.movement.y;
+    let before_sight_dir = game.player.sight.direction;
+    let before_aim_dir = game.player.aim_cone.direction;
+
     while pending_inputs
         .front()
         .is_some_and(|pkt| pkt.timestamp <= latest_ack_timestamp)
@@ -151,6 +159,23 @@ pub fn reconcile_local_player(
     *peek_origin = None;
     for packet in pending_inputs.iter().copied() {
         predict_local_player(game, &packet, peek_origin, Some(server_me.health));
+    }
+
+    let target_x = game.player.movement.x;
+    let target_y = game.player.movement.y;
+    let target_sight_dir = game.player.sight.direction;
+    let target_aim_dir = game.player.aim_cone.direction;
+
+    let dx = target_x - before_x;
+    let dy = target_y - before_y;
+    let hard_snap = dx * dx + dy * dy > RECONCILE_HARD_SNAP_DIST * RECONCILE_HARD_SNAP_DIST;
+    if !hard_snap {
+        game.player.movement.x = before_x + dx * RECONCILE_SMOOTH_BLEND;
+        game.player.movement.y = before_y + dy * RECONCILE_SMOOTH_BLEND;
+        game.player.sight.direction =
+            lerp_angle(before_sight_dir, target_sight_dir, RECONCILE_SMOOTH_BLEND);
+        game.player.aim_cone.direction =
+            lerp_angle(before_aim_dir, target_aim_dir, RECONCILE_SMOOTH_BLEND);
     }
 }
 
@@ -188,6 +213,17 @@ fn speed_from_input(input: &ClientPacket) -> f32 {
         MoveSpeed::Walk => NORMAL_SPEED,
         MoveSpeed::Run => RUN_SPEED,
     }
+}
+
+fn lerp_angle(from: f32, to: f32, alpha: f32) -> f32 {
+    let mut delta = to - from;
+    while delta > PI {
+        delta -= TAU;
+    }
+    while delta < -PI {
+        delta += TAU;
+    }
+    from + delta * alpha.clamp(0.0, 1.0)
 }
 
 #[cfg(test)]
@@ -244,6 +280,62 @@ mod tests {
         assert_eq!(pending.len(), 1);
         assert_eq!(pending.front().map(|p| p.timestamp), Some(20));
         let expected_x = start_x + NORMAL_SPEED * FIXED_STEP;
-        assert!((game.player.movement.x - expected_x).abs() < 1.0e-5);
+        assert!(game.player.movement.x > start_x);
+        assert!(game.player.movement.x <= expected_x + 1.0e-5);
+    }
+
+    #[test]
+    fn reconciliation_smooths_small_position_corrections() {
+        let mut game = Game::new();
+        let server_x = game.player.movement.x;
+        let server_y = game.player.movement.y;
+        game.player.movement.x += px_to_tiles(48.0);
+        let before_x = game.player.movement.x;
+        let mut pending = VecDeque::new();
+        let mut peek_origin = None;
+
+        reconcile_local_player(
+            &mut game,
+            SelfState {
+                x: server_x,
+                y: server_y,
+                rotation: encode_rotation(0.0),
+                health: 100,
+                ..SelfState::default()
+            },
+            &mut pending,
+            &mut peek_origin,
+            0,
+        );
+
+        assert!(game.player.movement.x < before_x);
+        assert!(game.player.movement.x > server_x);
+    }
+
+    #[test]
+    fn reconciliation_hard_snaps_large_position_errors() {
+        let mut game = Game::new();
+        let server_x = game.player.movement.x;
+        let server_y = game.player.movement.y;
+        game.player.movement.x += px_to_tiles(240.0);
+        let mut pending = VecDeque::new();
+        let mut peek_origin = None;
+
+        reconcile_local_player(
+            &mut game,
+            SelfState {
+                x: server_x,
+                y: server_y,
+                rotation: encode_rotation(0.0),
+                health: 100,
+                ..SelfState::default()
+            },
+            &mut pending,
+            &mut peek_origin,
+            0,
+        );
+
+        assert!((game.player.movement.x - server_x).abs() < 1.0e-6);
+        assert!((game.player.movement.y - server_y).abs() < 1.0e-6);
     }
 }

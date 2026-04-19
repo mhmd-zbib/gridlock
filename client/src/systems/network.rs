@@ -15,7 +15,7 @@ pub struct SnapshotApplyResult {
 pub fn apply_server_snapshots(
     net: &NetClient,
     server_me: &mut Option<SelfState>,
-    net_players: &mut Vec<PlayerState>,
+    remote_player_targets: &mut Vec<PlayerState>,
     teammate_sight_cones: &mut Vec<TeammateView>,
     net_bullet_traces: &mut Vec<NetBulletTrace>,
     match_state: &mut Option<MatchState>,
@@ -35,7 +35,7 @@ pub fn apply_server_snapshots(
         *last_server_tick = Some(snap.tick);
         latest_ack_timestamp = Some(snap.timestamp);
         *server_me = Some(snap.me);
-        *net_players = snap.players;
+        *remote_player_targets = snap.players;
         *teammate_sight_cones = snap.teammate_views;
         *match_state = Some(snap.match_state);
         for b in snap.bullets {

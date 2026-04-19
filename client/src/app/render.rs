@@ -164,10 +164,9 @@ impl App {
 
         FogView {
             player_pos: (player.movement.x, player.movement.y),
-            sight_direction: self
-                .server_me
-                .map(|me| decode_rotation(me.rotation))
-                .unwrap_or(player.sight.direction),
+            // Keep look direction fully client-side responsive; server still
+            // authoritatively resolves visibility/combat in snapshots.
+            sight_direction: player.sight.direction,
             sight_half_angle: player.sight.half_angle,
             sight_range: player.sight.range,
             sight_circle_radius: player.sight.circle_radius,
@@ -181,7 +180,7 @@ impl App {
         let player_pos = (player.movement.x, player.movement.y);
         let active_stats = player.active_weapon_stats();
         let (aim_dir, aim_half) = if let Some(me) = self.server_me {
-            (decode_rotation(me.rotation), me.aim_cone_half_angle)
+            (player.aim_cone.direction, me.aim_cone_half_angle)
         } else {
             (player.aim_cone.direction, player.aim_cone.half_angle())
         };
@@ -460,7 +459,10 @@ impl App {
             net: self.net.as_ref(),
             health,
             match_state: self.match_state,
-            kill_notification: self.kill_notification.as_ref().map(|(name, _)| name.clone()),
+            kill_notification: self
+                .kill_notification
+                .as_ref()
+                .map(|(name, _)| name.clone()),
         }
     }
 }
@@ -492,19 +494,18 @@ mod tests {
     }
 
     #[test]
-    fn fog_view_prefers_server_authoritative_rotation() {
+    fn fog_view_prefers_client_predicted_rotation() {
         ensure_workspace_cwd();
         let mut app = App::default();
         app.game.player.sight.direction = 1.0;
         app.server_me = Some(SelfState {
             rotation: encode_rotation(-0.85),
+            health: 100,
             ..SelfState::default()
         });
 
         let view = app.playing_fog_view();
-        assert!(
-            (view.sight_direction - decode_rotation(app.server_me.unwrap().rotation)).abs() < 1e-3
-        );
+        assert!((view.sight_direction - app.game.player.sight.direction).abs() < 1e-6);
     }
 
     #[test]
