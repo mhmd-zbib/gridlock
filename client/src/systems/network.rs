@@ -32,6 +32,13 @@ pub fn apply_server_snapshots(
         if last_server_tick.is_some_and(|tick| snap.tick <= tick) {
             continue;
         }
+        let prev_health = server_me
+            .as_ref()
+            .map(|state| state.health)
+            .unwrap_or(snap.me.health);
+        let died_this_snapshot = prev_health > 0 && snap.me.health == 0;
+        let mut killer_this_snapshot: Option<String> = None;
+
         *last_server_tick = Some(snap.tick);
         latest_ack_timestamp = Some(snap.timestamp);
         *server_me = Some(snap.me);
@@ -39,9 +46,11 @@ pub fn apply_server_snapshots(
         *teammate_sight_cones = snap.teammate_views;
         *match_state = Some(snap.match_state);
         for b in snap.bullets {
-            if let Some(pid) = my_player_id {
-                if b.hit_player_id == pid && pid != 0 {
-                    killer = Some(b.shooter_name_str().to_owned());
+            if died_this_snapshot {
+                if let Some(pid) = my_player_id {
+                    if b.hit_player_id == pid && pid != 0 {
+                        killer_this_snapshot = Some(b.shooter_name_str().to_owned());
+                    }
                 }
             }
             let friendly = my_team != 0 && b.shooter_team == my_team;
@@ -53,6 +62,9 @@ pub fn apply_server_snapshots(
                 ttl: NET_BULLET_TTL,
                 friendly,
             });
+        }
+        if let Some(name) = killer_this_snapshot {
+            killer = Some(name);
         }
     }
 

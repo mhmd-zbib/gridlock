@@ -20,7 +20,7 @@ cleanup() {
   echo
   echo "[local-multiplayer] Stopping processes..."
   for pid in "${PIDS[@]}"; do
-    if kill -0 "$pid" 2>/dev/null; then
+    if kill -0 "$pid" 2>/dev/null; then-+-+
       kill "$pid"
     fi
   done

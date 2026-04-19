@@ -78,7 +78,7 @@ chmod +x "$DIST/client" "$DIST/server"
 
 cp -r "$ROOT/assets" "$DIST/assets"
 
-ARCHIVE="$ROOT/dist/shooting-$VERSION-mac.tar.gz"
+ARCHIVE="$ROOT/dist/gridlock-$VERSION-mac.tar.gz"
 tar -czf "$ARCHIVE" -C "$ROOT/dist" mac
 
 echo "[release-mac] done → $ARCHIVE"

@@ -18,7 +18,7 @@ DIST="$ROOT/dist/windows"
 
 # ── Parse arguments ───────────────────────────────────────────────────────────
 
-SERVER_HOST=""
+SERVER_HOST="2.59.156.14:7777"
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --server) SERVER_HOST="$2"; shift 2 ;;
@@ -30,12 +30,8 @@ if [[ -n "$SERVER_HOST" && "$SERVER_HOST" != *:* ]]; then
     SERVER_HOST="$SERVER_HOST:7777"
 fi
 
-if [[ -n "$SERVER_HOST" ]]; then
-    export SERVER_ADDR="$SERVER_HOST"
-    echo "[release-windows] version $VERSION  target $TARGET  server $SERVER_ADDR"
-else
-    echo "[release-windows] version $VERSION  target $TARGET  server 127.0.0.1:7777 (dev default)"
-fi
+export SERVER_ADDR="$SERVER_HOST"
+echo "[release-windows] version $VERSION  target $TARGET  server $SERVER_ADDR"
 
 # ── Dependency checks ─────────────────────────────────────────────────────────
 
@@ -70,7 +66,7 @@ cp "target/$TARGET/release/client.exe" "$DIST/client.exe"
 cp "target/$TARGET/release/server.exe" "$DIST/server.exe"
 cp -r "$ROOT/assets" "$DIST/assets"
 
-ARCHIVE="$ROOT/dist/shooting-$VERSION-windows.zip"
+ARCHIVE="$ROOT/dist/gridlock-$VERSION-windows.zip"
 cd "$ROOT/dist"
 zip -r "$ARCHIVE" windows
 
