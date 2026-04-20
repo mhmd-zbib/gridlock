@@ -4,7 +4,7 @@ use game::world::units::px_to_tiles;
 use super::helpers::{bounds_from_points, effective_snap_mode, snap_point};
 use super::tool::{
     EDITOR_KEY_ZOOM_STEP, EDITOR_MAX_ZOOM, EDITOR_MIN_ZOOM, EDITOR_PAN_STEP_PX,
-    EDITOR_WHEEL_ZOOM_STEP,
+    EDITOR_WHEEL_ZOOM_STEP, MAX_THICKNESS_STEPS,
 };
 use super::{Editor, Tool};
 
@@ -132,6 +132,14 @@ impl Editor {
                     self.cycle_floor_asset(1);
                 }
             }
+            Tool::Wall | Tool::Breakable => {
+                if input.key_q && !self.prev_key_q && self.wall_thickness_steps > 1 {
+                    self.wall_thickness_steps -= 1;
+                }
+                if input.key_e && !self.prev_key_e && self.wall_thickness_steps < MAX_THICKNESS_STEPS {
+                    self.wall_thickness_steps += 1;
+                }
+            }
             _ => {}
         }
     }
@@ -150,14 +158,14 @@ impl Editor {
         match self.tool {
             Tool::Wall => {
                 if let Some(start) = self.wall_start.take() {
-                    self.add_edge_path(start, (mx, my), snap_mode, false);
+                    self.add_edge_path(start, (mx, my), snap_mode, false, self.wall_thickness_steps);
                 } else {
                     self.wall_start = Some((mx, my));
                 }
             }
             Tool::Breakable => {
                 if let Some(start) = self.breakable_start.take() {
-                    self.add_edge_path(start, (mx, my), snap_mode, true);
+                    self.add_edge_path(start, (mx, my), snap_mode, true, self.wall_thickness_steps);
                 } else {
                     self.breakable_start = Some((mx, my));
                 }

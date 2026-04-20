@@ -4,8 +4,8 @@ use game::world::prop;
 use game::world::units::px_to_tiles;
 
 use super::helpers::{
-    append_grid_lines, bounds_from_points, effective_snap_mode, preview_edge_walls,
-    push_bounds_fill, snap_point,
+    append_grid_lines, bounds_from_points, cursor_edge_key, edge_to_wall_rect,
+    effective_snap_mode, preview_edge_walls, push_bounds_fill, snap_point,
 };
 use super::{Editor, Tool};
 
@@ -17,14 +17,14 @@ impl Editor {
         mouse_x: f32,
         mouse_y: f32,
     ) -> Vec<QuadInstance> {
-        let (mouse_x, mouse_y) = self.screen_to_world(mouse_x, mouse_y);
+        let (raw_mx, raw_my) = self.screen_to_world(mouse_x, mouse_y);
         let snap_mode = effective_snap_mode(self.tool, self.snap_mode);
-        let (mx, my) = snap_point(mouse_x, mouse_y, snap_mode);
+        let (mx, my) = snap_point(raw_mx, raw_my, snap_mode);
 
         let mut out = Vec::new();
         self.push_grid(&mut out, screen_w, screen_h);
         self.push_level_instances(&mut out);
-        self.push_tool_preview(&mut out, mx, my, snap_mode);
+        self.push_tool_preview(&mut out, raw_mx, raw_my, mx, my, snap_mode);
         out
     }
 
@@ -131,13 +131,15 @@ impl Editor {
     fn push_tool_preview(
         &self,
         out: &mut Vec<QuadInstance>,
+        raw_mx: f32,
+        raw_my: f32,
         mx: f32,
         my: f32,
         snap_mode: super::SnapMode,
     ) {
         match self.tool {
-            Tool::Wall => self.push_wall_preview(out, mx, my, snap_mode),
-            Tool::Breakable => self.push_breakable_preview(out, mx, my, snap_mode),
+            Tool::Wall => self.push_wall_preview(out, raw_mx, raw_my, mx, my, snap_mode),
+            Tool::Breakable => self.push_breakable_preview(out, raw_mx, raw_my, mx, my, snap_mode),
             Tool::PlayerSpawn => out.push(self.world_quad(
                 (mx, my),
                 (px_to_tiles(10.0), px_to_tiles(10.0)),
@@ -172,12 +174,15 @@ impl Editor {
     fn push_wall_preview(
         &self,
         out: &mut Vec<QuadInstance>,
+        raw_mx: f32,
+        raw_my: f32,
         mx: f32,
         my: f32,
         snap_mode: super::SnapMode,
     ) {
+        let thickness = self.wall_thickness_steps as f32 * super::tool::EDGE_STEP;
         if let Some(start) = self.wall_start {
-            for wall in preview_edge_walls(start, (mx, my), snap_mode, false) {
+            for wall in preview_edge_walls(start, (mx, my), snap_mode, false, self.wall_thickness_steps) {
                 out.push(self.world_quad(
                     (wall.x + wall.w * 0.5, wall.y + wall.h * 0.5),
                     (wall.w * 0.5, wall.h * 0.5),
@@ -187,9 +192,11 @@ impl Editor {
             return;
         }
 
+        let edge = cursor_edge_key(raw_mx, raw_my);
+        let (x, y, w, h) = edge_to_wall_rect(edge, thickness);
         out.push(self.world_quad(
-            (mx, my),
-            (px_to_tiles(3.0), px_to_tiles(3.0)),
+            (x + w * 0.5, y + h * 0.5),
+            (w * 0.5, h * 0.5),
             [0.45, 0.4, 0.35, 0.5],
         ));
     }
@@ -197,12 +204,15 @@ impl Editor {
     fn push_breakable_preview(
         &self,
         out: &mut Vec<QuadInstance>,
+        raw_mx: f32,
+        raw_my: f32,
         mx: f32,
         my: f32,
         snap_mode: super::SnapMode,
     ) {
+        let thickness = self.wall_thickness_steps as f32 * super::tool::EDGE_STEP;
         if let Some(start) = self.breakable_start {
-            for wall in preview_edge_walls(start, (mx, my), snap_mode, true) {
+            for wall in preview_edge_walls(start, (mx, my), snap_mode, true, self.wall_thickness_steps) {
                 out.push(self.world_quad(
                     (wall.x + wall.w * 0.5, wall.y + wall.h * 0.5),
                     (wall.w * 0.5, wall.h * 0.5),
@@ -212,9 +222,11 @@ impl Editor {
             return;
         }
 
+        let edge = cursor_edge_key(raw_mx, raw_my);
+        let (x, y, w, h) = edge_to_wall_rect(edge, thickness);
         out.push(self.world_quad(
-            (mx, my),
-            (px_to_tiles(3.0), px_to_tiles(3.0)),
+            (x + w * 0.5, y + h * 0.5),
+            (w * 0.5, h * 0.5),
             [0.2, 0.8, 0.95, 0.5],
         ));
     }

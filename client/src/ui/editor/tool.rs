@@ -4,12 +4,12 @@ use game::world::units::px_to_tiles;
 // Editor constants
 // ---------------------------------------------------------------------------
 
-pub const WALL_THICKNESS: f32 = 0.1;
-pub const BREAKABLE_THICKNESS: f32 = WALL_THICKNESS;
 pub const BREAKABLE_HP: u32 = 1;
 pub const TILE_GRID: f32 = 1.0;
 pub const SUBGRID_DIVISIONS: usize = 8;
 pub const EDGE_STEP: f32 = TILE_GRID / SUBGRID_DIVISIONS as f32;
+pub const DEFAULT_THICKNESS_STEPS: u32 = 1;
+pub const MAX_THICKNESS_STEPS: u32 = 8;
 pub const GRID_LINE_THICKNESS: f32 = px_to_tiles(1.0);
 pub const GRID_LINE_ALPHA: f32 = 0.16;
 pub const SUBGRID_LINE_ALPHA: f32 = 0.08;
@@ -88,4 +88,5 @@ pub struct EdgeKey {
 pub struct EdgeCell {
     pub breakable: bool,
     pub hp: u32,
+    pub thickness_steps: u32,
 }

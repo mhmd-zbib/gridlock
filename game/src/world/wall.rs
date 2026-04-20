@@ -15,6 +15,10 @@ pub struct Wall {
     pub breakable: bool,
     #[serde(default = "default_wall_hp")]
     pub hp: u32,
+    /// Axis of the edge segment: Some(true) = horizontal, Some(false) = vertical, None = corner/other.
+    /// Written for editor-placed walls so the axis survives a JSON round-trip.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub horizontal: Option<bool>,
     /// Per-segment alive flags.  Only populated for breakable walls at runtime.
     /// Skipped during serialisation — regenerated from dimensions on load.
     #[serde(skip)]
@@ -34,6 +38,7 @@ impl Wall {
             h,
             breakable: false,
             hp: default_wall_hp(),
+            horizontal: None,
             segments: Vec::new(),
         }
     }
@@ -46,6 +51,7 @@ impl Wall {
             h,
             breakable: true,
             hp: hp.max(1),
+            horizontal: None,
             segments: Vec::new(),
         };
         wall.init_segments();

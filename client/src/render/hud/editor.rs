@@ -4,17 +4,18 @@ use game::render::text::TextSection;
 use super::shared::ts;
 
 pub fn editor_texts(sw: f32, sh: f32, editor: &Editor) -> Vec<TextSection> {
+    let t = editor.wall_thickness_steps;
     let tool = match editor.tool {
-        Tool::PlayerSpawn => "Player Spawn",
-        Tool::Enemy => "Enemy",
-        Tool::Wall => "Wall (2-point, 0.1 tile)",
-        Tool::TargetDummy => "Target Dummy",
-        Tool::Breakable => "Breakable Wall (2-point)",
-        Tool::Prop => "Prop",
-        Tool::BaseMap => "Base Map (2-point bounds)",
-        Tool::Team1Spawn => "Team 1 Spawn (blue)",
-        Tool::Team2Spawn => "Team 2 Spawn (orange)",
-        Tool::Floor => "Floor",
+        Tool::PlayerSpawn => "Player Spawn".to_string(),
+        Tool::Enemy => "Enemy".to_string(),
+        Tool::Wall => format!("Wall (2-point, thickness {}/8 tile)  Q/E to adjust", t),
+        Tool::TargetDummy => "Target Dummy".to_string(),
+        Tool::Breakable => format!("Breakable Wall (2-point, thickness {}/8 tile)  Q/E to adjust", t),
+        Tool::Prop => "Prop".to_string(),
+        Tool::BaseMap => "Base Map (2-point bounds)".to_string(),
+        Tool::Team1Spawn => "Team 1 Spawn (blue)".to_string(),
+        Tool::Team2Spawn => "Team 2 Spawn (orange)".to_string(),
+        Tool::Floor => "Floor".to_string(),
     };
     let prop_info = match editor.selected_prop_asset() {
         Some(asset) => format!(
@@ -116,7 +117,7 @@ pub fn editor_texts(sw: f32, sh: f32, editor: &Editor) -> Vec<TextSection> {
         ts(
             6.0,
             sh - 38.0,
-            "1: Spawn   2: Enemy   3: Wall   4: Target   5: Breakable   6: Prop   7: Base Map   8: Team1 Spawn   9: Team2 Spawn   0: Floor   Q/E: Prop/Floor Id",
+            "1: Spawn   2: Enemy   3: Wall   4: Target   5: Breakable   6: Prop   7: Base Map   8: Team1 Spawn   9: Team2 Spawn   0: Floor   Q/E: Prop/Floor Id | Wall thickness",
             13.0,
             [0.55, 0.55, 0.55, 1.0],
         ),

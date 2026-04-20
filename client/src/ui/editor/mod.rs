@@ -15,7 +15,7 @@ use game::world::level::LevelData;
 use game::world::prop::{self, PropAssetDef};
 
 use helpers::effective_snap_mode;
-use tool::{EdgeCell, EdgeKey};
+use tool::{DEFAULT_THICKNESS_STEPS, EdgeCell, EdgeKey};
 
 pub struct Editor {
     pub tool: Tool,
@@ -29,6 +29,7 @@ pub struct Editor {
     selected_floor_asset: usize,
     edges: HashMap<EdgeKey, EdgeCell>,
     view_origin: (f32, f32),
+    pub wall_thickness_steps: u32,
 
     wall_start: Option<(f32, f32)>,
     breakable_start: Option<(f32, f32)>,
@@ -70,6 +71,7 @@ impl Editor {
             selected_floor_asset: 0,
             edges: HashMap::new(),
             view_origin: (0.0, 0.0),
+            wall_thickness_steps: DEFAULT_THICKNESS_STEPS,
             wall_start: None,
             breakable_start: None,
             base_map_start: None,

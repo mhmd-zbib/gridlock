@@ -2,10 +2,7 @@ use game::world::wall::Wall;
 
 use super::misc::dist;
 use super::snap::snap_point;
-use crate::ui::editor::tool::{
-    BREAKABLE_HP, BREAKABLE_THICKNESS, EDGE_STEP, EdgeAxis, EdgeCell, EdgeKey, SnapMode,
-    WALL_THICKNESS,
-};
+use crate::ui::editor::tool::{BREAKABLE_HP, EDGE_STEP, EdgeAxis, EdgeCell, EdgeKey, SnapMode};
 
 #[derive(Clone, Copy)]
 pub struct GridVertex {
@@ -73,21 +70,44 @@ pub fn collect_edge_path(
     Some((keys, dist(pa.0, pa.1, pb.0, pb.1)))
 }
 
-pub fn edge_to_wall_rect(edge: EdgeKey, breakable: bool) -> (f32, f32, f32, f32) {
-    let thickness = if breakable {
-        BREAKABLE_THICKNESS
+/// Find the nearest edge segment (axis + cell coords) for a raw cursor position.
+/// Uses the raw world position (not snapped) so it picks whichever grid line is
+/// physically closer to the cursor, giving an accurate visual preview.
+pub fn cursor_edge_key(cx: f32, cy: f32) -> EdgeKey {
+    let nearest_y = (cy / EDGE_STEP).round() * EDGE_STEP;
+    let dist_h = (cy - nearest_y).abs();
+
+    let nearest_x = (cx / EDGE_STEP).round() * EDGE_STEP;
+    let dist_v = (cx - nearest_x).abs();
+
+    if dist_h <= dist_v {
+        EdgeKey {
+            axis: EdgeAxis::Horizontal,
+            x: (cx / EDGE_STEP).floor() as i32,
+            y: (nearest_y / EDGE_STEP).round() as i32,
+        }
     } else {
-        WALL_THICKNESS
-    };
+        EdgeKey {
+            axis: EdgeAxis::Vertical,
+            x: (nearest_x / EDGE_STEP).round() as i32,
+            y: (cy / EDGE_STEP).floor() as i32,
+        }
+    }
+}
+
+/// Convert an edge segment to a wall rect (x, y, w, h).
+/// The wall starts at the grid line and extends inward (downward for horizontal,
+/// rightward for vertical) by `thickness` tiles.
+pub fn edge_to_wall_rect(edge: EdgeKey, thickness: f32) -> (f32, f32, f32, f32) {
     match edge.axis {
         EdgeAxis::Horizontal => (
             edge.x as f32 * EDGE_STEP,
-            edge.y as f32 * EDGE_STEP - thickness * 0.5,
+            edge.y as f32 * EDGE_STEP,
             EDGE_STEP,
             thickness,
         ),
         EdgeAxis::Vertical => (
-            edge.x as f32 * EDGE_STEP - thickness * 0.5,
+            edge.x as f32 * EDGE_STEP,
             edge.y as f32 * EDGE_STEP,
             thickness,
             EDGE_STEP,
@@ -97,28 +117,27 @@ pub fn edge_to_wall_rect(edge: EdgeKey, breakable: bool) -> (f32, f32, f32, f32)
 
 pub fn choose_corner_cell(cells: &[EdgeCell]) -> EdgeCell {
     let all_breakable = cells.iter().all(|c| c.breakable);
+    let max_thickness = cells.iter().map(|c| c.thickness_steps).max().unwrap_or(1);
     if all_breakable {
         let hp = cells.iter().map(|c| c.hp).min().unwrap_or(1).max(1);
         EdgeCell {
             breakable: true,
             hp,
+            thickness_steps: max_thickness,
         }
     } else {
         EdgeCell {
             breakable: false,
             hp: 1,
+            thickness_steps: max_thickness,
         }
     }
 }
 
 pub fn build_corner_patch(vx: i32, vy: i32, cell: EdgeCell) -> Wall {
-    let t = if cell.breakable {
-        BREAKABLE_THICKNESS
-    } else {
-        WALL_THICKNESS
-    };
-    let x = vx as f32 * EDGE_STEP - t * 0.5;
-    let y = vy as f32 * EDGE_STEP - t * 0.5;
+    let t = cell.thickness_steps as f32 * EDGE_STEP;
+    let x = vx as f32 * EDGE_STEP;
+    let y = vy as f32 * EDGE_STEP;
     if cell.breakable {
         Wall::new_breakable(x, y, t, t, cell.hp)
     } else {
@@ -131,13 +150,15 @@ pub fn preview_edge_walls(
     end: (f32, f32),
     mode: SnapMode,
     breakable: bool,
+    thickness_steps: u32,
 ) -> Vec<Wall> {
     let Some((keys, _)) = collect_edge_path(start, end, mode) else {
         return Vec::new();
     };
+    let thickness = thickness_steps as f32 * EDGE_STEP;
     keys.into_iter()
         .map(|k| {
-            let (x, y, w, h) = edge_to_wall_rect(k, breakable);
+            let (x, y, w, h) = edge_to_wall_rect(k, thickness);
             if breakable {
                 Wall::new_breakable(x, y, w, h, BREAKABLE_HP)
             } else {

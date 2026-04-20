@@ -4,7 +4,7 @@ mod misc;
 mod snap;
 
 pub use edge::{
-    build_corner_patch, choose_corner_cell, collect_edge_path, edge_to_wall_rect,
+    build_corner_patch, choose_corner_cell, collect_edge_path, cursor_edge_key, edge_to_wall_rect,
     preview_edge_walls,
 };
 pub use geometry::{append_grid_lines, bounds_from_points, push_bounds_fill};
