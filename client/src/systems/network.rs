@@ -53,6 +53,12 @@ pub fn apply_server_snapshots(
                     }
                 }
             }
+            // The local player's own shots are already shown by the predicted
+            // tracer in tick_predicted_shot_feedback.  Adding the server echo
+            // on top would render every self-fired shot twice.
+            if my_player_id.is_some_and(|pid| b.shooter_id == pid) {
+                continue;
+            }
             let friendly = my_team != 0 && b.shooter_team == my_team;
             net_bullet_traces.push(NetBulletTrace {
                 from_x: b.from_x,

@@ -145,15 +145,20 @@ impl App {
         if self.server_me.is_some_and(|me| me.health == 0) {
             return;
         }
+        if self.server_me.is_some_and(|me| me.reload_progress > 0) {
+            self.predicted_shot_cooldown = 0.0;
+            return;
+        }
 
         let stats = self.game.player.active_weapon_stats();
         self.predicted_shot_cooldown = 1.0 / stats.fire_rate_rps.max(0.01);
 
         let from = (self.game.player.movement.x, self.game.player.movement.y);
-        let dir = (
-            self.game.player.aim_cone.direction.cos(),
-            self.game.player.aim_cone.direction.sin(),
-        );
+        // Use the same seeded spread the server will compute, so the predicted
+        // tracer matches the authoritative BulletEvent without a visible jump.
+        let dir = self.game.player.aim_cone.sample_direction_seeded(input_packet.shot_seed);
+        // Accumulate recoil so subsequent shots widen the cone, matching server.
+        self.game.player.aim_cone.on_shot(stats.recoil_per_shot_deg, stats.recoil_max_deg);
         let dist = cast_ray(from, dir, BULLET_MAX_RANGE, &self.game.walls);
         self.net_bullet_traces.push(NetBulletTrace {
             from_x: from.0,

@@ -1,10 +1,10 @@
 use super::MoveSpeed;
 
-/// Packet sent from client → server every input tick (~11 bytes on the wire).
+/// Packet sent from client → server every input tick (~15 bytes on the wire).
 ///
 /// Wire layout (big-endian):
 ///   [sequence: u16] [timestamp: u32] [movement_x: i8] [movement_y: i8]
-///   [rotation: u16] [flags: u8]
+///   [rotation: u16] [flags: u8] [shot_seed: u32]
 #[derive(Debug, Clone, Copy, Default)]
 pub struct ClientPacket {
     /// Monotonically increasing per-client sequence number; wraps at `u16::MAX`.
@@ -28,6 +28,13 @@ pub struct ClientPacket {
 
     /// Packed action bits; see [`InputFlags`].
     pub flags: InputFlags,
+
+    /// Deterministic seed for shot spread. Generated client-side as a hash of
+    /// the sequence number; the server uses the same value to call
+    /// `AimCone::sample_direction_seeded` and reproduce the identical spread
+    /// offset, so client prediction and server validation agree.
+    /// Always present on the wire; only meaningful when `flags.is_shooting()`.
+    pub shot_seed: u32,
 }
 
 // ── InputFlags ───────────────────────────────────────────────────────────────

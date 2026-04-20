@@ -140,7 +140,7 @@ fn tick_shooter(
         return None;
     }
 
-    let dir = shooter.aim_cone.sample_direction();
+    let dir = shooter.aim_cone.sample_direction_seeded(latest_input.shot_seed);
     shooter.aim_cone.on_shot(
         weapon_stats.recoil_per_shot_deg,
         weapon_stats.recoil_max_deg,

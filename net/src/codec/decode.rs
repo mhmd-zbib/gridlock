@@ -46,6 +46,7 @@ pub fn decode(buf: &[u8]) -> Result<AnyPacket, DecodeError> {
             let movement_y = r.i8()?;
             let rotation = r.u16()?;
             let flags = InputFlags(r.u8()?);
+            let shot_seed = r.u32()?;
             AnyPacket::ClientInput(ClientPacket {
                 sequence,
                 timestamp,
@@ -53,6 +54,7 @@ pub fn decode(buf: &[u8]) -> Result<AnyPacket, DecodeError> {
                 movement_y,
                 rotation,
                 flags,
+                shot_seed,
             })
         }
         PacketKind::ServerSnapshot => AnyPacket::ServerSnapshot(decode_snapshot(&mut r)?),

@@ -31,6 +31,7 @@ pub fn encode(packet: &AnyPacket) -> Vec<u8> {
             w.i8(p.movement_y);
             w.u16(p.rotation);
             w.u8(p.flags.0);
+            w.u32(p.shot_seed);
         }
         AnyPacket::ServerSnapshot(p) => encode_snapshot(&mut w, p),
         AnyPacket::LobbyCommand(p) => encode_lobby_command(&mut w, p),

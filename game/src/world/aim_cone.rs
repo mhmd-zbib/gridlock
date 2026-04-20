@@ -65,6 +65,17 @@ impl AimCone {
         self.movement_spread_max_deg = movement_spread_max_deg.max(0.0);
     }
 
+    /// Reconstruct `recoil_spread` from a server-authoritative half-angle so the
+    /// local aim cone state agrees with what the server actually computed.
+    /// Called during reconciliation so bullet sampling and the rendered cone use
+    /// the same spread.
+    pub fn sync_from_server_half_angle(&mut self, server_half_angle: f32) {
+        let base = self.base_half_angle_deg.to_radians();
+        let movement = self.movement_spread_max_deg.to_radians()
+            * self.smoothed_velocity_frac.powf(MOVEMENT_SPREAD_POWER);
+        self.recoil_spread = (server_half_angle - base - movement).max(0.0);
+    }
+
     // -----------------------------------------------------------------------
     // State mutators
     // -----------------------------------------------------------------------
@@ -110,10 +121,29 @@ impl AimCone {
     }
 
     /// Sample a random direction vector for a fired bullet, spread within the current cone.
+    /// Uses the internal stateful PRNG — suitable for singleplayer / AI enemies.
     pub fn sample_direction(&mut self) -> (f32, f32) {
         let half = self.half_angle();
         let offset = (self.next_f32() * 2.0 - 1.0) * half;
         let angle = self.direction + offset;
+        (angle.cos(), angle.sin())
+    }
+
+    /// Pure, deterministic variant driven by an external `seed`.
+    ///
+    /// Both client and server call this with the same seed so shot prediction
+    /// and server validation agree.  The bullet direction is uniform across the
+    /// full cone width — every angle in `[-half, +half]` is equally reachable
+    /// so the cone boundary is always the hard limit for where bullets can land.
+    pub fn sample_direction_seeded(&self, seed: u32) -> (f32, f32) {
+        let half = self.half_angle();
+        // Uniform offset in [-half, +half]: the bullet angle is always exactly
+        // within the cone and can reach both edges (r≈0 → -half, r≈1 → +half).
+        // Angle addition is the only correct approach — the vector formula
+        // normalize(d + δ·u) produces atan(δ) deviation, not δ, so it
+        // under-spreads at large half-angles (movement spread, recoil buildup).
+        let r = xorshift32(seed) as f32 / u32::MAX as f32;
+        let angle = self.direction + (r * 2.0 - 1.0) * half;
         (angle.cos(), angle.sin())
     }
 
@@ -128,4 +158,13 @@ impl AimCone {
         self.rng_state ^= self.rng_state << 5;
         self.rng_state as f32 / u32::MAX as f32
     }
+}
+
+/// One step of xorshift32 — a fast, portable, deterministic PRNG with no deps.
+/// Used by `AimCone::sample_direction_seeded` so client and server agree on spread.
+pub fn xorshift32(mut state: u32) -> u32 {
+    state ^= state << 13;
+    state ^= state >> 17;
+    state ^= state << 5;
+    state
 }

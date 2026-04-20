@@ -128,6 +128,16 @@ pub fn predict_local_player(
     let rotation = decode_rotation(input.rotation);
     game.player.sight.direction = rotation;
     game.player.aim_cone.direction = rotation;
+
+    // Advance the aim cone spread simulation so half_angle() stays accurate in
+    // multiplayer.  Without this, recoil and movement spread never change and
+    // sample_direction_seeded always uses the base half-angle only.
+    let stats = game.player.active_weapon_stats();
+    game.player.aim_cone.set_spread_profile(
+        stats.aim_base_half_angle_deg,
+        stats.movement_spread_max_deg,
+    );
+    game.player.aim_cone.update(FIXED_STEP, velocity_frac, stats.recoil_decay_deg_per_sec);
 }
 
 /// Snap to the latest authoritative server state and replay pending local inputs.
@@ -155,6 +165,11 @@ pub fn reconcile_local_player(
     let rotation = decode_rotation(server_me.rotation);
     game.player.sight.direction = rotation;
     game.player.aim_cone.direction = rotation;
+    // Sync recoil from the server's authoritative half-angle so the local aim
+    // cone state matches the yellow cone the render draws (which also reads
+    // server_me.aim_cone_half_angle).  Without this, bullet sampling uses
+    // a stale near-zero local recoil while the visual cone shows a wide spread.
+    game.player.aim_cone.sync_from_server_half_angle(server_me.aim_cone_half_angle);
 
     *peek_origin = None;
     for packet in pending_inputs.iter().copied() {
