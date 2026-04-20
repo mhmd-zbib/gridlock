@@ -19,6 +19,7 @@ pub struct InputState {
     pub escape: bool,
     pub enter: bool,
     pub key_b: bool, // reserved
+    pub key_f: bool, // editor: eraser tool
 
     // Editor
     pub f1: bool,    // toggle editor mode
@@ -131,6 +132,7 @@ impl InputHandler {
                 "x" | "X" => self.state.peek = pressed,
                 "r" | "R" => self.state.reload = pressed,
                 "b" | "B" => self.state.key_b = pressed,
+                "f" | "F" => self.state.key_f = pressed,
                 "1" => self.state.key_1 = pressed,
                 "2" => self.state.key_2 = pressed,
                 "3" => self.state.key_3 = pressed,

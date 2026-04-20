@@ -256,6 +256,7 @@ mod tests {
             movement_y: 0,
             rotation: encode_rotation(0.0),
             flags,
+            shot_seed: 0x9E37_79B9,
         }
     }
 

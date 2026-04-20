@@ -46,7 +46,7 @@ impl Editor {
                 let floor_id = asset.id.clone();
                 self.level.floors.push(LevelFloor { x, y, id: floor_id });
             }
-            Tool::Wall | Tool::Breakable | Tool::BaseMap => {}
+            Tool::Wall | Tool::Breakable | Tool::BaseMap | Tool::Eraser => {}
         }
     }
 
@@ -232,6 +232,47 @@ impl Editor {
                 for y in from..to {
                     self.edges.insert(EdgeKey { axis: EdgeAxis::Vertical, x, y }, cell);
                 }
+            }
+        }
+    }
+
+    pub(super) fn erase_in_rect(&mut self, cx: f32, cy: f32, half: f32) {
+        let (x0, x1, y0, y1) = (cx - half, cx + half, cy - half, cy + half);
+
+        // Remove edges whose midpoint falls within the rect
+        self.edges.retain(|key, _| {
+            let (mx, my) = match key.axis {
+                EdgeAxis::Horizontal => (
+                    (key.x as f32 + 0.5) * EDGE_STEP,
+                    key.y as f32 * EDGE_STEP,
+                ),
+                EdgeAxis::Vertical => (
+                    key.x as f32 * EDGE_STEP,
+                    (key.y as f32 + 0.5) * EDGE_STEP,
+                ),
+            };
+            mx < x0 || mx > x1 || my < y0 || my > y1
+        });
+        self.rebuild_walls_from_edges();
+
+        // Remove point objects within the rect
+        self.level.enemies.retain(|p| p.x < x0 || p.x > x1 || p.y < y0 || p.y > y1);
+        self.level.target_enemies.retain(|p| p.x < x0 || p.x > x1 || p.y < y0 || p.y > y1);
+        self.level.props.retain(|p| p.x < x0 || p.x > x1 || p.y < y0 || p.y > y1);
+        self.level.floors.retain(|p| p.x < x0 || p.x > x1 || p.y < y0 || p.y > y1);
+        if let Some(sp) = self.level.player_spawn {
+            if sp.x >= x0 && sp.x <= x1 && sp.y >= y0 && sp.y <= y1 {
+                self.level.player_spawn = None;
+            }
+        }
+        if let Some(sp) = self.level.team1_spawn {
+            if sp.x >= x0 && sp.x <= x1 && sp.y >= y0 && sp.y <= y1 {
+                self.level.team1_spawn = None;
+            }
+        }
+        if let Some(sp) = self.level.team2_spawn {
+            if sp.x >= x0 && sp.x <= x1 && sp.y >= y0 && sp.y <= y1 {
+                self.level.team2_spawn = None;
             }
         }
     }

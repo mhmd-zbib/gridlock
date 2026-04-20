@@ -10,6 +10,8 @@ pub const SUBGRID_DIVISIONS: usize = 8;
 pub const EDGE_STEP: f32 = TILE_GRID / SUBGRID_DIVISIONS as f32;
 pub const DEFAULT_THICKNESS_STEPS: u32 = 1;
 pub const MAX_THICKNESS_STEPS: u32 = 8;
+pub const DEFAULT_ERASER_STEPS: u32 = 2;
+pub const MAX_ERASER_STEPS: u32 = 16;
 pub const GRID_LINE_THICKNESS: f32 = px_to_tiles(1.0);
 pub const GRID_LINE_ALPHA: f32 = 0.16;
 pub const SUBGRID_LINE_ALPHA: f32 = 0.08;
@@ -36,6 +38,7 @@ pub enum Tool {
     Team1Spawn,  // key 8 — blue
     Team2Spawn,  // key 9 — orange
     Floor,       // key 0 — id-backed floor tile
+    Eraser,      // key F — erase anything in area
 }
 
 // ---------------------------------------------------------------------------

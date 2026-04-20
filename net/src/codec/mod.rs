@@ -59,6 +59,7 @@ mod tests {
             movement_y: 1,
             rotation: encode_rotation(1.5707964),
             flags,
+            shot_seed: 0xA5A5_1234,
         });
         let buf = encode(&original);
         let decoded = decode(&buf).unwrap();
@@ -93,6 +94,7 @@ mod tests {
                 rotation: encode_rotation(0.0),
                 movement_state: MovementState(0),
                 weapon: 1,
+                team: 1,
             }],
             bullets: vec![BulletEvent {
                 shooter_id: 7,
@@ -102,6 +104,7 @@ mod tests {
                 to_y: 15.0,
                 hit_player_id: 0,
                 shooter_team: 1,
+                shooter_name: [0; 16],
             }],
             sounds: vec![SoundEvent {
                 kind: SoundKind::Gunshot,
@@ -109,6 +112,7 @@ mod tests {
                 y: 12.25,
                 intensity: 200,
             }],
+            teammate_views: vec![],
             match_state: MatchState {
                 timer: 180,
                 score_team1: 3,
@@ -149,6 +153,8 @@ mod tests {
             your_team: 1,
             team1_count: 2,
             team2_count: 0,
+            is_creator: true,
+            players: vec![],
         });
         let decoded = decode(&encode(&state)).unwrap();
         let AnyPacket::LobbyState(lobby) = decoded else {

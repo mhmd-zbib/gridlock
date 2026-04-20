@@ -168,6 +168,14 @@ impl Editor {
             Tool::Prop => self.push_prop_preview(out, mx, my),
             Tool::Floor => self.push_floor_preview(out, mx, my),
             Tool::BaseMap => self.push_bounds_preview(out, mx, my),
+            Tool::Eraser => {
+                let half = self.eraser_size_steps as f32 * super::tool::EDGE_STEP * 0.5;
+                out.push(self.world_quad(
+                    (raw_mx, raw_my),
+                    (half, half),
+                    [1.0, 0.2, 0.2, 0.25],
+                ));
+            }
         }
     }
 

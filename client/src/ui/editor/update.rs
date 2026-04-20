@@ -4,7 +4,7 @@ use game::world::units::px_to_tiles;
 use super::helpers::{bounds_from_points, effective_snap_mode, snap_point};
 use super::tool::{
     EDITOR_KEY_ZOOM_STEP, EDITOR_MAX_ZOOM, EDITOR_MIN_ZOOM, EDITOR_PAN_STEP_PX,
-    EDITOR_WHEEL_ZOOM_STEP, MAX_THICKNESS_STEPS,
+    EDITOR_WHEEL_ZOOM_STEP, MAX_ERASER_STEPS, MAX_THICKNESS_STEPS,
 };
 use super::{Editor, Tool};
 
@@ -26,6 +26,7 @@ impl Editor {
         self.handle_snap_toggles(input);
         self.handle_prop_cycle(input);
         self.handle_placement(just_pressed, mx, my, snap_mode);
+        self.handle_erase(input.mouse_left, raw_mx, raw_my);
         self.handle_right_click(just_right_pressed, raw_mx, raw_my);
         self.handle_save_load(input);
         self.update_prev_input_state(input);
@@ -103,6 +104,9 @@ impl Editor {
         if input.key_0 && !self.prev_key_0 {
             self.select_tool(Tool::Floor);
         }
+        if input.key_f && !self.prev_key_f {
+            self.select_tool(Tool::Eraser);
+        }
     }
 
     fn handle_snap_toggles(&mut self, input: &InputState) {
@@ -138,6 +142,14 @@ impl Editor {
                 }
                 if input.key_e && !self.prev_key_e && self.wall_thickness_steps < MAX_THICKNESS_STEPS {
                     self.wall_thickness_steps += 1;
+                }
+            }
+            Tool::Eraser => {
+                if input.key_q && !self.prev_key_q && self.eraser_size_steps > 1 {
+                    self.eraser_size_steps -= 1;
+                }
+                if input.key_e && !self.prev_key_e && self.eraser_size_steps < MAX_ERASER_STEPS {
+                    self.eraser_size_steps += 1;
                 }
             }
             _ => {}
@@ -183,6 +195,14 @@ impl Editor {
         }
     }
 
+    fn handle_erase(&mut self, mouse_held: bool, raw_mx: f32, raw_my: f32) {
+        if self.tool != Tool::Eraser || !mouse_held {
+            return;
+        }
+        let half = self.eraser_size_steps as f32 * super::tool::EDGE_STEP * 0.5;
+        self.erase_in_rect(raw_mx, raw_my, half);
+    }
+
     fn handle_right_click(&mut self, just_right_pressed: bool, raw_mx: f32, raw_my: f32) {
         if !just_right_pressed {
             return;
@@ -224,8 +244,10 @@ impl Editor {
         self.prev_key_7 = input.key_7;
         self.prev_key_8 = input.key_8;
         self.prev_key_9 = input.key_9;
+        self.prev_key_0 = input.key_0;
         self.prev_key_q = input.key_q;
         self.prev_key_e = input.key_e;
+        self.prev_key_f = input.key_f;
         self.prev_key_g = input.key_g;
         self.prev_key_h = input.key_h;
     }

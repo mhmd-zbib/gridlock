@@ -15,7 +15,7 @@ use game::world::level::LevelData;
 use game::world::prop::{self, PropAssetDef};
 
 use helpers::effective_snap_mode;
-use tool::{DEFAULT_THICKNESS_STEPS, EdgeCell, EdgeKey};
+use tool::{DEFAULT_ERASER_STEPS, DEFAULT_THICKNESS_STEPS, EdgeCell, EdgeKey};
 
 pub struct Editor {
     pub tool: Tool,
@@ -30,6 +30,7 @@ pub struct Editor {
     edges: HashMap<EdgeKey, EdgeCell>,
     view_origin: (f32, f32),
     pub wall_thickness_steps: u32,
+    pub eraser_size_steps: u32,
 
     wall_start: Option<(f32, f32)>,
     breakable_start: Option<(f32, f32)>,
@@ -51,6 +52,7 @@ pub struct Editor {
     prev_key_0: bool,
     prev_key_q: bool,
     prev_key_e: bool,
+    prev_key_f: bool,
     prev_key_g: bool,
     prev_key_h: bool,
 }
@@ -72,6 +74,7 @@ impl Editor {
             edges: HashMap::new(),
             view_origin: (0.0, 0.0),
             wall_thickness_steps: DEFAULT_THICKNESS_STEPS,
+            eraser_size_steps: DEFAULT_ERASER_STEPS,
             wall_start: None,
             breakable_start: None,
             base_map_start: None,
@@ -91,6 +94,7 @@ impl Editor {
             prev_key_0: false,
             prev_key_q: false,
             prev_key_e: false,
+            prev_key_f: false,
             prev_key_g: false,
             prev_key_h: false,
         }
