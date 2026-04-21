@@ -1,5 +1,7 @@
 use crate::session::Session;
-use game::systems::movement::{PEEK_DISTANCE, PEEK_LERP_SPEED, apply_actor_movement, clamped_peek_distance};
+use game::systems::movement::{
+    PEEK_DISTANCE, PEEK_LERP_SPEED, apply_actor_movement, clamped_peek_distance,
+};
 use game::world::level::LevelBounds;
 use game::world::units::px_to_tiles;
 use game::world::wall::Wall;
@@ -43,8 +45,15 @@ pub fn apply_session_input(
             // Released peek while moving — exit immediately, resume walking.
             session.peek_origin = None;
             apply_actor_movement(
-                &mut session.x, &mut session.y,
-                px, py, speed_from_input(input), dt, walls, PLAYER_HALF, level_bounds,
+                &mut session.x,
+                &mut session.y,
+                px,
+                py,
+                speed_from_input(input),
+                dt,
+                walls,
+                PLAYER_HALF,
+                level_bounds,
             );
         } else {
             let (target_x, target_y) = if peeking && has_dir {
@@ -72,8 +81,15 @@ pub fn apply_session_input(
         }
     } else {
         apply_actor_movement(
-            &mut session.x, &mut session.y,
-            px, py, speed_from_input(input), dt, walls, PLAYER_HALF, level_bounds,
+            &mut session.x,
+            &mut session.y,
+            px,
+            py,
+            speed_from_input(input),
+            dt,
+            walls,
+            PLAYER_HALF,
+            level_bounds,
         );
     }
 

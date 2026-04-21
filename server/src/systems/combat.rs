@@ -3,7 +3,7 @@ use std::net::SocketAddr;
 use crate::session::ServerState;
 use game::world::ray::cast_ray;
 use game::world::units::px_to_tiles;
-use game::world::wall::Wall;
+use game::world::wall::{Wall, pierce_breakable_chain};
 use net::MoveSpeed;
 use net::decode_rotation;
 use net::proto::server::BulletEvent;
@@ -27,7 +27,9 @@ pub fn step_combat(st: &mut ServerState, walls: &mut Vec<Wall>, dt: f32) -> Vec<
     let mut bullets = Vec::new();
 
     for shooter_addr in shooter_addrs {
-        let Some((shooter_id, shooter_name, origin, dir, damage)) = tick_shooter(st, shooter_addr, dt) else {
+        let Some((shooter_id, shooter_name, origin, dir, damage)) =
+            tick_shooter(st, shooter_addr, dt)
+        else {
             continue;
         };
 
@@ -53,8 +55,8 @@ pub fn step_combat(st: &mut ServerState, walls: &mut Vec<Wall>, dt: f32) -> Vec<
             }
         }
 
-        let impact_x = origin.0 + dir.0 * impact_dist;
-        let impact_y = origin.1 + dir.1 * impact_dist;
+        let mut impact_x = origin.0 + dir.0 * impact_dist;
+        let mut impact_y = origin.1 + dir.1 * impact_dist;
 
         let mut hit_player_id = 0u16;
         if let Some(target_addr) = hit_target_addr {
@@ -64,14 +66,15 @@ pub fn step_combat(st: &mut ServerState, walls: &mut Vec<Wall>, dt: f32) -> Vec<
                 hit_player_id = target.player_id;
             }
         } else if wall_dist < BULLET_MAX_RANGE {
-            apply_wall_hit(
-                walls,
-                (
-                    impact_x + dir.0 * WALL_HIT_EPS,
-                    impact_y + dir.1 * WALL_HIT_EPS,
-                ),
-                damage,
-            );
+            let hit = (impact_x + dir.0 * WALL_HIT_EPS, impact_y + dir.1 * WALL_HIT_EPS);
+            let is_breakable = walls.iter().any(|w| w.breakable && w.contains(hit.0, hit.1));
+            if is_breakable {
+                let exit = pierce_breakable_chain(walls, hit, dir, damage);
+                impact_x = exit.0;
+                impact_y = exit.1;
+            } else {
+                apply_wall_hit(walls, hit, damage);
+            }
         }
 
         bullets.push(BulletEvent {
@@ -140,7 +143,9 @@ fn tick_shooter(
         return None;
     }
 
-    let dir = shooter.aim_cone.sample_direction_seeded(latest_input.shot_seed);
+    let dir = shooter
+        .aim_cone
+        .sample_direction_seeded(latest_input.shot_seed);
     shooter.aim_cone.on_shot(
         weapon_stats.recoil_per_shot_deg,
         weapon_stats.recoil_max_deg,

@@ -15,9 +15,10 @@ pub fn default_weapon_state() -> WeaponState {
 /// Falls back to the default weapon if the index is out of range.
 pub fn weapon_state_for_index(index: usize) -> WeaponState {
     let ids = all_weapon_ids();
-    let id = ids.get(index).copied().unwrap_or_else(|| {
-        ids.first().copied().expect("weapon catalog is empty")
-    });
+    let id = ids
+        .get(index)
+        .copied()
+        .unwrap_or_else(|| ids.first().copied().expect("weapon catalog is empty"));
     WeaponState::new(id)
 }
 

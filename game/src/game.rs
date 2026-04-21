@@ -4,8 +4,8 @@ use super::entity::player::{Player, PlayerLoadoutConfig, sanitize_loadout};
 use super::spawn::SpawnQueue;
 pub use super::systems::projectile::ImpactEvent;
 use super::systems::{movement, projectile, spawn as spawn_system, visibility};
-use super::world::level::{LevelBounds, LevelData};
 use super::world::floor::{self as floor_world, ResolvedFloor};
+use super::world::level::{LevelBounds, LevelData};
 use super::world::prop::{self, ResolvedProp};
 use super::world::rooms::LevelRooms;
 use super::world::units::px_to_tiles;
@@ -145,12 +145,14 @@ impl Game {
         // Promote collidable props to walls so movement and combat systems share
         // a single wall list.
         for prop in self.props.iter().filter(|p| p.is_collider) {
-            self.walls.push(Wall::new(
+            let mut w = Wall::new(
                 prop.x - prop.width * 0.5,
                 prop.y - prop.height * 0.5,
                 prop.width,
                 prop.height,
-            ));
+            );
+            w.is_prop = true;
+            self.walls.push(w);
         }
 
         self.bullets = Vec::new();

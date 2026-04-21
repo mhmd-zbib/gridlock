@@ -23,6 +23,10 @@ pub struct Wall {
     /// Skipped during serialisation — regenerated from dimensions on load.
     #[serde(skip)]
     pub segments: Vec<bool>,
+    /// True for walls that were synthesised from collidable props at load time.
+    /// These walls exist for collision only; the prop renderer owns their visual.
+    #[serde(skip)]
+    pub is_prop: bool,
 }
 
 const fn default_wall_hp() -> u32 {
@@ -40,6 +44,7 @@ impl Wall {
             hp: default_wall_hp(),
             horizontal: None,
             segments: Vec::new(),
+            is_prop: false,
         }
     }
 
@@ -53,6 +58,7 @@ impl Wall {
             hp: hp.max(1),
             horizontal: None,
             segments: Vec::new(),
+            is_prop: false,
         };
         wall.init_segments();
         wall
@@ -189,6 +195,70 @@ impl Wall {
         }
         false
     }
+}
+
+// ---------------------------------------------------------------------------
+// Breakable-chain piercing
+// ---------------------------------------------------------------------------
+
+/// When a bullet enters a breakable wall, this destroys every consecutive
+/// breakable wall along `dir` and returns the world position where the chain
+/// ends (the exit edge of the last broken wall).
+///
+/// Pattern: air → [breakable]+ → air  ⟹  all breakables destroyed, bullet
+/// dies at the exit of the last one.  A solid wall immediately after the chain
+/// also terminates it (bullet stops at the chain exit, not inside the solid).
+pub fn pierce_breakable_chain(
+    walls: &mut Vec<Wall>,
+    entry: (f32, f32),
+    dir: (f32, f32),
+    damage: u32,
+) -> (f32, f32) {
+    let mut pos = entry;
+    loop {
+        let Some(idx) = walls.iter().position(|w| w.breakable && w.contains(pos.0, pos.1)) else {
+            return pos;
+        };
+
+        let exit = aabb_exit_point(&walls[idx], pos, dir);
+
+        let destroyed = walls[idx].take_damage_at(pos.0, pos.1, damage);
+        if destroyed {
+            walls.remove(idx);
+        }
+
+        // Probe one step past the exit to classify the next cell.
+        const PROBE: f32 = 0.001;
+        let next = (exit.0 + dir.0 * PROBE, exit.1 + dir.1 * PROBE);
+
+        // Solid wall immediately after → stop here (don't enter solid).
+        if walls.iter().any(|w| !w.breakable && w.contains(next.0, next.1)) {
+            return exit;
+        }
+
+        // Another breakable → keep chaining.
+        if walls.iter().any(|w| w.breakable && w.contains(next.0, next.1)) {
+            pos = next;
+            continue;
+        }
+
+        // Air → bullet dies at exit of this last breakable.
+        return exit;
+    }
+}
+
+/// Returns the world-space point where a ray travelling through a wall AABB exits it.
+fn aabb_exit_point(wall: &Wall, origin: (f32, f32), dir: (f32, f32)) -> (f32, f32) {
+    let inv_x = if dir.0.abs() > 1e-9 { 1.0 / dir.0 } else { f32::INFINITY };
+    let inv_y = if dir.1.abs() > 1e-9 { 1.0 / dir.1 } else { f32::INFINITY };
+
+    let tx1 = (wall.x - origin.0) * inv_x;
+    let tx2 = (wall.x + wall.w - origin.0) * inv_x;
+    let ty1 = (wall.y - origin.1) * inv_y;
+    let ty2 = (wall.y + wall.h - origin.1) * inv_y;
+
+    let tmax = tx1.max(tx2).min(ty1.max(ty2));
+    (origin.0 + dir.0 * tmax, origin.1 + dir.1 * tmax)
 }
 
 /// Resolve all wall collisions for one entity centred at (cx, cy) with half-extent `half`.

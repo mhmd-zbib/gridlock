@@ -34,7 +34,9 @@ pub fn build_client_packet(
     // Hash the sequence number into a well-distributed seed.  Both client (for
     // predicted tracers) and server (for authoritative ray direction) call
     // `AimCone::sample_direction_seeded` with this value so spread agrees.
-    let shot_seed = (seq as u32).wrapping_mul(2246822519).wrapping_add(0x9e37_79b9);
+    let shot_seed = (seq as u32)
+        .wrapping_mul(2246822519)
+        .wrapping_add(0x9e37_79b9);
 
     ClientPacket {
         sequence: seq,

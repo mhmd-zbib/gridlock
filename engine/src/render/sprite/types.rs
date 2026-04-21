@@ -50,10 +50,10 @@ impl SpriteCommand {
 #[repr(C)]
 #[derive(Copy, Clone, Pod, Zeroable)]
 pub(super) struct SpriteInstance {
-    pub center:    [f32; 2], // location 1 — offset  0
+    pub center: [f32; 2],    // location 1 — offset  0
     pub half_size: [f32; 2], // location 2 — offset  8
-    pub rotation:  f32,      // location 3 — offset 16
-    pub uv_min:    [f32; 2], // location 4 — offset 20
-    pub uv_max:    [f32; 2], // location 5 — offset 28
-    pub tint:      [f32; 4], // location 6 — offset 36
-}                            //              total  52
+    pub rotation: f32,       // location 3 — offset 16
+    pub uv_min: [f32; 2],    // location 4 — offset 20
+    pub uv_max: [f32; 2],    // location 5 — offset 28
+    pub tint: [f32; 4],      // location 6 — offset 36
+} //              total  52

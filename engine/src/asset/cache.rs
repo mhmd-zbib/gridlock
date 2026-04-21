@@ -71,7 +71,7 @@ impl TextureCache {
         }
 
         let bytes = std::fs::read(path).ok()?;
-        let (rgba, width, height) = decode_png(&bytes)?;
+        let (rgba, width, height) = decode_image(path, &bytes)?;
 
         let size = wgpu::Extent3d {
             width,
@@ -123,7 +123,13 @@ impl TextureCache {
             ],
         });
 
-        self.entries.insert(handle, CacheEntry { bind_group, ref_count: 1 });
+        self.entries.insert(
+            handle,
+            CacheEntry {
+                bind_group,
+                ref_count: 1,
+            },
+        );
         Some(handle)
     }
 
@@ -146,8 +152,52 @@ impl TextureCache {
 }
 
 // ---------------------------------------------------------------------------
-// PNG decoding
+// Image decoding (PNG / JPEG)
 // ---------------------------------------------------------------------------
+
+fn decode_image(path: &str, bytes: &[u8]) -> Option<(Vec<u8>, u32, u32)> {
+    let ext = std::path::Path::new(path)
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|e| e.to_ascii_lowercase());
+
+    match ext.as_deref() {
+        Some("jpg") | Some("jpeg") => decode_jpeg(bytes),
+        _ => decode_png(bytes),
+    }
+}
+
+fn decode_jpeg(bytes: &[u8]) -> Option<(Vec<u8>, u32, u32)> {
+    let mut decoder = jpeg_decoder::Decoder::new(Cursor::new(bytes));
+    let pixels = decoder.decode().ok()?;
+    let info = decoder.info()?;
+    let width = info.width as u32;
+    let height = info.height as u32;
+    let pixel_count = (width * height) as usize;
+
+    let rgba = match info.pixel_format {
+        jpeg_decoder::PixelFormat::RGB24 => {
+            let mut out = Vec::with_capacity(pixel_count * 4);
+            for rgb in pixels.chunks_exact(3) {
+                out.push(rgb[0]);
+                out.push(rgb[1]);
+                out.push(rgb[2]);
+                out.push(255);
+            }
+            out
+        }
+        jpeg_decoder::PixelFormat::L8 => {
+            let mut out = Vec::with_capacity(pixel_count * 4);
+            for &g in &pixels {
+                out.extend_from_slice(&[g, g, g, 255]);
+            }
+            out
+        }
+        _ => return None,
+    };
+
+    Some((rgba, width, height))
+}
 
 fn decode_png(bytes: &[u8]) -> Option<(Vec<u8>, u32, u32)> {
     let decoder = png::Decoder::new(Cursor::new(bytes));

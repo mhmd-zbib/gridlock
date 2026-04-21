@@ -6,35 +6,38 @@ mod tool;
 mod update;
 mod viewport;
 
-pub use tool::{SnapMode, Tool};
-
-use std::collections::HashMap;
+pub use tool::{SnapMode, Tool, step_label};
 
 use game::world::floor::{self as floor_world, FloorAssetDef};
 use game::world::level::LevelData;
 use game::world::prop::{self, PropAssetDef};
 
 use helpers::effective_snap_mode;
-use tool::{DEFAULT_ERASER_STEPS, DEFAULT_THICKNESS_STEPS, EdgeCell, EdgeKey};
+use tool::{DEFAULT_ERASER_STEPS, DEFAULT_WALL_SIZE_STEPS, EDGE_STEP};
+
+const EDITOR_LEVELS_DIR: &str = "assets/levels";
+const LEGACY_EDITOR_LEVELS_DIR: &str = "levels";
 
 pub struct Editor {
     pub tool: Tool,
     pub level: LevelData,
     pub snap_mode: SnapMode,
     pub show_subgrid: bool,
+    pub show_textures: bool,
     pub zoom: f32,
     prop_assets: Vec<PropAssetDef>,
     selected_prop_asset: usize,
     floor_assets: Vec<FloorAssetDef>,
     selected_floor_asset: usize,
-    edges: HashMap<EdgeKey, EdgeCell>,
     view_origin: (f32, f32),
-    pub wall_thickness_steps: u32,
+    pub wall_size_steps: u32,
     pub eraser_size_steps: u32,
 
-    wall_start: Option<(f32, f32)>,
-    breakable_start: Option<(f32, f32)>,
+    wall_drag_start: Option<(f32, f32)>,
+    breakable_drag_start: Option<(f32, f32)>,
     base_map_start: Option<(f32, f32)>,
+    floor_drag_last: Option<(f32, f32)>,
+    right_drag_last: Option<(f32, f32)>,
 
     prev_left: bool,
     prev_right: bool,
@@ -55,6 +58,7 @@ pub struct Editor {
     prev_key_f: bool,
     prev_key_g: bool,
     prev_key_h: bool,
+    prev_key_t: bool,
 }
 
 impl Editor {
@@ -64,20 +68,22 @@ impl Editor {
         Self {
             tool: Tool::default(),
             level: LevelData::default(),
-            snap_mode: SnapMode::Edge,
+            snap_mode: SnapMode::Subgrid,
             show_subgrid: true,
+            show_textures: true,
             zoom: 1.0,
             prop_assets,
             selected_prop_asset: 0,
             floor_assets,
             selected_floor_asset: 0,
-            edges: HashMap::new(),
             view_origin: (0.0, 0.0),
-            wall_thickness_steps: DEFAULT_THICKNESS_STEPS,
+            wall_size_steps: DEFAULT_WALL_SIZE_STEPS,
             eraser_size_steps: DEFAULT_ERASER_STEPS,
-            wall_start: None,
-            breakable_start: None,
+            wall_drag_start: None,
+            breakable_drag_start: None,
             base_map_start: None,
+            floor_drag_last: None,
+            right_drag_last: None,
             prev_left: false,
             prev_right: false,
             prev_f5: false,
@@ -97,6 +103,7 @@ impl Editor {
             prev_key_f: false,
             prev_key_g: false,
             prev_key_h: false,
+            prev_key_t: false,
         }
     }
 
@@ -138,19 +145,67 @@ impl Editor {
         self.selected_floor_asset
     }
 
+    pub fn wall_block_size(&self) -> f32 {
+        self.wall_size_steps as f32 * EDGE_STEP
+    }
+
     pub fn active_snap_label(&self) -> &'static str {
         effective_snap_mode(self.tool, self.snap_mode).label()
     }
 
-    pub fn save(&self, path: &str) {
-        let _ = self.level.save(path);
+    fn level_file_name(&self) -> String {
+        format!("{}.json", self.level.id)
     }
 
-    pub fn load(&mut self, path: &str) {
-        if let Ok(data) = LevelData::load(path) {
-            self.level = data;
-            self.rebuild_edges_from_walls();
-            self.rebuild_walls_from_edges();
+    fn active_level_path(&self) -> String {
+        format!("{}/{}", EDITOR_LEVELS_DIR, self.level_file_name())
+    }
+
+    fn legacy_level_path(&self) -> String {
+        format!("{}/{}", LEGACY_EDITOR_LEVELS_DIR, self.level_file_name())
+    }
+
+    fn apply_loaded_level(&mut self, data: LevelData) {
+        self.level = data;
+    }
+
+    fn load_from_path(&mut self, path: &str) -> Result<(), Box<dyn std::error::Error>> {
+        let data = LevelData::load(path)?;
+        self.apply_loaded_level(data);
+        Ok(())
+    }
+
+    pub fn save_active_level(&self) {
+        let path = self.active_level_path();
+        match self.level.save(&path) {
+            Ok(()) => {
+                eprintln!("Editor: saved level to {}", path);
+            }
+            Err(err) => {
+                eprintln!("Editor: failed to save level to {}: {}", path, err);
+            }
         }
+    }
+
+    pub fn load_active_level(&mut self) {
+        let path = self.active_level_path();
+        if self.load_from_path(&path).is_ok() {
+            eprintln!("Editor: loaded level from {}", path);
+            return;
+        }
+
+        let legacy_path = self.legacy_level_path();
+        if self.load_from_path(&legacy_path).is_ok() {
+            eprintln!(
+                "Editor: loaded level from legacy path {}; use F5 to save under {}",
+                legacy_path, path
+            );
+            return;
+        }
+
+        eprintln!(
+            "Editor: failed to load {} (and legacy path {})",
+            path, legacy_path
+        );
     }
 }

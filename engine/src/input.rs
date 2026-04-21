@@ -40,6 +40,7 @@ pub struct InputState {
     pub key_g: bool, // toggle grid snap
     pub key_h: bool, // toggle inner grid visibility
     pub key_l: bool, // load level
+    pub key_t: bool, // editor: toggle texture view
     pub key_minus: bool,
     pub key_equals: bool,
 
@@ -150,6 +151,7 @@ impl InputHandler {
                 "g" | "G" => self.state.key_g = pressed,
                 "h" | "H" => self.state.key_h = pressed,
                 "l" | "L" => self.state.key_l = pressed,
+                "t" | "T" => self.state.key_t = pressed,
                 _ => {}
             }
         }

@@ -4,7 +4,7 @@ use game::world::units::px_to_tiles;
 use super::helpers::{bounds_from_points, effective_snap_mode, snap_point};
 use super::tool::{
     EDITOR_KEY_ZOOM_STEP, EDITOR_MAX_ZOOM, EDITOR_MIN_ZOOM, EDITOR_PAN_STEP_PX,
-    EDITOR_WHEEL_ZOOM_STEP, MAX_ERASER_STEPS, MAX_THICKNESS_STEPS,
+    EDITOR_WHEEL_ZOOM_STEP, MAX_ERASER_STEPS, cycle_wall_step,
 };
 use super::{Editor, Tool};
 
@@ -20,14 +20,16 @@ impl Editor {
         let (mx, my) = snap_point(raw_mx, raw_my, snap_mode);
 
         let just_pressed = input.mouse_left && !self.prev_left;
+        let just_released = !input.mouse_left && self.prev_left;
         let just_right_pressed = input.mouse_right && !self.prev_right;
 
         self.handle_tool_selection(input);
         self.handle_snap_toggles(input);
         self.handle_prop_cycle(input);
-        self.handle_placement(just_pressed, mx, my, snap_mode);
+        self.handle_placement(just_pressed, just_released, input.shift, raw_mx, raw_my, mx, my);
+        self.handle_floor_drag(input.mouse_left, mx, my);
         self.handle_erase(input.mouse_left, raw_mx, raw_my);
-        self.handle_right_click(just_right_pressed, raw_mx, raw_my);
+        self.handle_right_drag(input.mouse_right, just_right_pressed, mx, my, raw_mx, raw_my);
         self.handle_save_load(input);
         self.update_prev_input_state(input);
     }
@@ -116,6 +118,9 @@ impl Editor {
         if input.key_h && !self.prev_key_h {
             self.show_subgrid = !self.show_subgrid;
         }
+        if input.key_t && !self.prev_key_t {
+            self.show_textures = !self.show_textures;
+        }
     }
 
     fn handle_prop_cycle(&mut self, input: &InputState) {
@@ -137,11 +142,11 @@ impl Editor {
                 }
             }
             Tool::Wall | Tool::Breakable => {
-                if input.key_q && !self.prev_key_q && self.wall_thickness_steps > 1 {
-                    self.wall_thickness_steps -= 1;
+                if input.key_q && !self.prev_key_q {
+                    self.wall_size_steps = cycle_wall_step(self.wall_size_steps);
                 }
-                if input.key_e && !self.prev_key_e && self.wall_thickness_steps < MAX_THICKNESS_STEPS {
-                    self.wall_thickness_steps += 1;
+                if input.key_e && !self.prev_key_e {
+                    self.wall_size_steps = cycle_wall_step(self.wall_size_steps);
                 }
             }
             Tool::Eraser => {
@@ -159,40 +164,74 @@ impl Editor {
     fn handle_placement(
         &mut self,
         just_pressed: bool,
+        just_released: bool,
+        shift: bool,
+        raw_mx: f32,
+        raw_my: f32,
         mx: f32,
         my: f32,
-        snap_mode: super::SnapMode,
     ) {
-        if !just_pressed {
-            return;
-        }
-
         match self.tool {
             Tool::Wall => {
-                if let Some(start) = self.wall_start.take() {
-                    self.add_edge_path(start, (mx, my), snap_mode, false, self.wall_thickness_steps);
-                } else {
-                    self.wall_start = Some((mx, my));
+                if just_released {
+                    if let Some(start) = self.wall_drag_start.take() {
+                        self.place_wall_line(start, (mx, my), false);
+                    }
+                } else if just_pressed {
+                    if shift {
+                        self.wall_drag_start = Some((mx, my));
+                    } else {
+                        self.place_wall_block(mx, my, false);
+                    }
                 }
             }
             Tool::Breakable => {
-                if let Some(start) = self.breakable_start.take() {
-                    self.add_edge_path(start, (mx, my), snap_mode, true, self.wall_thickness_steps);
-                } else {
-                    self.breakable_start = Some((mx, my));
+                if just_released {
+                    if let Some(start) = self.breakable_drag_start.take() {
+                        self.place_wall_line(start, (mx, my), true);
+                    }
+                } else if just_pressed {
+                    if shift {
+                        self.breakable_drag_start = Some((mx, my));
+                    } else {
+                        self.place_wall_block(mx, my, true);
+                    }
                 }
             }
             Tool::BaseMap => {
-                if let Some(start) = self.base_map_start.take() {
-                    if let Some(bounds) = bounds_from_points(start, (mx, my)) {
-                        self.level.map_bounds = Some(bounds);
+                if just_pressed {
+                    if let Some(start) = self.base_map_start.take() {
+                        if let Some(bounds) = bounds_from_points(start, (mx, my)) {
+                            self.level.map_bounds = Some(bounds);
+                        }
+                    } else {
+                        self.base_map_start = Some((mx, my));
                     }
-                } else {
-                    self.base_map_start = Some((mx, my));
                 }
             }
-            _ => self.place(mx, my),
+            Tool::Floor => {} // handled by handle_floor_drag
+            _ => {
+                if just_pressed {
+                    self.place(mx, my);
+                }
+            }
         }
+    }
+
+    fn handle_floor_drag(&mut self, mouse_held: bool, mx: f32, my: f32) {
+        if self.tool != Tool::Floor {
+            self.floor_drag_last = None;
+            return;
+        }
+        if !mouse_held {
+            self.floor_drag_last = None;
+            return;
+        }
+        if self.floor_drag_last == Some((mx, my)) {
+            return;
+        }
+        self.floor_drag_last = Some((mx, my));
+        self.place(mx, my);
     }
 
     fn handle_erase(&mut self, mouse_held: bool, raw_mx: f32, raw_my: f32) {
@@ -203,30 +242,62 @@ impl Editor {
         self.erase_in_rect(raw_mx, raw_my, half);
     }
 
-    fn handle_right_click(&mut self, just_right_pressed: bool, raw_mx: f32, raw_my: f32) {
-        if !just_right_pressed {
-            return;
+    fn handle_right_drag(
+        &mut self,
+        mouse_right: bool,
+        just_right_pressed: bool,
+        mx: f32,
+        my: f32,
+        raw_mx: f32,
+        raw_my: f32,
+    ) {
+        // Cancel in-progress left-drag on right press.
+        if just_right_pressed {
+            match self.tool {
+                Tool::Wall => { self.wall_drag_start.take(); }
+                Tool::Breakable => { self.breakable_drag_start.take(); }
+                Tool::BaseMap => {
+                    if self.base_map_start.take().is_none() {
+                        self.level.map_bounds.take();
+                    }
+                    return;
+                }
+                // One-shot deletes — only fire on first press.
+                Tool::Eraser => { self.delete_at(raw_mx, raw_my); return; }
+                Tool::PlayerSpawn => { self.delete_player_spawn_at(mx, my); return; }
+                Tool::Team1Spawn => { self.delete_team_spawn_at(mx, my, 1); return; }
+                Tool::Team2Spawn => { self.delete_team_spawn_at(mx, my, 2); return; }
+                _ => {}
+            }
         }
 
-        if self.tool == Tool::Wall {
-            self.wall_start.take();
-        } else if self.tool == Tool::Breakable {
-            self.breakable_start.take();
-        } else if self.tool == Tool::BaseMap {
-            if self.base_map_start.take().is_none() {
-                self.level.map_bounds.take();
-            }
-        } else {
-            self.delete_at(raw_mx, raw_my);
+        // Continuous drag deletion — fires every subgrid cell the mouse enters.
+        if !mouse_right {
+            self.right_drag_last = None;
+            return;
+        }
+        if self.right_drag_last == Some((mx, my)) {
+            return;
+        }
+        self.right_drag_last = Some((mx, my));
+
+        match self.tool {
+            Tool::Wall => self.delete_wall_at_point(mx, my, false),
+            Tool::Breakable => self.delete_wall_at_point(mx, my, true),
+            Tool::Floor => self.delete_nearest_floor_at(mx, my),
+            Tool::Prop => self.delete_nearest_prop_at(mx, my),
+            Tool::Enemy => self.delete_nearest_enemy_at(mx, my),
+            Tool::TargetDummy => self.delete_nearest_target_dummy_at(mx, my),
+            _ => {}
         }
     }
 
     fn handle_save_load(&mut self, input: &InputState) {
         if input.f5 && !self.prev_f5 {
-            self.save("levels/level_2.json");
+            self.save_active_level();
         }
         if input.key_l && !self.prev_key_l {
-            self.load("levels/level_2.json");
+            self.load_active_level();
         }
     }
 
@@ -250,5 +321,6 @@ impl Editor {
         self.prev_key_f = input.key_f;
         self.prev_key_g = input.key_g;
         self.prev_key_h = input.key_h;
+        self.prev_key_t = input.key_t;
     }
 }

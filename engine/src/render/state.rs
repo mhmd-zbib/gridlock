@@ -7,7 +7,7 @@ use winit::window::Window;
 use crate::asset::{AssetHandle, TextureCache};
 
 use super::geometry::{GeoVertex, GeometryRenderer, MaskGeometryRenderer};
-use super::quad::{QuadInstance, Renderer};
+use super::quad::{GradientQuadInstance, QuadInstance, Renderer, ShadedQuadInstance};
 use super::sprite::{SpriteCommand, SpriteRenderer};
 use super::text::{TextRenderer, TextSection};
 
@@ -110,6 +110,14 @@ impl State {
         self.stencil_view = view;
     }
 
+    pub fn device(&self) -> &Device {
+        &self.device
+    }
+
+    pub fn surface_format(&self) -> wgpu::TextureFormat {
+        self.config.format
+    }
+
     // ── Asset API ─────────────────────────────────────────────────────────────
 
     /// Load a PNG from `path`, upload it to the GPU, and return its handle.
@@ -139,13 +147,14 @@ impl State {
     /// `mask_verts`      — cone geometry written into the stencil buffer.
     ///   Empty slice = no masking (menus use the plain unmasked path).
     ///
-    /// `scene_quads`     — walls, props, floor. Always fully visible;
-    ///   outside the cone they receive the `outside_dim` dark overlay.
+    /// `scene_quads`     — base quads (UI / non-wall world quads / scene markers).
+    ///   Outside the cone they receive the `outside_dim` dark overlay.
     ///
     /// `masked_quads`    — non-world entities hidden completely outside the cone.
     ///
-    /// `scene_sprites`   — textured quads composited after scene quads.
-    ///   Subject to the same dim overlay as scene quads.
+    /// `scene_floor_sprites` — textured floor quads (below props and walls).
+    /// `scene_prop_sprites`  — textured prop quads (below walls).
+    /// `wall_quads`          — wall quads composited above world quads/sprites.
     ///
     /// `outside_dim`     — black overlay alpha applied only outside the cone.
     ///
@@ -155,13 +164,58 @@ impl State {
         &mut self,
         mask_verts: &[GeoVertex],
         scene_quads: &[QuadInstance],
+        scene_gradient_quads: &[GradientQuadInstance],
+        scene_shaded_quads: &[ShadedQuadInstance],
         masked_quads: &[QuadInstance],
-        scene_sprites: &[SpriteCommand],
+        scene_floor_sprites: &[SpriteCommand],
+        scene_prop_sprites: &[SpriteCommand],
+        wall_quads: &[QuadInstance],
         geo_verts: &[GeoVertex],
         masked_geo_verts: &[GeoVertex],
         texts: &[TextSection],
         outside_dim: f32,
     ) {
+        self.render_with_overlay(
+            mask_verts,
+            scene_quads,
+            scene_gradient_quads,
+            scene_shaded_quads,
+            masked_quads,
+            scene_floor_sprites,
+            scene_prop_sprites,
+            wall_quads,
+            geo_verts,
+            masked_geo_verts,
+            texts,
+            outside_dim,
+            |_, _, _, _, _| {},
+        );
+    }
+
+    pub fn render_with_overlay<F>(
+        &mut self,
+        mask_verts: &[GeoVertex],
+        scene_quads: &[QuadInstance],
+        scene_gradient_quads: &[GradientQuadInstance],
+        scene_shaded_quads: &[ShadedQuadInstance],
+        masked_quads: &[QuadInstance],
+        scene_floor_sprites: &[SpriteCommand],
+        scene_prop_sprites: &[SpriteCommand],
+        wall_quads: &[QuadInstance],
+        geo_verts: &[GeoVertex],
+        masked_geo_verts: &[GeoVertex],
+        texts: &[TextSection],
+        outside_dim: f32,
+        overlay: F,
+    ) where
+        F: FnOnce(
+            &wgpu::Device,
+            &wgpu::Queue,
+            &mut wgpu::CommandEncoder,
+            &wgpu::TextureView,
+            [u32; 2],
+        ),
+    {
         let surface_tex = match self.surface.get_current_texture() {
             CurrentSurfaceTexture::Success(t) | CurrentSurfaceTexture::Suboptimal(t) => t,
             CurrentSurfaceTexture::Outdated | CurrentSurfaceTexture::Lost => {
@@ -185,15 +239,42 @@ impl State {
             // ── Unmasked path (menus, lobby, etc.) ────────────────────────────
             self.renderer
                 .draw(&mut encoder, &view, &self.queue, sw, sh, scene_quads);
+            self.renderer.draw_gradient_load(
+                &mut encoder,
+                &view,
+                &self.queue,
+                sw,
+                sh,
+                scene_gradient_quads,
+            );
+            self.renderer.draw_shaded_load(
+                &mut encoder,
+                &view,
+                &self.queue,
+                sw,
+                sh,
+                scene_shaded_quads,
+            );
             self.sprite.draw(
                 &mut encoder,
                 &view,
                 &self.queue,
                 sw,
                 sh,
-                scene_sprites,
+                scene_floor_sprites,
                 &self.texture_cache,
             );
+            self.sprite.draw(
+                &mut encoder,
+                &view,
+                &self.queue,
+                sw,
+                sh,
+                scene_prop_sprites,
+                &self.texture_cache,
+            );
+            self.renderer
+                .draw_load(&mut encoder, &view, &self.queue, sw, sh, wall_quads);
             self.geo
                 .draw(&mut encoder, &view, &self.queue, sw, sh, masked_geo_verts);
         } else {
@@ -211,16 +292,44 @@ impl State {
             // Pass 2: draw scene quads everywhere (normal brightness baseline).
             self.renderer
                 .draw_load(&mut encoder, &view, &self.queue, sw, sh, scene_quads);
-            // Pass 2.5: draw scene sprites on top of scene quads.
+            self.renderer.draw_gradient_load(
+                &mut encoder,
+                &view,
+                &self.queue,
+                sw,
+                sh,
+                scene_gradient_quads,
+            );
+            self.renderer.draw_shaded_load(
+                &mut encoder,
+                &view,
+                &self.queue,
+                sw,
+                sh,
+                scene_shaded_quads,
+            );
+            // Pass 2.5: draw world sprites with floor below props.
             self.sprite.draw(
                 &mut encoder,
                 &view,
                 &self.queue,
                 sw,
                 sh,
-                scene_sprites,
+                scene_floor_sprites,
                 &self.texture_cache,
             );
+            self.sprite.draw(
+                &mut encoder,
+                &view,
+                &self.queue,
+                sw,
+                sh,
+                scene_prop_sprites,
+                &self.texture_cache,
+            );
+            // Pass 2.75: draw walls on top of world sprites.
+            self.renderer
+                .draw_load(&mut encoder, &view, &self.queue, sw, sh, wall_quads);
             // Pass 3: darken only outside the cone.
             self.renderer.draw_dim_overlay(
                 &mut encoder,
@@ -260,6 +369,14 @@ impl State {
         // Pass 7: text (topmost layer).
         self.text
             .draw(&mut encoder, &view, &self.queue, sw, sh, texts);
+
+        overlay(
+            &self.device,
+            &self.queue,
+            &mut encoder,
+            &view,
+            [self.size.width, self.size.height],
+        );
 
         self.queue.submit([encoder.finish()]);
         surface_tex.present();

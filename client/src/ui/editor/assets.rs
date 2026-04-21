@@ -43,8 +43,8 @@ impl Editor {
 
     pub(super) fn select_tool(&mut self, tool: Tool) {
         self.tool = tool;
-        self.wall_start = None;
-        self.breakable_start = None;
+        self.wall_drag_start = None;
+        self.breakable_drag_start = None;
         self.base_map_start = None;
     }
 }

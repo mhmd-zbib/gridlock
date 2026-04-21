@@ -152,7 +152,9 @@ fn resolve_attachments_dir() -> PathBuf {
         env!("CARGO_MANIFEST_DIR"),
         workspace_attachments
             .map(|path| path.display().to_string())
-            .unwrap_or_else(|| "<workspace-root-unavailable>/assets/configs/attachments".to_string())
+            .unwrap_or_else(
+                || "<workspace-root-unavailable>/assets/configs/attachments".to_string()
+            )
     );
 }
 

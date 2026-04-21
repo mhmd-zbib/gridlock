@@ -1,7 +1,8 @@
-use crate::ui::lobby::LobbyChoice;
-use crate::ui::menu::MenuChoice;
 use game::input::InputState;
 use game::world::units::px_to_tiles;
+
+use crate::ui::lobby::LobbyChoice;
+use crate::ui::menu::MenuChoice;
 
 use super::{App, AppState};
 
@@ -25,28 +26,24 @@ impl App {
             let ls = self.lobby_state.as_ref();
             let game_started = ls.map(|s| s.game_started).unwrap_or(false);
             let your_team = ls.map(|s| s.your_team).unwrap_or(0);
-            let is_creator = ls.map(|s| s.is_creator).unwrap_or(false);
-            let can_start = self.is_net_connected() && !game_started && is_creator;
-            lobby_status = Some((game_started, your_team, can_start));
+            lobby_status = Some((game_started, your_team));
         }
-
+        let net_connected = self.is_net_connected();
         match &mut self.app_state {
             AppState::MainMenu(menu) => {
                 if click {
-                    match menu.click(sw, sh, mx, my)? {
-                        MenuChoice::Play => {
-                            return Some(AppState::NameEntry);
-                        }
-                        MenuChoice::Loadout => {
-                            return Some(AppState::Loadout(crate::ui::loadout::LoadoutMenu::new(
-                                &self.game.player_loadout(),
-                            )));
-                        }
-                        MenuChoice::Editor => {
-                            self.editor.refresh_prop_assets();
-                            self.editor.refresh_floor_assets();
-                            return Some(AppState::Editing);
-                        }
+                    if let Some(choice) = menu.click(sw, sh, mx, my) {
+                        return match choice {
+                            MenuChoice::Play => Some(AppState::NameEntry),
+                            MenuChoice::Loadout => Some(AppState::Loadout(
+                                crate::ui::loadout::LoadoutMenu::new(&self.game.player_loadout()),
+                            )),
+                            MenuChoice::Editor => {
+                                self.editor.refresh_prop_assets();
+                                self.editor.refresh_floor_assets();
+                                Some(AppState::Editing)
+                            }
+                        };
                     }
                 }
                 None
@@ -74,9 +71,14 @@ impl App {
                 }
                 None
             }
-            AppState::Lobby(menu) => {
-                let (game_started, your_team, can_start) =
-                    lobby_status.unwrap_or((false, 0, false));
+            AppState::Lobby(lobby_menu) => {
+                let (game_started, your_team) = lobby_status.unwrap_or((false, 0));
+                let is_creator = self
+                    .lobby_state
+                    .as_ref()
+                    .map(|state| state.is_creator)
+                    .unwrap_or(false);
+                let can_start = net_connected && !game_started && is_creator;
 
                 // Transition to Playing once the game is started AND the player
                 // has selected a team (pre-game players or mid-game spectators
@@ -87,20 +89,26 @@ impl App {
                 }
 
                 if click {
-                    if let Some(choice) = menu.click(sw, sh, mx, my, can_start) {
-                        if let Some(net) = &self.net {
-                            match choice {
-                                LobbyChoice::Team1 => {
+                    if let Some(choice) = lobby_menu.click(sw, sh, mx, my, can_start) {
+                        match choice {
+                            LobbyChoice::Team1 => {
+                                if let Some(net) = &self.net {
                                     let idx = self.game.player_weapon_catalog_index() as u8;
                                     net.send_lobby_select_weapon(idx);
                                     net.send_lobby_select_team(1);
                                 }
-                                LobbyChoice::Team2 => {
+                            }
+                            LobbyChoice::Team2 => {
+                                if let Some(net) = &self.net {
                                     let idx = self.game.player_weapon_catalog_index() as u8;
                                     net.send_lobby_select_weapon(idx);
                                     net.send_lobby_select_team(2);
                                 }
-                                LobbyChoice::StartGame => net.send_lobby_start_game(),
+                            }
+                            LobbyChoice::StartGame => {
+                                if let Some(net) = &self.net {
+                                    net.send_lobby_start_game();
+                                }
                             }
                         }
                     }

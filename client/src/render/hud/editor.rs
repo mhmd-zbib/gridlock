@@ -1,22 +1,34 @@
 use crate::ui::editor::{Editor, Tool};
+use crate::ui::editor::step_label;
 use game::render::text::TextSection;
 
 use super::shared::ts;
 
+const TEXT_STRONG: [f32; 4] = [0.92, 0.94, 0.98, 1.0];
+const TEXT_MEDIUM: [f32; 4] = [0.62, 0.66, 0.74, 1.0];
+const TEXT_SUBTLE: [f32; 4] = [0.55, 0.58, 0.66, 1.0];
+
 pub fn editor_texts(sw: f32, sh: f32, editor: &Editor) -> Vec<TextSection> {
-    let t = editor.wall_thickness_steps;
+    let size_label = step_label(editor.wall_size_steps);
     let tool = match editor.tool {
         Tool::PlayerSpawn => "Player Spawn".to_string(),
         Tool::Enemy => "Enemy".to_string(),
-        Tool::Wall => format!("Wall (2-point, thickness {}/8 tile)  Q/E to adjust", t),
+        Tool::Wall => format!(
+            "Wall — {size_label} tile  Q/E: cycle size  |  Click: place  Shift+Drag: line",
+        ),
         Tool::TargetDummy => "Target Dummy".to_string(),
-        Tool::Breakable => format!("Breakable Wall (2-point, thickness {}/8 tile)  Q/E to adjust", t),
+        Tool::Breakable => format!(
+            "Breakable — {size_label} tile  Q/E: cycle size  |  Click: place  Shift+Drag: line",
+        ),
         Tool::Prop => "Prop".to_string(),
         Tool::BaseMap => "Base Map (2-point bounds)".to_string(),
         Tool::Team1Spawn => "Team 1 Spawn (blue)".to_string(),
         Tool::Team2Spawn => "Team 2 Spawn (orange)".to_string(),
         Tool::Floor => "Floor".to_string(),
-        Tool::Eraser => format!("Eraser (size {}/8 tile)  Q/E to adjust", editor.eraser_size_steps),
+        Tool::Eraser => format!(
+            "Eraser (size {}/8 tile)  Q/E to adjust",
+            editor.eraser_size_steps
+        ),
     };
     let prop_info = match editor.selected_prop_asset() {
         Some(asset) => format!(
@@ -89,9 +101,10 @@ pub fn editor_texts(sw: f32, sh: f32, editor: &Editor) -> Vec<TextSection> {
         (prop_info, prop_assets_line)
     };
     let grid = format!(
-        "Snap: {}  Inner Grid: {}",
+        "Snap: {}  Inner Grid: {}  Textures: {}",
         editor.active_snap_label(),
-        if editor.show_subgrid { "ON" } else { "OFF" }
+        if editor.show_subgrid { "ON" } else { "OFF" },
+        if editor.show_textures { "ON" } else { "OFF" },
     );
     let breakables = editor.level.walls.iter().filter(|w| w.breakable).count();
     let solids = editor.level.walls.len().saturating_sub(breakables);
@@ -111,24 +124,24 @@ pub fn editor_texts(sw: f32, sh: f32, editor: &Editor) -> Vec<TextSection> {
     );
     vec![
         ts(8.0, 6.0, "LEVEL EDITOR", 18.0, [1.0, 0.7, 0.2, 1.0]),
-        ts(8.0, 28.0, tool, 15.0, [1.0, 1.0, 1.0, 1.0]),
-        ts(8.0, 46.0, grid, 13.0, [0.6, 0.6, 0.6, 1.0]),
+        ts(8.0, 28.0, tool, 15.0, TEXT_STRONG),
+        ts(8.0, 46.0, grid, 13.0, TEXT_MEDIUM),
         ts(8.0, 64.0, asset_info, 13.0, [0.6, 0.7, 0.9, 1.0]),
         ts(8.0, 82.0, assets_line, 13.0, [0.58, 0.65, 0.86, 1.0]),
         ts(
             6.0,
             sh - 38.0,
-            "1: Spawn   2: Enemy   3: Wall   4: Target   5: Breakable   6: Prop   7: Base Map   8: Team1 Spawn   9: Team2 Spawn   0: Floor   F: Eraser   Q/E: size/thickness",
+            "1: Spawn   2: Enemy   3: Wall   4: Target   5: Breakable   6: Prop   7: Base Map   8: Team1 Spawn   9: Team2 Spawn   0: Floor   F: Eraser   Q/E: shape/size   G: snap   H: subgrid   T: textures",
             13.0,
-            [0.55, 0.55, 0.55, 1.0],
+            TEXT_SUBTLE,
         ),
         ts(
             6.0,
             sh - 20.0,
-            "Left: place   Right: delete   Wheel or +/-: zoom   WASD/Arrows: pan   F5: save   L: load   F1: play   Esc: menu",
+            "Left: place (Floor: drag)   Right: delete (type-filtered)   Wall: Shift+Drag=line   Wheel/+/-: zoom   WASD/Arrows: pan   F5: save   L: load",
             13.0,
-            [0.55, 0.55, 0.55, 1.0],
+            TEXT_SUBTLE,
         ),
-        ts(sw - 180.0, 6.0, stats, 13.0, [0.5, 0.5, 0.5, 1.0]),
+        ts(sw - 180.0, 6.0, stats, 13.0, TEXT_MEDIUM),
     ]
 }

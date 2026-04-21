@@ -1,5 +1,4 @@
 use std::cmp::Ordering;
-use std::collections::HashSet;
 
 use game::world::floor::LevelFloor;
 use game::world::level::Pos;
@@ -7,12 +6,9 @@ use game::world::prop::LevelProp;
 use game::world::units::px_to_tiles;
 use game::world::wall::Wall;
 
-use super::helpers::{
-    build_corner_patch, choose_corner_cell, collect_edge_path, dist, edge_to_wall_rect,
-    nearest_idx, point_to_segment_dist,
-};
-use super::tool::{BREAKABLE_HP, EDGE_STEP, EdgeAxis, EdgeCell, EdgeKey};
-use super::{Editor, SnapMode, Tool};
+use super::helpers::{dist, nearest_idx};
+use super::tool::BREAKABLE_HP;
+use super::{Editor, Tool};
 
 impl Editor {
     pub(super) fn place(&mut self, x: f32, y: f32) {
@@ -37,6 +33,7 @@ impl Editor {
                     return;
                 };
                 let prop_id = asset.id.clone();
+                self.level.props.retain(|p| (p.x - x).abs() >= 0.001 || (p.y - y).abs() >= 0.001);
                 self.level.props.push(LevelProp { x, y, id: prop_id });
             }
             Tool::Floor => {
@@ -44,6 +41,7 @@ impl Editor {
                     return;
                 };
                 let floor_id = asset.id.clone();
+                self.level.floors.retain(|f| (f.x - x).abs() >= 0.001 || (f.y - y).abs() >= 0.001);
                 self.level.floors.push(LevelFloor { x, y, id: floor_id });
             }
             Tool::Wall | Tool::Breakable | Tool::BaseMap | Tool::Eraser => {}
@@ -51,10 +49,23 @@ impl Editor {
     }
 
     pub(super) fn delete_at(&mut self, x: f32, y: f32) {
-        const EDGE_REMOVE_RADIUS: f32 = px_to_tiles(18.0);
-        if let Some((edge, _cell)) = self.nearest_edge_at(x, y, EDGE_REMOVE_RADIUS) {
-            self.edges.remove(&edge);
-            self.rebuild_walls_from_edges();
+        const R: f32 = px_to_tiles(20.0);
+
+        let found_wall = self
+            .level
+            .walls
+            .iter()
+            .enumerate()
+            .map(|(i, w)| {
+                let cx = w.x + w.w * 0.5;
+                let cy = w.y + w.h * 0.5;
+                (i, dist(cx, cy, x, y))
+            })
+            .filter(|(_, d)| *d < R)
+            .min_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(Ordering::Equal))
+            .map(|(i, _)| i);
+        if let Some(idx) = found_wall {
+            self.level.walls.remove(idx);
             return;
         }
 
@@ -70,7 +81,6 @@ impl Editor {
             return;
         }
 
-        const R: f32 = px_to_tiles(20.0);
         if let Some(idx) = nearest_idx(&self.level.enemies, x, y, R) {
             self.level.enemies.remove(idx);
             return;
@@ -98,140 +108,52 @@ impl Editor {
         }
     }
 
-    pub(super) fn add_edge_path(
-        &mut self,
-        start: (f32, f32),
-        end: (f32, f32),
-        mode: SnapMode,
-        breakable: bool,
-        thickness_steps: u32,
-    ) -> Option<(usize, f32)> {
-        let (keys, len) = collect_edge_path(start, end, mode)?;
-        let mut added = 0usize;
-        let cell = EdgeCell {
-            breakable,
-            hp: if breakable { BREAKABLE_HP } else { 1 },
-            thickness_steps: thickness_steps.max(1),
+    /// Place a single EDGE_STEP cell. All stored walls are always this atomic size.
+    fn place_wall_cell(&mut self, x: f32, y: f32, breakable: bool) {
+        use super::tool::EDGE_STEP;
+        self.level.walls.retain(|w| (w.x - x).abs() >= 0.001 || (w.y - y).abs() >= 0.001);
+        let wall = if breakable {
+            Wall::new_breakable(x, y, EDGE_STEP, EDGE_STEP, BREAKABLE_HP)
+        } else {
+            Wall::new(x, y, EDGE_STEP, EDGE_STEP)
         };
-        for key in keys {
-            if self.edges.insert(key, cell).is_none() {
-                added += 1;
-            }
-        }
-        self.rebuild_walls_from_edges();
-        Some((added, len))
+        self.level.walls.push(wall);
     }
 
-    pub(super) fn rebuild_walls_from_edges(&mut self) {
-        let mut out = Vec::new();
-        let mut nodes = HashSet::new();
-        for (key, cell) in &self.edges {
-            let thickness = cell.thickness_steps as f32 * EDGE_STEP;
-            let (x, y, w, h) = edge_to_wall_rect(*key, thickness);
-            let horiz = key.axis == EdgeAxis::Horizontal;
-            let mut wall = if cell.breakable {
-                Wall::new_breakable(x, y, w, h, cell.hp)
-            } else {
-                Wall::new(x, y, w, h)
-            };
-            wall.horizontal = Some(horiz);
-            out.push(wall);
-            match key.axis {
-                EdgeAxis::Horizontal => {
-                    nodes.insert((key.x, key.y));
-                    nodes.insert((key.x + 1, key.y));
-                }
-                EdgeAxis::Vertical => {
-                    nodes.insert((key.x, key.y));
-                    nodes.insert((key.x, key.y + 1));
-                }
+    /// Fill a brush-sized square of EDGE_STEP cells starting at (cx, cy).
+    pub(super) fn place_wall_block(&mut self, cx: f32, cy: f32, breakable: bool) {
+        use super::tool::EDGE_STEP;
+        for iy in 0..self.wall_size_steps {
+            for ix in 0..self.wall_size_steps {
+                self.place_wall_cell(
+                    cx + ix as f32 * EDGE_STEP,
+                    cy + iy as f32 * EDGE_STEP,
+                    breakable,
+                );
             }
         }
-
-        for (vx, vy) in nodes {
-            let west = self.edges.get(&EdgeKey {
-                axis: EdgeAxis::Horizontal,
-                x: vx - 1,
-                y: vy,
-            });
-            let east = self.edges.get(&EdgeKey {
-                axis: EdgeAxis::Horizontal,
-                x: vx,
-                y: vy,
-            });
-            let north = self.edges.get(&EdgeKey {
-                axis: EdgeAxis::Vertical,
-                x: vx,
-                y: vy - 1,
-            });
-            let south = self.edges.get(&EdgeKey {
-                axis: EdgeAxis::Vertical,
-                x: vx,
-                y: vy,
-            });
-            let has_h = west.is_some() || east.is_some();
-            let has_v = north.is_some() || south.is_some();
-            if has_h && has_v {
-                let mut touching = Vec::new();
-                if let Some(c) = west {
-                    touching.push(*c);
-                }
-                if let Some(c) = east {
-                    touching.push(*c);
-                }
-                if let Some(c) = north {
-                    touching.push(*c);
-                }
-                if let Some(c) = south {
-                    touching.push(*c);
-                }
-                out.push(build_corner_patch(vx, vy, choose_corner_cell(&touching)));
-            }
-        }
-
-        self.level.walls = out;
     }
 
-    pub(super) fn rebuild_edges_from_walls(&mut self) {
-        self.edges.clear();
-        for w in &self.level.walls {
-            let (horizontal, is_new_format) = match w.horizontal {
-                Some(h) => (h, true),
-                None => {
-                    if (w.w - w.h).abs() < 0.001 {
-                        continue; // corner patch, skip — regenerated by rebuild_walls_from_edges
-                    }
-                    (w.w > w.h, false)
-                }
-            };
-            let thickness_steps = if horizontal {
-                ((w.h / EDGE_STEP).round() as u32).max(1)
-            } else {
-                ((w.w / EDGE_STEP).round() as u32).max(1)
-            };
-            let cell = EdgeCell {
-                breakable: w.breakable,
-                hp: w.hp.max(1),
-                thickness_steps,
-            };
-            if horizontal {
-                let y_line = if is_new_format { w.y } else { w.y + w.h * 0.5 };
-                let y = (y_line / EDGE_STEP).round() as i32;
-                let x0 = (w.x / EDGE_STEP).round() as i32;
-                let x1 = ((w.x + w.w) / EDGE_STEP).round() as i32;
-                let (from, to) = if x0 <= x1 { (x0, x1) } else { (x1, x0) };
-                for x in from..to {
-                    self.edges.insert(EdgeKey { axis: EdgeAxis::Horizontal, x, y }, cell);
-                }
-            } else {
-                let x_line = if is_new_format { w.x } else { w.x + w.w * 0.5 };
-                let x = (x_line / EDGE_STEP).round() as i32;
-                let y0 = (w.y / EDGE_STEP).round() as i32;
-                let y1 = ((w.y + w.h) / EDGE_STEP).round() as i32;
-                let (from, to) = if y0 <= y1 { (y0, y1) } else { (y1, y0) };
-                for y in from..to {
-                    self.edges.insert(EdgeKey { axis: EdgeAxis::Vertical, x, y }, cell);
-                }
+    /// Place a line of brush-sized blocks from `start` to `end` (both already snapped).
+    /// The line is forced to be axis-aligned (H or V based on which delta is larger).
+    pub(super) fn place_wall_line(&mut self, start: (f32, f32), end: (f32, f32), breakable: bool) {
+        let size = self.wall_block_size();
+        let (sx, sy) = start;
+        let (ex, ey) = end;
+
+        if (ex - sx).abs() >= (ey - sy).abs() {
+            let (from_x, to_x) = if sx <= ex { (sx, ex) } else { (ex, sx) };
+            let mut x = from_x;
+            while x <= to_x + 0.001 {
+                self.place_wall_block(x, sy, breakable);
+                x += size;
+            }
+        } else {
+            let (from_y, to_y) = if sy <= ey { (sy, ey) } else { (ey, sy) };
+            let mut y = from_y;
+            while y <= to_y + 0.001 {
+                self.place_wall_block(sx, y, breakable);
+                y += size;
             }
         }
     }
@@ -239,27 +161,24 @@ impl Editor {
     pub(super) fn erase_in_rect(&mut self, cx: f32, cy: f32, half: f32) {
         let (x0, x1, y0, y1) = (cx - half, cx + half, cy - half, cy + half);
 
-        // Remove edges whose midpoint falls within the rect
-        self.edges.retain(|key, _| {
-            let (mx, my) = match key.axis {
-                EdgeAxis::Horizontal => (
-                    (key.x as f32 + 0.5) * EDGE_STEP,
-                    key.y as f32 * EDGE_STEP,
-                ),
-                EdgeAxis::Vertical => (
-                    key.x as f32 * EDGE_STEP,
-                    (key.y as f32 + 0.5) * EDGE_STEP,
-                ),
-            };
-            mx < x0 || mx > x1 || my < y0 || my > y1
+        self.level.walls.retain(|w| {
+            let wcx = w.x + w.w * 0.5;
+            let wcy = w.y + w.h * 0.5;
+            wcx < x0 || wcx > x1 || wcy < y0 || wcy > y1
         });
-        self.rebuild_walls_from_edges();
 
-        // Remove point objects within the rect
-        self.level.enemies.retain(|p| p.x < x0 || p.x > x1 || p.y < y0 || p.y > y1);
-        self.level.target_enemies.retain(|p| p.x < x0 || p.x > x1 || p.y < y0 || p.y > y1);
-        self.level.props.retain(|p| p.x < x0 || p.x > x1 || p.y < y0 || p.y > y1);
-        self.level.floors.retain(|p| p.x < x0 || p.x > x1 || p.y < y0 || p.y > y1);
+        self.level
+            .enemies
+            .retain(|p| p.x < x0 || p.x > x1 || p.y < y0 || p.y > y1);
+        self.level
+            .target_enemies
+            .retain(|p| p.x < x0 || p.x > x1 || p.y < y0 || p.y > y1);
+        self.level
+            .props
+            .retain(|p| p.x < x0 || p.x > x1 || p.y < y0 || p.y > y1);
+        self.level
+            .floors
+            .retain(|p| p.x < x0 || p.x > x1 || p.y < y0 || p.y > y1);
         if let Some(sp) = self.level.player_spawn {
             if sp.x >= x0 && sp.x <= x1 && sp.y >= y0 && sp.y <= y1 {
                 self.level.player_spawn = None;
@@ -277,28 +196,70 @@ impl Editor {
         }
     }
 
-    fn nearest_edge_at(&self, px: f32, py: f32, max_dist: f32) -> Option<(EdgeKey, EdgeCell)> {
-        self.edges
-            .iter()
-            .map(|(key, cell)| {
-                let (ax, ay, bx, by) = match key.axis {
-                    EdgeAxis::Horizontal => {
-                        let x0 = key.x as f32 * EDGE_STEP;
-                        let y = key.y as f32 * EDGE_STEP;
-                        (x0, y, x0 + EDGE_STEP, y)
-                    }
-                    EdgeAxis::Vertical => {
-                        let x = key.x as f32 * EDGE_STEP;
-                        let y0 = key.y as f32 * EDGE_STEP;
-                        (x, y0, x, y0 + EDGE_STEP)
-                    }
-                };
-                let d = point_to_segment_dist(px, py, ax, ay, bx, by);
-                (*key, *cell, d)
-            })
-            .filter(|(_, _, d)| *d <= max_dist)
-            .min_by(|a, b| a.2.partial_cmp(&b.2).unwrap_or(Ordering::Equal))
-            .map(|(key, cell, _)| (key, cell))
+    pub(super) fn delete_wall_at_point(&mut self, cx: f32, cy: f32, breakable: bool) {
+        use super::tool::EDGE_STEP;
+        for iy in 0..self.wall_size_steps {
+            for ix in 0..self.wall_size_steps {
+                let x = cx + ix as f32 * EDGE_STEP;
+                let y = cy + iy as f32 * EDGE_STEP;
+                self.level.walls.retain(|w| {
+                    w.breakable != breakable
+                        || (w.x - x).abs() >= 0.001
+                        || (w.y - y).abs() >= 0.001
+                });
+            }
+        }
+    }
+
+    pub(super) fn delete_nearest_prop_at(&mut self, x: f32, y: f32) {
+        const R: f32 = px_to_tiles(20.0);
+        if let Some(idx) = self.nearest_prop_idx(x, y, R) {
+            self.level.props.remove(idx);
+        }
+    }
+
+    pub(super) fn delete_nearest_floor_at(&mut self, x: f32, y: f32) {
+        const R: f32 = px_to_tiles(20.0);
+        if let Some(idx) = self.nearest_floor_idx(x, y, R) {
+            self.level.floors.remove(idx);
+        }
+    }
+
+    pub(super) fn delete_nearest_enemy_at(&mut self, x: f32, y: f32) {
+        const R: f32 = px_to_tiles(20.0);
+        if let Some(idx) = nearest_idx(&self.level.enemies, x, y, R) {
+            self.level.enemies.remove(idx);
+        }
+    }
+
+    pub(super) fn delete_nearest_target_dummy_at(&mut self, x: f32, y: f32) {
+        const R: f32 = px_to_tiles(20.0);
+        if let Some(idx) = nearest_idx(&self.level.target_enemies, x, y, R) {
+            self.level.target_enemies.remove(idx);
+        }
+    }
+
+    pub(super) fn delete_player_spawn_at(&mut self, x: f32, y: f32) {
+        const R: f32 = px_to_tiles(20.0);
+        if let Some(sp) = self.level.player_spawn {
+            if dist(sp.x, sp.y, x, y) < R {
+                self.level.player_spawn = None;
+            }
+        }
+    }
+
+    pub(super) fn delete_team_spawn_at(&mut self, x: f32, y: f32, team: u8) {
+        const R: f32 = px_to_tiles(20.0);
+        let spawn = if team == 1 {
+            &mut self.level.team1_spawn
+        } else {
+            &mut self.level.team2_spawn
+        };
+        if let Some(sp) = *spawn {
+            if dist(sp.x, sp.y, x, y) < R {
+                *spawn = None;
+            }
+        }
     }
 
     fn nearest_prop_idx(&self, x: f32, y: f32, max_dist: f32) -> Option<usize> {

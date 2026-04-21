@@ -1,4 +1,5 @@
-use game::render::quad::QuadInstance;
+use ::ui::components::{PrimaryButton, PrimaryButtonFrame, PrimaryButtonQuad};
+use game::render::quad::ShadedQuadInstance;
 
 // ---------------------------------------------------------------------------
 // Button
@@ -10,8 +11,6 @@ struct Button {
     y: f32,
     w: f32,
     h: f32,
-    color: [f32; 4],
-    color_hover: [f32; 4],
 }
 
 impl Button {
@@ -19,16 +18,27 @@ impl Button {
         mx >= self.x && mx <= self.x + self.w && my >= self.y && my <= self.y + self.h
     }
 
-    fn instance(&self, mx: f32, my: f32) -> QuadInstance {
-        QuadInstance {
-            center: [self.x + self.w * 0.5, self.y + self.h * 0.5],
-            half_size: [self.w * 0.5, self.h * 0.5],
-            color: if self.contains(mx, my) {
-                self.color_hover
-            } else {
-                self.color
-            },
-        }
+    fn instance(&self, mx: f32, my: f32) -> ShadedQuadInstance {
+        let hovered = self.contains(mx, my);
+        let frame = PrimaryButtonFrame::centered(
+            [self.x + self.w * 0.5, self.y + self.h * 0.5],
+            [self.w, self.h],
+            self.w * 0.08,
+        );
+        let data = PrimaryButton::shaded_instance(frame, hovered);
+        quad_from_ui(data)
+    }
+}
+
+fn quad_from_ui(layer: PrimaryButtonQuad) -> ShadedQuadInstance {
+    ShadedQuadInstance {
+        center: layer.center,
+        half_size: layer.half_size,
+        top_color: layer.top_color,
+        bottom_color: layer.bottom_color,
+        stroke_color: layer.stroke_color,
+        accent_color: layer.accent_color,
+        params: layer.params,
     }
 }
 
@@ -59,29 +69,23 @@ impl MainMenu {
             y: sh * 0.28,
             w: bw,
             h: bh,
-            color: [0.12, 0.50, 0.12, 1.0],
-            color_hover: [0.18, 0.80, 0.18, 1.0],
         };
         let loadout = Button {
             x: cx,
             y: play.y + bh + gap,
             w: bw,
             h: bh,
-            color: [0.08, 0.28, 0.60, 1.0],
-            color_hover: [0.14, 0.44, 0.92, 1.0],
         };
         let editor = Button {
             x: cx,
             y: loadout.y + bh + gap,
             w: bw,
             h: bh,
-            color: [0.55, 0.30, 0.05, 1.0],
-            color_hover: [0.85, 0.50, 0.10, 1.0],
         };
         [play, loadout, editor]
     }
 
-    pub fn instances(&self, sw: f32, sh: f32, mx: f32, my: f32) -> Vec<QuadInstance> {
+    pub fn instances(&self, sw: f32, sh: f32, mx: f32, my: f32) -> Vec<ShadedQuadInstance> {
         let [play, loadout, editor] = Self::buttons(sw, sh);
         vec![
             play.instance(mx, my),

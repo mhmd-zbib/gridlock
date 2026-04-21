@@ -6,6 +6,7 @@ edition.workspace = true
 [dependencies]
 bytemuck = "1.25.0"
 fontdue  = "0.8"
+jpeg-decoder = "0.3"
 png      = "0.17"
 pollster = "0.4.0"
 wgpu     = "29.0.1"

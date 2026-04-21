@@ -5,6 +5,7 @@ pub(super) fn make_pipeline(
     vertex_buffers: &[wgpu::VertexBufferLayout],
     color_target: &wgpu::ColorTargetState,
     depth_stencil: Option<wgpu::DepthStencilState>,
+    vs_entry: &str,
     fs_entry: &str,
     label: &str,
 ) -> wgpu::RenderPipeline {
@@ -13,7 +14,7 @@ pub(super) fn make_pipeline(
         layout: Some(layout),
         vertex: wgpu::VertexState {
             module: shader,
-            entry_point: Some("vs_main"),
+            entry_point: Some(vs_entry),
             compilation_options: Default::default(),
             buffers: vertex_buffers,
         },

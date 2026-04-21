@@ -117,6 +117,16 @@ impl LoadoutMenu {
         weapon_supports_attachment_category(self.selected_weapon_id(), category)
     }
 
+    pub fn cycle_weapon(&mut self, direction: i8) {
+        self.selected_row = 0;
+        self.step_selected_option(direction);
+    }
+
+    pub fn cycle_attachment(&mut self, category: AttachmentCategory, direction: i8) {
+        self.selected_row = category.index() + 1;
+        self.step_selected_option(direction);
+    }
+
     pub fn instances(&self, sw: f32, sh: f32) -> Vec<QuadInstance> {
         let mut out = Vec::new();
 

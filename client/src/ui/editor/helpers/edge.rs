@@ -2,7 +2,7 @@ use game::world::wall::Wall;
 
 use super::misc::dist;
 use super::snap::snap_point;
-use crate::ui::editor::tool::{BREAKABLE_HP, EDGE_STEP, EdgeAxis, EdgeCell, EdgeKey, SnapMode};
+use crate::ui::editor::tool::{BREAKABLE_HP, EDGE_STEP, EdgeAxis, EdgeCell, EdgeKey, SnapMode, WallShape};
 
 #[derive(Clone, Copy)]
 pub struct GridVertex {
@@ -143,6 +143,46 @@ pub fn build_corner_patch(vx: i32, vy: i32, cell: EdgeCell) -> Wall {
     } else {
         Wall::new(x, y, t, t)
     }
+}
+
+/// Returns (x, y, w, h) wall rects for a single-click tile placement at (cx, cy).
+pub fn preview_wall_tile(cx: f32, cy: f32, shape: WallShape) -> Vec<(f32, f32, f32, f32)> {
+    let axis = if shape.x_steps > shape.y_steps {
+        EdgeAxis::Horizontal
+    } else if shape.y_steps > shape.x_steps {
+        EdgeAxis::Vertical
+    } else {
+        cursor_edge_key(cx, cy).axis
+    };
+
+    let (thickness_steps, num_edges) = match axis {
+        EdgeAxis::Horizontal => (shape.y_steps, shape.x_steps),
+        EdgeAxis::Vertical => (shape.x_steps, shape.y_steps),
+    };
+    let thickness = thickness_steps as f32 * EDGE_STEP;
+
+    let mut rects = Vec::new();
+    match axis {
+        EdgeAxis::Horizontal => {
+            let y = (cy / EDGE_STEP).round() as i32;
+            let cx_grid = (cx / EDGE_STEP).round() as i32;
+            let x_start = cx_grid - (num_edges as i32) / 2;
+            for i in 0..num_edges as i32 {
+                let key = EdgeKey { axis: EdgeAxis::Horizontal, x: x_start + i, y };
+                rects.push(edge_to_wall_rect(key, thickness));
+            }
+        }
+        EdgeAxis::Vertical => {
+            let x = (cx / EDGE_STEP).round() as i32;
+            let cy_grid = (cy / EDGE_STEP).round() as i32;
+            let y_start = cy_grid - (num_edges as i32) / 2;
+            for i in 0..num_edges as i32 {
+                let key = EdgeKey { axis: EdgeAxis::Vertical, x, y: y_start + i };
+                rects.push(edge_to_wall_rect(key, thickness));
+            }
+        }
+    }
+    rects
 }
 
 pub fn preview_edge_walls(

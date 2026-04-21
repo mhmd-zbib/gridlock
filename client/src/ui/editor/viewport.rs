@@ -11,14 +11,14 @@ impl Editor {
         )
     }
 
-    fn world_to_screen(&self, wx: f32, wy: f32) -> (f32, f32) {
+    pub(crate) fn world_to_screen(&self, wx: f32, wy: f32) -> (f32, f32) {
         (
             tiles_to_px(wx - self.view_origin.0) * self.zoom,
             tiles_to_px(wy - self.view_origin.1) * self.zoom,
         )
     }
 
-    fn world_len_to_screen(&self, world_len: f32) -> f32 {
+    pub(crate) fn world_len_to_screen(&self, world_len: f32) -> f32 {
         tiles_to_px(world_len).abs() * self.zoom
     }
 

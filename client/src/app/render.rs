@@ -1,4 +1,3 @@
-use crate::net::ConnState;
 use crate::render::entities::entity_quads;
 use crate::render::fog::vision_cone_mask;
 use crate::render::geometry::play_geometry;
@@ -16,7 +15,7 @@ use game::entity::enemy::EnemyKind;
 use game::entity::weapon::attachment::AttachmentCategory;
 use game::game::IMPACT_TTL;
 use game::render::geometry::GeoVertex;
-use game::render::quad::QuadInstance;
+use game::render::quad::{QuadInstance, ShadedQuadInstance};
 use game::render::sprite::SpriteCommand;
 use game::render::text::TextSection;
 use game::world::floor;
@@ -50,44 +49,25 @@ impl App {
         viewport_px: (f32, f32),
         mx: f32,
         my: f32,
-    ) -> (Vec<QuadInstance>, Vec<QuadInstance>) {
-        let (sw, sh) = viewport_px;
+    ) -> (Vec<QuadInstance>, Vec<QuadInstance>, Vec<QuadInstance>) {
         match &self.app_state {
-            AppState::MainMenu(menu) => {
-                (menu.instances(viewport_px.0, viewport_px.1, mx, my), vec![])
+            AppState::MainMenu(_) => (vec![], vec![], vec![]),
+            AppState::NameEntry => (vec![], vec![], vec![]),
+            AppState::Loadout(loadout) => {
+                (loadout.instances(viewport_px.0, viewport_px.1), vec![], vec![])
             }
-            AppState::NameEntry => {
-                // Dark panel behind the name input.
-                (
-                    vec![
-                        QuadInstance {
-                            center: [sw * 0.5, sh * 0.5],
-                            half_size: [sw * 0.30, sh * 0.14],
-                            color: [0.06, 0.06, 0.08, 0.96],
-                        },
-                        // Input box outline
-                        QuadInstance {
-                            center: [sw * 0.5, sh * 0.56],
-                            half_size: [sw * 0.22, sh * 0.04],
-                            color: [0.18, 0.18, 0.22, 1.0],
-                        },
-                    ],
-                    vec![],
-                )
-            }
-            AppState::Loadout(loadout) => (loadout.instances(viewport_px.0, viewport_px.1), vec![]),
             AppState::Lobby(lobby) => {
-                let ls = self.lobby_state.as_ref();
-                let selected_team = ls.map(|s| s.your_team).unwrap_or(0);
-                let is_creator = ls.map(|s| s.is_creator).unwrap_or(false);
-                let game_started = ls.map(|s| s.game_started).unwrap_or(false);
-                let connected = self
-                    .net
+                let selected_team = self.lobby_state.as_ref().map(|s| s.your_team).unwrap_or(0);
+                let is_creator = self
+                    .lobby_state
                     .as_ref()
-                    .map(|n| matches!(n.state(), ConnState::Connected { .. }))
+                    .map(|state| state.is_creator)
                     .unwrap_or(false);
-                let can_start = connected && !game_started && is_creator;
-
+                let can_start = self
+                    .lobby_state
+                    .as_ref()
+                    .map(|state| self.is_net_connected() && !state.game_started && state.is_creator)
+                    .unwrap_or(false);
                 (
                     lobby.instances(
                         viewport_px.0,
@@ -99,6 +79,7 @@ impl App {
                         is_creator,
                     ),
                     vec![],
+                    vec![],
                 )
             }
             AppState::Playing => {
@@ -109,14 +90,27 @@ impl App {
                 let (entity_scene, entity_masked) =
                     entity_quads(&entities_view, &self.camera, viewport_px);
 
-                let mut scene = world;
+                let mut scene = world.scene;
                 scene.extend(entity_scene);
-                (scene, entity_masked)
+                (scene, world.walls, entity_masked)
             }
-            AppState::Editing => (
-                self.editor.instances(viewport_px.0, viewport_px.1, mx, my),
-                vec![],
-            ),
+            AppState::Editing => {
+                let (scene, walls) =
+                    self.editor.layered_instances(viewport_px.0, viewport_px.1, mx, my);
+                (scene, walls, vec![])
+            }
+        }
+    }
+
+    pub(super) fn build_shaded_quads(
+        &self,
+        viewport_px: (f32, f32),
+        mx: f32,
+        my: f32,
+    ) -> Vec<ShadedQuadInstance> {
+        match &self.app_state {
+            AppState::MainMenu(menu) => menu.instances(viewport_px.0, viewport_px.1, mx, my),
+            _ => vec![],
         }
     }
 
@@ -127,8 +121,8 @@ impl App {
             AppState::Loadout(loadout) => loadout_texts(sw, sh, loadout),
             AppState::Lobby(_) => lobby_texts(sw, sh, self.net.as_ref(), self.lobby_state.as_ref()),
             AppState::Playing => {
-                let view = self.playing_hud_view();
-                play_texts(sw, sh, &view, &self.camera)
+                let hud = self.playing_hud_view();
+                play_texts(sw, sh, &hud, &self.camera)
             }
             AppState::Editing => editor_texts(sw, sh, &self.editor),
         }
@@ -384,7 +378,7 @@ impl App {
         }
     }
 
-    fn playing_hud_view(&self) -> HudView<'_> {
+    pub(super) fn playing_hud_view(&self) -> HudView<'_> {
         let player = &self.game.player;
         let attachments_line = AttachmentCategory::all()
             .iter()
@@ -484,16 +478,27 @@ impl App {
 
     /// Collect textured sprite draw commands for the current frame.
     ///
-    /// Only props whose texture was successfully loaded into the GPU cache
-    /// emit a sprite command; the rest continue to render as solid-color quads.
-    pub(super) fn build_sprites(&self, viewport_px: (f32, f32)) -> Vec<SpriteCommand> {
+    /// Only floors/props whose textures were successfully loaded into the GPU
+    /// cache emit sprite commands; the rest continue to render as solid-color
+    /// quads.
+    pub(super) fn build_sprites(
+        &self,
+        viewport_px: (f32, f32),
+    ) -> (Vec<SpriteCommand>, Vec<SpriteCommand>) {
+        if let AppState::Editing = &self.app_state {
+            return self
+                .editor
+                .build_editor_sprites(&self.floor_textures, &self.prop_textures);
+        }
+
         let AppState::Playing = &self.app_state else {
-            return vec![];
+            return (vec![], vec![]);
         };
 
         let world_view = self.playing_world_view();
         let transform = self.camera.screen_transform(viewport_px);
-        let mut cmds = Vec::new();
+        let mut floor_cmds = Vec::new();
+        let mut prop_cmds = Vec::new();
 
         // Floors first so they render beneath props.
         for f in &world_view.floors {
@@ -503,7 +508,9 @@ impl App {
             let (cx, cy) = transform.world_to_screen(f.pos);
             let hw = f.half_size.0 * transform.pixels_per_unit;
             let hh = f.half_size.1 * transform.pixels_per_unit;
-            cmds.push(SpriteCommand::simple(handle, [cx, cy], [hw, hh], 1.0));
+            let mut cmd = SpriteCommand::simple(handle, [cx, cy], [hw, hh], 0.0);
+            cmd.uv_rect = floor_uv_rect_for_world_size(f.half_size);
+            floor_cmds.push(cmd);
         }
 
         for p in &world_view.props {
@@ -513,11 +520,25 @@ impl App {
             let (cx, cy) = transform.world_to_screen(p.pos);
             let hw = p.half_size.0 * transform.pixels_per_unit;
             let hh = p.half_size.1 * transform.pixels_per_unit;
-            cmds.push(SpriteCommand::simple(handle, [cx, cy], [hw, hh], 1.0));
+            prop_cmds.push(SpriteCommand::simple(handle, [cx, cy], [hw, hh], 1.0));
         }
 
-        cmds
+        (floor_cmds, prop_cmds)
     }
+}
+
+fn floor_uv_rect_for_world_size(half_size: (f32, f32)) -> [f32; 4] {
+    // Keep 1.0x1.0 floors mapped to the full texture. For sub-unit floors,
+    // crop the sampled area instead of scaling so texture density stays fixed.
+    let width_units = (half_size.0 * 2.0).max(0.0);
+    let height_units = (half_size.1 * 2.0).max(0.0);
+    let u_span = width_units.min(1.0);
+    let v_span = height_units.min(1.0);
+    let u_min = 0.5 - u_span * 0.5;
+    let u_max = 0.5 + u_span * 0.5;
+    let v_min = 0.5 - v_span * 0.5;
+    let v_max = 0.5 + v_span * 0.5;
+    [u_min, v_min, u_max, v_max]
 }
 
 fn enemy_body_color(kind: EnemyKind, visible: bool) -> [f32; 4] {
@@ -591,5 +612,23 @@ mod tests {
         assert_eq!(view.player.ammo, 7);
         assert!(view.player.reloading);
         assert!(view.enemies.is_empty());
+    }
+
+    #[test]
+    fn floor_uv_rect_crops_subunit_tiles_instead_of_scaling() {
+        let uv = floor_uv_rect_for_world_size((0.25, 0.4));
+        assert!((uv[0] - 0.25).abs() < 1e-6);
+        assert!((uv[1] - 0.1).abs() < 1e-6);
+        assert!((uv[2] - 0.75).abs() < 1e-6);
+        assert!((uv[3] - 0.9).abs() < 1e-6);
+    }
+
+    #[test]
+    fn floor_uv_rect_uses_full_texture_for_unit_and_larger_tiles() {
+        let uv = floor_uv_rect_for_world_size((1.0, 0.6));
+        assert!((uv[0] - 0.0).abs() < 1e-6);
+        assert!((uv[1] - 0.0).abs() < 1e-6);
+        assert!((uv[2] - 1.0).abs() < 1e-6);
+        assert!((uv[3] - 1.0).abs() < 1e-6);
     }
 }

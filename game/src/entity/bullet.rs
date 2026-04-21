@@ -47,4 +47,10 @@ impl Bullet {
         self.x += self.vx * dt;
         self.y += self.vy * dt;
     }
+
+    /// Normalised direction the bullet is travelling.
+    pub fn dir(&self) -> (f32, f32) {
+        let len = (self.vx * self.vx + self.vy * self.vy).sqrt();
+        if len > 1e-9 { (self.vx / len, self.vy / len) } else { (0.0, 0.0) }
+    }
 }

@@ -18,10 +18,6 @@ pub fn snap_point(x: f32, y: f32, mode: SnapMode) -> (f32, f32) {
     }
 }
 
-pub fn effective_snap_mode(tool: Tool, mode: SnapMode) -> SnapMode {
-    if matches!(tool, Tool::Wall | Tool::Breakable) && mode == SnapMode::Center {
-        SnapMode::Edge
-    } else {
-        mode
-    }
+pub fn effective_snap_mode(_tool: Tool, mode: SnapMode) -> SnapMode {
+    mode
 }

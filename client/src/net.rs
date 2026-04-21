@@ -99,7 +99,9 @@ impl NetClient {
     pub fn send_lobby_select_weapon(&self, catalog_index: u8) {
         let _ = self
             .cmd_tx
-            .try_send(Cmd::SendLobbyCommand(LobbyCommand::select_weapon(catalog_index)));
+            .try_send(Cmd::SendLobbyCommand(LobbyCommand::select_weapon(
+                catalog_index,
+            )));
     }
 
     /// Drain all server snapshots received since the last call, oldest first.

@@ -146,7 +146,13 @@ fn push_collider_outlines(
             for (from, to) in rect_outline_edges((x - i, y - i, w + 2.0 * i, h + 2.0 * i)) {
                 let from_px = camera.world_to_screen(from, viewport_px);
                 let to_px = camera.world_to_screen(to, viewport_px);
-                push_line_segment(out, from_px, to_px, COLLIDER_OUTLINE_WIDTH_PX, COLLIDER_OUTLINE_COLOR);
+                push_line_segment(
+                    out,
+                    from_px,
+                    to_px,
+                    COLLIDER_OUTLINE_WIDTH_PX,
+                    COLLIDER_OUTLINE_COLOR,
+                );
             }
         }
     }

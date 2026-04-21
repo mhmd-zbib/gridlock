@@ -1,6 +1,6 @@
 use crate::entity::bullet::{Bullet, BulletOwner};
 use crate::entity::enemy::Enemy;
-use crate::world::wall::Wall;
+use crate::world::wall::{Wall, pierce_breakable_chain};
 
 pub struct ImpactEvent {
     /// Impact position (where the bullet stopped).
@@ -25,17 +25,15 @@ pub fn step_projectiles(
     for bullet in bullets.iter_mut() {
         bullet.update(dt);
         if let Some(hit_idx) = walls.iter().position(|w| w.contains(bullet.x, bullet.y)) {
-            bullet.alive = false;
-            let destroyed = {
-                let wall = &mut walls[hit_idx];
-                wall.take_damage_at(bullet.x, bullet.y, bullet.damage)
+            let (impact_x, impact_y) = if walls[hit_idx].breakable {
+                pierce_breakable_chain(walls, (bullet.x, bullet.y), bullet.dir(), bullet.damage)
+            } else {
+                (bullet.x, bullet.y)
             };
-            if destroyed {
-                walls.remove(hit_idx);
-            }
+            bullet.alive = false;
             impacts.push(ImpactEvent {
-                x: bullet.x,
-                y: bullet.y,
+                x: impact_x,
+                y: impact_y,
                 origin_x: bullet.origin_x,
                 origin_y: bullet.origin_y,
             });

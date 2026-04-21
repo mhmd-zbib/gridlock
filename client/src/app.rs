@@ -84,6 +84,7 @@ pub struct App {
     prop_textures: HashMap<String, AssetHandle>,
     /// floor id → GPU texture handle, populated once after the GPU is ready.
     floor_textures: HashMap<String, AssetHandle>,
+    _hud_deps: ::ui::hud::HudDependencies,
 }
 
 impl Default for App {
@@ -123,6 +124,7 @@ impl Default for App {
             my_team: 0,
             prop_textures: HashMap::new(),
             floor_textures: HashMap::new(),
+            _hud_deps: ::ui::hud::HudDependencies::tactical_defaults(),
         }
     }
 }
@@ -257,18 +259,24 @@ impl App {
     fn render_frame(&mut self, sw: f32, sh: f32, mx: f32, my: f32) {
         const OUTSIDE_CONE_DIM: f32 = 0.60;
         let viewport_px = (sw, sh);
-        let (scene_quads, masked_quads) = self.build_quads(viewport_px, mx, my);
+        let (scene_quads, wall_quads, masked_quads) = self.build_quads(viewport_px, mx, my);
+        let scene_gradient_quads = Vec::new();
+        let scene_shaded_quads = self.build_shaded_quads(viewport_px, mx, my);
         let mask = self.build_mask(viewport_px);
         let (geo, masked_geo) = self.build_geo(viewport_px);
-        let scene_sprites = self.build_sprites(viewport_px);
+        let (scene_floor_sprites, scene_prop_sprites) = self.build_sprites(viewport_px);
         let texts = self.build_texts(sw, sh, mx, my);
 
         if let Some(state) = self.wgpu_state.as_mut() {
             state.render(
                 &mask,
                 &scene_quads,
+                &scene_gradient_quads,
+                &scene_shaded_quads,
                 &masked_quads,
-                &scene_sprites,
+                &scene_floor_sprites,
+                &scene_prop_sprites,
+                &wall_quads,
                 &geo,
                 &masked_geo,
                 &texts,

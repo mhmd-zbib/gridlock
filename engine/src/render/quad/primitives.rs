@@ -1,4 +1,4 @@
-use super::types::QuadInstance;
+use super::types::{GradientQuadInstance, QuadInstance, ShadedQuadInstance};
 use crate::render::screen::ScreenTransform;
 
 pub fn quad(center: (f32, f32), half_size: (f32, f32), color: [f32; 4]) -> QuadInstance {
@@ -43,4 +43,69 @@ pub fn push_world_quad(
     color: [f32; 4],
 ) {
     out.push(world_quad(transform, world_center, world_half_size, color));
+}
+
+pub fn gradient_quad(
+    center: (f32, f32),
+    half_size: (f32, f32),
+    top_color: [f32; 4],
+    bottom_color: [f32; 4],
+) -> GradientQuadInstance {
+    GradientQuadInstance {
+        center: [center.0, center.1],
+        half_size: [half_size.0, half_size.1],
+        top_color,
+        bottom_color,
+    }
+}
+
+pub fn push_gradient_quad(
+    out: &mut Vec<GradientQuadInstance>,
+    center: (f32, f32),
+    half_size: (f32, f32),
+    top_color: [f32; 4],
+    bottom_color: [f32; 4],
+) {
+    out.push(gradient_quad(center, half_size, top_color, bottom_color));
+}
+
+pub fn shaded_quad(
+    center: (f32, f32),
+    half_size: (f32, f32),
+    top_color: [f32; 4],
+    bottom_color: [f32; 4],
+    stroke_color: [f32; 4],
+    accent_color: [f32; 4],
+    params: [f32; 4],
+) -> ShadedQuadInstance {
+    ShadedQuadInstance {
+        center: [center.0, center.1],
+        half_size: [half_size.0, half_size.1],
+        top_color,
+        bottom_color,
+        stroke_color,
+        accent_color,
+        params,
+    }
+}
+
+pub fn push_shaded_quad(
+    out: &mut Vec<ShadedQuadInstance>,
+    center: (f32, f32),
+    half_size: (f32, f32),
+    top_color: [f32; 4],
+    bottom_color: [f32; 4],
+    stroke_color: [f32; 4],
+    accent_color: [f32; 4],
+    params: [f32; 4],
+) {
+    out.push(shaded_quad(
+        center,
+        half_size,
+        top_color,
+        bottom_color,
+        stroke_color,
+        accent_color,
+        params,
+    ));
 }
