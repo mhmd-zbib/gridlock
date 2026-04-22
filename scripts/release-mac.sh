@@ -2,9 +2,12 @@
 # Build a universal macOS release (arm64 + x86_64 client & server).
 #
 # Usage:
-#   ./scripts/release-mac.sh                        # connects to 127.0.0.1:7777 (dev)
+#   ./scripts/release-mac.sh                        # SERVER_ADDR defaults to 127.0.0.1:7777 at runtime
 #   ./scripts/release-mac.sh --server 1.2.3.4       # port defaults to 7777
 #   ./scripts/release-mac.sh --server 1.2.3.4:9000  # custom port
+#
+# The server address is set via the SERVER_ADDR env var at runtime (not baked in at compile time).
+# When --server is provided a play.sh launcher is generated in the dist folder.
 #
 # Prerequisites:
 #   rustup target add aarch64-apple-darwin x86_64-apple-darwin
@@ -16,7 +19,7 @@ DIST="$ROOT/dist/mac"
 
 # ── Parse arguments ───────────────────────────────────────────────────────────
 
-SERVER_HOST="2.59.156.14:7777"
+SERVER_HOST=""
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --server) SERVER_HOST="$2"; shift 2 ;;
@@ -29,10 +32,9 @@ if [[ -n "$SERVER_HOST" && "$SERVER_HOST" != *:* ]]; then
 fi
 
 if [[ -n "$SERVER_HOST" ]]; then
-    export SERVER_ADDR="$SERVER_HOST"
-    echo "[release-mac] version $VERSION  server $SERVER_ADDR"
+    echo "[release-mac] version $VERSION  server $SERVER_HOST (runtime)"
 else
-    echo "[release-mac] version $VERSION  server 127.0.0.1:7777 (dev default)"
+    echo "[release-mac] version $VERSION  server 127.0.0.1:7777 (runtime default)"
 fi
 
 # ── Targets ───────────────────────────────────────────────────────────────────
@@ -74,9 +76,17 @@ lipo -create \
 
 chmod +x "$DIST/client" "$DIST/server"
 
-# ── Assets + archive ──────────────────────────────────────────────────────────
+# ── Assets + launcher + archive ───────────────────────────────────────────────
 
 cp -r "$ROOT/assets" "$DIST/assets"
+
+# Generate a launcher that injects SERVER_ADDR at runtime.
+LAUNCHER_ADDR="${SERVER_HOST:-127.0.0.1:7777}"
+cat > "$DIST/play.sh" <<EOF
+#!/usr/bin/env bash
+SERVER_ADDR="${LAUNCHER_ADDR}" "\$(dirname "\$0")/client" "\$@"
+EOF
+chmod +x "$DIST/play.sh"
 
 ARCHIVE="$ROOT/dist/gridlock-$VERSION-mac.tar.gz"
 tar -czf "$ARCHIVE" -C "$ROOT/dist" mac

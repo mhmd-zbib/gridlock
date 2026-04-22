@@ -2,9 +2,12 @@
 # Build a Windows x86_64 release via the MinGW cross-compiler.
 #
 # Usage:
-#   ./scripts/release-windows.sh                        # connects to 127.0.0.1:7777 (dev)
+#   ./scripts/release-windows.sh                        # SERVER_ADDR defaults to 127.0.0.1:7777 at runtime
 #   ./scripts/release-windows.sh --server 1.2.3.4       # port defaults to 7777
 #   ./scripts/release-windows.sh --server 1.2.3.4:9000  # custom port
+#
+# The server address is set via the SERVER_ADDR env var at runtime (not baked in at compile time).
+# When --server is provided a play.bat launcher is generated in the dist folder.
 #
 # Prerequisites (macOS):
 #   brew install mingw-w64
@@ -18,7 +21,7 @@ DIST="$ROOT/dist/windows"
 
 # ── Parse arguments ───────────────────────────────────────────────────────────
 
-SERVER_HOST="2.59.156.14:7777"
+SERVER_HOST=""
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --server) SERVER_HOST="$2"; shift 2 ;;
@@ -30,8 +33,11 @@ if [[ -n "$SERVER_HOST" && "$SERVER_HOST" != *:* ]]; then
     SERVER_HOST="$SERVER_HOST:7777"
 fi
 
-export SERVER_ADDR="$SERVER_HOST"
-echo "[release-windows] version $VERSION  target $TARGET  server $SERVER_ADDR"
+if [[ -n "$SERVER_HOST" ]]; then
+    echo "[release-windows] version $VERSION  target $TARGET  server $SERVER_HOST (runtime)"
+else
+    echo "[release-windows] version $VERSION  target $TARGET  server 127.0.0.1:7777 (runtime default)"
+fi
 
 # ── Dependency checks ─────────────────────────────────────────────────────────
 
@@ -65,6 +71,14 @@ mkdir -p "$DIST"
 cp "target/$TARGET/release/client.exe" "$DIST/client.exe"
 cp "target/$TARGET/release/server.exe" "$DIST/server.exe"
 cp -r "$ROOT/assets" "$DIST/assets"
+
+# Generate a launcher that injects SERVER_ADDR at runtime.
+LAUNCHER_ADDR="${SERVER_HOST:-127.0.0.1:7777}"
+cat > "$DIST/play.bat" <<EOF
+@echo off
+set SERVER_ADDR=${LAUNCHER_ADDR}
+"%~dp0client.exe" %*
+EOF
 
 ARCHIVE="$ROOT/dist/gridlock-$VERSION-windows.zip"
 cd "$ROOT/dist"
