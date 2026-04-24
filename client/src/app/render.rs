@@ -15,6 +15,7 @@ use game::entity::enemy::EnemyKind;
 use game::entity::weapon::attachment::AttachmentCategory;
 use game::game::IMPACT_TTL;
 use engine::render::geometry::GeoVertex;
+use engine::render::light::{GpuLight, LightingUniform};
 use engine::render::quad::{QuadInstance, ShadedQuadInstance};
 use engine::render::sprite::SpriteCommand;
 use engine::render::text::TextSection;
@@ -474,6 +475,78 @@ impl App {
                 .as_ref()
                 .map(|(name, _)| name.clone()),
         }
+    }
+
+    /// Build the per-frame lighting uniform from current game state.
+    ///
+    /// Sources (in priority order):
+    /// 1. Persistent level lights — evaluated with their current time state
+    /// 2. Player personal light
+    /// 3. Remote player lights
+    /// 4. Bullet tracer lights
+    /// 5. Impact flash lights
+    ///
+    /// All world-space positions/radii are converted to framebuffer pixels via
+    /// the camera transform before upload.
+    pub(super) fn build_lighting(&self, viewport_px: (f32, f32)) -> LightingUniform {
+        let AppState::Playing = &self.app_state else {
+            return LightingUniform::default();
+        };
+
+        let transform = self.camera.screen_transform(viewport_px);
+        let ppu = transform.pixels_per_unit; // pixels per tile
+
+        let mut lighting = LightingUniform {
+            ambient: [0.18, 0.18, 0.22, 1.0],
+            ..Default::default()
+        };
+
+        // Persistent level lights — evaluated each frame for dynamic behaviour.
+        for source in &self.game.lights {
+            let ev = source.evaluate();
+            let (sx, sy) = transform.world_to_screen((ev.x, ev.y));
+            let gpu = match ev.cone {
+                None => GpuLight::point([sx, sy], ev.radius * ppu, ev.intensity, ev.color),
+                Some((dir_rad, half_angle_rad)) => {
+                    let dir = [dir_rad.cos(), dir_rad.sin()];
+                    GpuLight::cone(
+                        [sx, sy],
+                        ev.radius * ppu,
+                        ev.intensity,
+                        ev.color,
+                        dir,
+                        half_angle_rad.cos(),
+                    )
+                }
+            };
+            lighting.push(gpu);
+        }
+
+        // Player personal area light — warm white, wide radius.
+        let player = &self.game.player;
+        let (px, py) = transform.world_to_screen((player.movement.x, player.movement.y));
+        lighting.push(GpuLight::point([px, py], 8.0 * ppu, 0.90, [0.95, 0.90, 0.75]));
+
+        // One light per remote player.
+        for remote in &self.net_players {
+            let (rx, ry) = transform.world_to_screen((remote.x, remote.y));
+            lighting.push(GpuLight::point([rx, ry], 5.0 * ppu, 0.70, [0.80, 0.90, 1.00]));
+        }
+
+        // Bullet tracers: small hot point lights that travel with each bullet.
+        for bullet in &self.game.bullets {
+            let (bx, by) = transform.world_to_screen((bullet.x, bullet.y));
+            lighting.push(GpuLight::point([bx, by], 1.5 * ppu, 1.50, [1.00, 0.80, 0.30]));
+        }
+
+        // Impact flashes: bright orange burst that fades with the mark's TTL.
+        for impact in &self.game.impacts {
+            let (ix, iy) = transform.world_to_screen((impact.x, impact.y));
+            let fade = (impact.ttl / IMPACT_TTL).clamp(0.0, 1.0);
+            lighting.push(GpuLight::point([ix, iy], 4.0 * ppu, 2.50 * fade, [1.00, 0.50, 0.10]));
+        }
+
+        lighting
     }
 
     /// Collect textured sprite draw commands for the current frame.

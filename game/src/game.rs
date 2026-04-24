@@ -7,6 +7,7 @@ pub use super::systems::projectile::ImpactEvent;
 use super::systems::{movement, projectile, spawn as spawn_system, visibility};
 use super::world::floor::{self as floor_world, ResolvedFloor};
 use super::world::level::{LevelBounds, LevelData};
+use super::world::light::LightSource;
 use super::world::prop::{self, ResolvedProp};
 use super::world::rooms::LevelRooms;
 use super::world::units::px_to_tiles;
@@ -65,6 +66,8 @@ pub struct Game {
     pub props: Vec<ResolvedProp>,
     pub rooms: LevelRooms,
     pub level_bounds: Option<LevelBounds>,
+    /// Persistent light sources loaded from the level or spawned at runtime.
+    pub lights: Vec<LightSource>,
     spawn_queue: SpawnQueue,
     player_loadout: PlayerLoadoutConfig,
     /// Bullet traces resolved this tick (origin → impact).
@@ -92,6 +95,7 @@ impl Game {
             props: Vec::new(),
             rooms: LevelRooms::default(),
             level_bounds: None,
+            lights: Vec::new(),
             spawn_queue: SpawnQueue::default(),
             player_loadout,
             bullet_traces: Vec::new(),
@@ -128,6 +132,7 @@ impl Game {
 
         self.bullets = Vec::new();
         self.impacts = Vec::new();
+        self.lights = level.lights.iter().map(|l| l.clone().into_source()).collect();
         self.spawn_queue = SpawnQueue::default();
         self.bullet_traces = Vec::new();
         self.level_bounds = level.map_bounds;
@@ -169,8 +174,9 @@ impl Game {
     /// 2. Enemy movement system (AI + physics)
     /// 3. Visibility system (which enemies the player can see)
     /// 4. Projectile system (bullets move and resolve hits)
-    /// 5. Impact marks lifetime
-    /// 6. Spawn queue flush (with bullet-trace raycasting)
+    /// 5. Persistent light sources (advance time accumulators)
+    /// 6. Impact marks lifetime
+    /// 7. Spawn queue flush (with bullet-trace raycasting)
     pub fn update(&mut self, dt: f32, input: &InputState) {
         self.bullet_traces.clear();
 
@@ -225,7 +231,12 @@ impl Game {
             });
         }
 
-        // 5. Impact mark lifetimes
+        // 5. Advance persistent light sources.
+        for light in &mut self.lights {
+            light.tick(dt);
+        }
+
+        // 6. Impact mark lifetimes
         self.impacts.extend(
             impact_events
                 .iter()
@@ -236,7 +247,7 @@ impl Game {
         }
         self.impacts.retain(|impact| impact.ttl > 0.0);
 
-        // 6. Spawn queue — also raycasts player bullets so the server receives
+        // 7. Spawn queue — also raycasts player bullets so the server receives
         //    a `BulletEvent` in the same tick the shot was fired.
         spawn_system::flush_spawn_queue(
             &mut self.spawn_queue,

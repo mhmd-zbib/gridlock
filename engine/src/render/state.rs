@@ -162,6 +162,7 @@ impl State {
     /// `geo_verts`       — overlays always visible on top (UI/debug visuals).
     /// `masked_geo_verts`— overlays hidden outside the cone (impacts/traces).
     pub fn render_frame(&mut self, frame: &Frame) {
+        self.sprite.update_lighting(&self.queue, &frame.lighting);
         self.render(
             &frame.fov_mask,
             &frame.scene_quads,

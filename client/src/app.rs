@@ -264,12 +264,14 @@ impl App {
         let fov_mask = self.build_mask(viewport_px);
         let (geo, masked_geo) = self.build_geo(viewport_px);
         let (floor_sprites, prop_sprites) = self.build_sprites(viewport_px);
+        let lighting = self.build_lighting(viewport_px);
         let texts = self.build_texts(sw, sh, mx, my);
 
         if let Some(state) = self.wgpu_state.as_mut() {
             state.render_frame(&engine::render::frame::Frame {
                 fov_mask,
                 outside_dim: OUTSIDE_CONE_DIM,
+                lighting,
                 scene_quads,
                 scene_gradient_quads: Vec::new(),
                 scene_shaded_quads,

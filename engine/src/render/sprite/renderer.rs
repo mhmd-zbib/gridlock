@@ -4,6 +4,7 @@ use bytemuck::Pod;
 use wgpu::util::DeviceExt;
 
 use crate::asset::TextureCache;
+use crate::render::light::LightingUniform;
 
 use super::shader::SHADER;
 use super::types::{SpriteCommand, SpriteInstance};
@@ -19,17 +20,18 @@ struct Uniforms {
     _pad: [f32; 2],
 }
 
-/// Textured-quad renderer.
+/// Textured-quad renderer with per-fragment point-light shading.
 ///
-/// Accepts a slice of [`SpriteCommand`]s per frame, sorts them by (z, handle)
-/// for correct painter's-algorithm ordering with maximum texture batching, then
-/// issues one GPU draw call per contiguous same-texture batch.
+/// Call [`update_lighting`] once per frame before the first [`draw`] to upload
+/// the current light set.  Lighting persists across multiple `draw` calls
+/// within the same frame (floor sprites, prop sprites, etc.).
 pub struct SpriteRenderer {
     pipeline: wgpu::RenderPipeline,
     vertex_buf: wgpu::Buffer,
     index_buf: wgpu::Buffer,
     instance_buf: wgpu::Buffer,
     uniform_buf: wgpu::Buffer,
+    light_buf: wgpu::Buffer,
     uniform_bg: wgpu::BindGroup,
 }
 
@@ -68,26 +70,51 @@ impl SpriteRenderer {
             mapped_at_creation: false,
         });
 
+        let light_buf = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("sprite lighting"),
+            size: std::mem::size_of::<LightingUniform>() as u64,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+
         let bgl_uniform = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("sprite uniform bgl"),
-            entries: &[wgpu::BindGroupLayoutEntry {
-                binding: 0,
-                visibility: wgpu::ShaderStages::VERTEX,
-                ty: wgpu::BindingType::Buffer {
-                    ty: wgpu::BufferBindingType::Uniform,
-                    has_dynamic_offset: false,
-                    min_binding_size: None,
+            entries: &[
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
                 },
-                count: None,
-            }],
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
+            ],
         });
         let uniform_bg = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("sprite uniform bg"),
             layout: &bgl_uniform,
-            entries: &[wgpu::BindGroupEntry {
-                binding: 0,
-                resource: uniform_buf.as_entire_binding(),
-            }],
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: uniform_buf.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: light_buf.as_entire_binding(),
+                },
+            ],
         });
 
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
@@ -151,8 +178,17 @@ impl SpriteRenderer {
             index_buf,
             instance_buf,
             uniform_buf,
+            light_buf,
             uniform_bg,
         }
+    }
+
+    /// Upload lighting data for the current frame.
+    ///
+    /// Call once per frame before the first [`draw`].  The data persists in the
+    /// uniform buffer and is reused by all subsequent draw calls this frame.
+    pub fn update_lighting(&self, queue: &wgpu::Queue, lighting: &LightingUniform) {
+        queue.write_buffer(&self.light_buf, 0, bytemuck::bytes_of(lighting));
     }
 
     /// Draw all `commands` on top of whatever is already in `view`.

@@ -2,6 +2,7 @@ pub mod aim_cone;
 pub mod bounds;
 pub mod floor;
 pub mod level;
+pub mod light;
 pub mod prop;
 pub mod ray;
 pub mod rooms;

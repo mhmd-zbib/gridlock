@@ -1,5 +1,6 @@
 pub mod frame;
 pub mod geometry;
+pub mod light;
 pub mod quad;
 pub mod screen;
 pub mod sprite;

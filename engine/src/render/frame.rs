@@ -1,5 +1,6 @@
 use super::{
     geometry::GeoVertex,
+    light::LightingUniform,
     quad::{GradientQuadInstance, QuadInstance, ShadedQuadInstance},
     sprite::SpriteCommand,
     text::TextSection,
@@ -17,6 +18,9 @@ pub struct Frame {
     pub fov_mask: Vec<GeoVertex>,
     /// Black overlay alpha applied only outside the vision cone.
     pub outside_dim: f32,
+    /// Per-frame lighting: ambient term + up to 16 point lights.
+    /// Defaults to full-ambient (unlit look) when not set.
+    pub lighting: LightingUniform,
     /// Base quads: UI / non-wall world quads / scene markers.
     pub scene_quads: Vec<QuadInstance>,
     pub scene_gradient_quads: Vec<GradientQuadInstance>,
@@ -44,6 +48,7 @@ impl Frame {
     pub fn clear(&mut self) {
         self.fov_mask.clear();
         self.outside_dim = 0.0;
+        self.lighting = LightingUniform::default();
         self.scene_quads.clear();
         self.scene_gradient_quads.clear();
         self.scene_shaded_quads.clear();
@@ -62,6 +67,7 @@ impl Default for Frame {
         Self {
             fov_mask: Vec::new(),
             outside_dim: 0.0,
+            lighting: LightingUniform::default(),
             scene_quads: Vec::new(),
             scene_gradient_quads: Vec::new(),
             scene_shaded_quads: Vec::new(),

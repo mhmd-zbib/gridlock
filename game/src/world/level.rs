@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use super::{floor::LevelFloor, prop::LevelProp, wall::Wall};
+use super::{floor::LevelFloor, light::LevelLight, prop::LevelProp, wall::Wall};
 
 /// A 2-D position stored in the level file.
 #[derive(Serialize, Deserialize, Clone, Copy, Default)]
@@ -59,6 +59,8 @@ pub struct LevelData {
     pub floors: Vec<LevelFloor>,
     #[serde(default)]
     pub props: Vec<LevelProp>,
+    #[serde(default)]
+    pub lights: Vec<LevelLight>,
 }
 
 impl Default for LevelData {
@@ -74,6 +76,7 @@ impl Default for LevelData {
             walls: Vec::new(),
             floors: Vec::new(),
             props: Vec::new(),
+            lights: Vec::new(),
         }
     }
 }

@@ -17,7 +17,7 @@ struct InstGradient {
     @location(3) top_color:    vec4<f32>,
     @location(4) bottom_color: vec4<f32>,
 }
-struct InstShaded {
+struct InstShaded { 
     @location(1) center:       vec2<f32>,
     @location(2) half_size:    vec2<f32>,
     @location(3) top_color:    vec4<f32>,

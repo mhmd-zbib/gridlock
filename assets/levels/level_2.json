@@ -23339,6 +23339,40 @@
       "id": "plank_01"
     }
   ],
+
+  "lights": [
+    {
+      "x": 5.0,
+      "y": 3.0,
+      "radius": 4.0,
+      "color": [
+        1.0,
+        0.8,
+        0.4
+      ],
+      "intensity": 0.8,
+      "kind": {
+        "type": "flicker",
+        "amplitude": 0.3,
+        "frequency": 2.0
+      }
+    },
+    {
+      "x": 15.625,
+      "y": 4.75,
+      "radius": 6.0,
+      "color": [
+        0.5,
+        0.7,
+        1.0
+      ],
+      "kind": {
+        "type": "cone",
+        "direction": 1.57,
+        "half_angle": 0.6
+      }
+    }
+  ],
   "props": [
     {
       "x": 15.625,
