@@ -35,7 +35,6 @@ pub struct SpatialGraph {
 #[derive(Clone, Copy)]
 pub struct GapEvaluation {
     pub gap_id: usize,
-    pub sector: usize,
     pub pos: (f32, f32),
     pub score: f32,
     pub norm_score: f32,

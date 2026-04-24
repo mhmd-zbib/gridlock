@@ -1,4 +1,4 @@
-use game::render::quad::QuadInstance;
+use engine::render::quad::QuadInstance;
 
 #[derive(Clone, Copy)]
 struct Button {

@@ -1,6 +1,6 @@
 use crate::camera::TacticalCamera;
 use crate::render::views::WorldView;
-use game::render::quad::{QuadInstance, push_world_quad};
+use engine::render::quad::{QuadInstance, push_world_quad};
 
 const WALL_COLOR: [f32; 4] = [0.0, 0.0, 0.0, 1.0];
 

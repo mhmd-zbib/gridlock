@@ -6,8 +6,8 @@ use game::entity::weapon::{
     WeaponId, all_weapon_ids, weapon_attachment_categories, weapon_attachment_ids_for_category,
     weapon_supports_attachment_category,
 };
-use game::input::InputState;
-use game::render::quad::QuadInstance;
+use engine::input::InputState;
+use engine::render::quad::QuadInstance;
 
 const ROW_COUNT: usize = ATTACHMENT_CATEGORY_COUNT + 1;
 

@@ -1,7 +1,8 @@
 use std::collections::HashMap;
 
-use game::render::quad::QuadInstance;
-use game::render::sprite::{AssetHandle, SpriteCommand};
+use engine::asset::AssetHandle;
+use engine::render::quad::QuadInstance;
+use engine::render::sprite::SpriteCommand;
 use game::world::floor;
 use game::world::prop;
 use game::world::units::px_to_tiles;

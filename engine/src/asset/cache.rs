@@ -72,64 +72,9 @@ impl TextureCache {
 
         let bytes = std::fs::read(path).ok()?;
         let (rgba, width, height) = decode_image(path, &bytes)?;
+        let bind_group = upload_texture(device, queue, &self.bgl, path, &rgba, width, height);
 
-        let size = wgpu::Extent3d {
-            width,
-            height,
-            depth_or_array_layers: 1,
-        };
-        let texture = device.create_texture(&wgpu::TextureDescriptor {
-            label: Some(path),
-            size,
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Rgba8UnormSrgb,
-            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
-            view_formats: &[],
-        });
-        queue.write_texture(
-            texture.as_image_copy(),
-            &rgba,
-            wgpu::TexelCopyBufferLayout {
-                offset: 0,
-                bytes_per_row: Some(width * 4),
-                rows_per_image: Some(height),
-            },
-            size,
-        );
-
-        let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
-        let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
-            address_mode_u: wgpu::AddressMode::ClampToEdge,
-            address_mode_v: wgpu::AddressMode::ClampToEdge,
-            mag_filter: wgpu::FilterMode::Linear,
-            min_filter: wgpu::FilterMode::Linear,
-            mipmap_filter: wgpu::MipmapFilterMode::Nearest,
-            ..Default::default()
-        });
-        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some(path),
-            layout: &self.bgl,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::TextureView(&view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::Sampler(&sampler),
-                },
-            ],
-        });
-
-        self.entries.insert(
-            handle,
-            CacheEntry {
-                bind_group,
-                ref_count: 1,
-            },
-        );
+        self.entries.insert(handle, CacheEntry { bind_group, ref_count: 1 });
         Some(handle)
     }
 
@@ -149,6 +94,67 @@ impl TextureCache {
     pub(crate) fn bind_group(&self, handle: AssetHandle) -> Option<&wgpu::BindGroup> {
         self.entries.get(&handle).map(|e| &e.bind_group)
     }
+}
+
+// ---------------------------------------------------------------------------
+// GPU upload
+// ---------------------------------------------------------------------------
+
+fn upload_texture(
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    bgl: &wgpu::BindGroupLayout,
+    label: &str,
+    rgba: &[u8],
+    width: u32,
+    height: u32,
+) -> wgpu::BindGroup {
+    let size = wgpu::Extent3d { width, height, depth_or_array_layers: 1 };
+    let texture = device.create_texture(&wgpu::TextureDescriptor {
+        label: Some(label),
+        size,
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: wgpu::TextureFormat::Rgba8UnormSrgb,
+        usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+        view_formats: &[],
+    });
+    queue.write_texture(
+        texture.as_image_copy(),
+        rgba,
+        wgpu::TexelCopyBufferLayout {
+            offset: 0,
+            bytes_per_row: Some(width * 4),
+            rows_per_image: Some(height),
+        },
+        size,
+    );
+
+    let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+    let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+        address_mode_u: wgpu::AddressMode::ClampToEdge,
+        address_mode_v: wgpu::AddressMode::ClampToEdge,
+        mag_filter: wgpu::FilterMode::Linear,
+        min_filter: wgpu::FilterMode::Linear,
+        mipmap_filter: wgpu::MipmapFilterMode::Nearest,
+        ..Default::default()
+    });
+
+    device.create_bind_group(&wgpu::BindGroupDescriptor {
+        label: Some(label),
+        layout: bgl,
+        entries: &[
+            wgpu::BindGroupEntry {
+                binding: 0,
+                resource: wgpu::BindingResource::TextureView(&view),
+            },
+            wgpu::BindGroupEntry {
+                binding: 1,
+                resource: wgpu::BindingResource::Sampler(&sampler),
+            },
+        ],
+    })
 }
 
 // ---------------------------------------------------------------------------
@@ -176,23 +182,8 @@ fn decode_jpeg(bytes: &[u8]) -> Option<(Vec<u8>, u32, u32)> {
     let pixel_count = (width * height) as usize;
 
     let rgba = match info.pixel_format {
-        jpeg_decoder::PixelFormat::RGB24 => {
-            let mut out = Vec::with_capacity(pixel_count * 4);
-            for rgb in pixels.chunks_exact(3) {
-                out.push(rgb[0]);
-                out.push(rgb[1]);
-                out.push(rgb[2]);
-                out.push(255);
-            }
-            out
-        }
-        jpeg_decoder::PixelFormat::L8 => {
-            let mut out = Vec::with_capacity(pixel_count * 4);
-            for &g in &pixels {
-                out.extend_from_slice(&[g, g, g, 255]);
-            }
-            out
-        }
+        jpeg_decoder::PixelFormat::RGB24 => rgb_to_rgba(&pixels, pixel_count),
+        jpeg_decoder::PixelFormat::L8 => gray_to_rgba(&pixels),
         _ => return None,
     };
 
@@ -211,32 +202,42 @@ fn decode_png(bytes: &[u8]) -> Option<(Vec<u8>, u32, u32)> {
 
     let rgba = match info.color_type {
         png::ColorType::Rgba => buf[..pixel_count * 4].to_vec(),
-        png::ColorType::Rgb => {
-            let mut out = Vec::with_capacity(pixel_count * 4);
-            for rgb in buf[..pixel_count * 3].chunks_exact(3) {
-                out.push(rgb[0]);
-                out.push(rgb[1]);
-                out.push(rgb[2]);
-                out.push(255);
-            }
-            out
-        }
-        png::ColorType::GrayscaleAlpha => {
-            let mut out = Vec::with_capacity(pixel_count * 4);
-            for ga in buf[..pixel_count * 2].chunks_exact(2) {
-                out.extend_from_slice(&[ga[0], ga[0], ga[0], ga[1]]);
-            }
-            out
-        }
-        png::ColorType::Grayscale => {
-            let mut out = Vec::with_capacity(pixel_count * 4);
-            for &g in buf[..pixel_count].iter() {
-                out.extend_from_slice(&[g, g, g, 255]);
-            }
-            out
-        }
+        png::ColorType::Rgb => rgb_to_rgba(&buf[..pixel_count * 3], pixel_count),
+        png::ColorType::GrayscaleAlpha => gray_alpha_to_rgba(&buf[..pixel_count * 2]),
+        png::ColorType::Grayscale => gray_to_rgba(&buf[..pixel_count]),
         _ => return None,
     };
 
     Some((rgba, width, height))
+}
+
+// ---------------------------------------------------------------------------
+// Pixel format converters
+// ---------------------------------------------------------------------------
+
+fn rgb_to_rgba(src: &[u8], pixel_count: usize) -> Vec<u8> {
+    let mut out = Vec::with_capacity(pixel_count * 4);
+    for rgb in src.chunks_exact(3) {
+        out.push(rgb[0]);
+        out.push(rgb[1]);
+        out.push(rgb[2]);
+        out.push(255);
+    }
+    out
+}
+
+fn gray_to_rgba(src: &[u8]) -> Vec<u8> {
+    let mut out = Vec::with_capacity(src.len() * 4);
+    for &g in src {
+        out.extend_from_slice(&[g, g, g, 255]);
+    }
+    out
+}
+
+fn gray_alpha_to_rgba(src: &[u8]) -> Vec<u8> {
+    let mut out = Vec::with_capacity(src.len() * 2);
+    for ga in src.chunks_exact(2) {
+        out.extend_from_slice(&[ga[0], ga[0], ga[0], ga[1]]);
+    }
+    out
 }

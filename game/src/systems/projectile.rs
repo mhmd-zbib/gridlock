@@ -2,6 +2,7 @@ use crate::entity::bullet::{Bullet, BulletOwner};
 use crate::entity::enemy::Enemy;
 use crate::world::wall::{Wall, pierce_breakable_chain};
 
+#[derive(Clone, Copy)]
 pub struct ImpactEvent {
     /// Impact position (where the bullet stopped).
     pub x: f32,

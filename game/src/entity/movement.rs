@@ -9,6 +9,17 @@ pub struct MovementInput {
     pub right: bool,
 }
 
+impl MovementInput {
+    pub fn from_input(input: &engine::input::InputState) -> Self {
+        Self {
+            up: input.up,
+            down: input.down,
+            left: input.left,
+            right: input.right,
+        }
+    }
+}
+
 /// Position + speed.  Shared by every entity that can move.
 /// Knows nothing about *why* it moves — that's the caller's job.
 pub struct Movement {
@@ -33,34 +44,10 @@ impl Movement {
 
     /// Advance position by `input` over `dt` seconds and update `velocity_frac`.
     pub fn apply(&mut self, input: MovementInput, dt: f32) {
-        if input.up {
-            self.y -= self.speed * dt;
-        }
-        if input.down {
-            self.y += self.speed * dt;
-        }
-        if input.left {
-            self.x -= self.speed * dt;
-        }
-        if input.right {
-            self.x += self.speed * dt;
-        }
-
-        // Compute velocity fraction from the input axes (normalised to [0, 1]).
-        let vx: f32 = if input.right {
-            1.0
-        } else if input.left {
-            -1.0
-        } else {
-            0.0
-        };
-        let vy: f32 = if input.down {
-            1.0
-        } else if input.up {
-            -1.0
-        } else {
-            0.0
-        };
-        self.velocity_frac = ((vx * vx + vy * vy).sqrt()).min(1.0);
+        if input.up    { self.y -= self.speed * dt; }
+        if input.down  { self.y += self.speed * dt; }
+        if input.left  { self.x -= self.speed * dt; }
+        if input.right { self.x += self.speed * dt; }
+        self.velocity_frac = if input.up || input.down || input.left || input.right { 1.0 } else { 0.0 };
     }
 }

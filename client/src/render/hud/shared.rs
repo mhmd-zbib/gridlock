@@ -1,5 +1,5 @@
 use crate::net::{ConnState, NetClient};
-use game::render::text::TextSection;
+use engine::render::text::TextSection;
 
 pub(super) fn ts(
     x: f32,

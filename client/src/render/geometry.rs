@@ -2,7 +2,7 @@ use crate::camera::TacticalCamera;
 use crate::render::entities::{NET_BULLET_TTL, NetBulletTrace};
 use crate::render::sight_geometry::{aim_cone_arc_pts, cone_arc_pts_raw};
 use crate::render::views::{DebugRoomsView, GeometryView, PlayerCircleView};
-use game::render::geometry::{
+use engine::render::geometry::{
     GeoVertex, push_circle_fan, push_cone_fan, push_diamond, push_line_segment, push_rect,
 };
 use game::world::units::px_to_tiles;

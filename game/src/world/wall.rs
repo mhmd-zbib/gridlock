@@ -128,51 +128,19 @@ impl Wall {
     /// For breakable walls only pushes out of alive segments.
     pub fn push_out(&self, cx: &mut f32, cy: &mut f32, half: f32) {
         if !self.breakable || self.segments.is_empty() {
-            if !self.overlaps(*cx, *cy, half) {
-                return;
+            if self.overlaps(*cx, *cy, half) {
+                push_out_of_aabb(cx, cy, half, self.x, self.y, self.w, self.h);
             }
-            let pen_right = (*cx + half) - self.x;
-            let pen_left = (self.x + self.w) - (*cx - half);
-            let pen_bottom = (*cy + half) - self.y;
-            let pen_top = (self.y + self.h) - (*cy - half);
-            let min = pen_right.min(pen_left).min(pen_bottom).min(pen_top);
-            if min == pen_right {
-                *cx -= pen_right;
-            } else if min == pen_left {
-                *cx += pen_left;
-            } else if min == pen_bottom {
-                *cy -= pen_bottom;
-            } else {
-                *cy += pen_top;
+            return;
+        }
+        let n = self.segments.len();
+        for i in 0..n {
+            if !self.segments[i] {
+                continue;
             }
-        } else {
-            let n = self.segments.len();
-            for i in 0..n {
-                if !self.segments[i] {
-                    continue;
-                }
-                let (sx, sy, sw, sh) = self.segment_rect(i, n);
-                if !(*cx + half > sx
-                    && *cx - half < sx + sw
-                    && *cy + half > sy
-                    && *cy - half < sy + sh)
-                {
-                    continue;
-                }
-                let pen_right = (*cx + half) - sx;
-                let pen_left = (sx + sw) - (*cx - half);
-                let pen_bottom = (*cy + half) - sy;
-                let pen_top = (sy + sh) - (*cy - half);
-                let min = pen_right.min(pen_left).min(pen_bottom).min(pen_top);
-                if min == pen_right {
-                    *cx -= pen_right;
-                } else if min == pen_left {
-                    *cx += pen_left;
-                } else if min == pen_bottom {
-                    *cy -= pen_bottom;
-                } else {
-                    *cy += pen_top;
-                }
+            let (sx, sy, sw, sh) = self.segment_rect(i, n);
+            if *cx + half > sx && *cx - half < sx + sw && *cy + half > sy && *cy - half < sy + sh {
+                push_out_of_aabb(cx, cy, half, sx, sy, sw, sh);
             }
         }
     }
@@ -194,6 +162,29 @@ impl Wall {
             }
         }
         false
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Collision helpers
+// ---------------------------------------------------------------------------
+
+/// Resolve penetration between a circle (cx, cy, half) and an AABB (x, y, w, h).
+/// Pushes along the axis of minimum penetration depth.
+fn push_out_of_aabb(cx: &mut f32, cy: &mut f32, half: f32, x: f32, y: f32, w: f32, h: f32) {
+    let pen_right = (*cx + half) - x;
+    let pen_left = (x + w) - (*cx - half);
+    let pen_bottom = (*cy + half) - y;
+    let pen_top = (y + h) - (*cy - half);
+    let min = pen_right.min(pen_left).min(pen_bottom).min(pen_top);
+    if min == pen_right {
+        *cx -= pen_right;
+    } else if min == pen_left {
+        *cx += pen_left;
+    } else if min == pen_bottom {
+        *cy -= pen_bottom;
+    } else {
+        *cy += pen_top;
     }
 }
 

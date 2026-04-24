@@ -108,31 +108,7 @@ pub fn asset_color(id: &str, is_collider: bool, alpha: f32) -> [f32; 4] {
 }
 
 fn resolve_assets_dir() -> Option<PathBuf> {
-    let cwd_assets = std::env::current_dir()
-        .ok()
-        .map(|cwd| cwd.join("assets").join("configs").join("props"))
-        .filter(|path| path.is_dir());
-    if let Some(path) = cwd_assets {
-        return Some(path);
-    }
-
-    let manifest_assets = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("assets")
-        .join("configs")
-        .join("props");
-    if manifest_assets.is_dir() {
-        return Some(manifest_assets);
-    }
-
-    let workspace_assets = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .map(|root| root.join("assets").join("configs").join("props"))
-        .filter(|path| path.is_dir());
-    if let Some(path) = workspace_assets {
-        return Some(path);
-    }
-
-    None
+    crate::resolve_config_dir("props")
 }
 
 fn load_asset_file(path: &Path) -> Option<PropAssetDef> {

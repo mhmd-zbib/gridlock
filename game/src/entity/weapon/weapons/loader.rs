@@ -92,47 +92,8 @@ pub(super) fn load_catalog() -> Vec<WeaponEntry> {
 }
 
 pub(super) fn resolve_weapons_dir() -> PathBuf {
-    let relative_to = |base: PathBuf| base.join("assets").join("configs").join("weapons");
-
-    // 1. Relative to the running executable (release distribution layout)
-    if let Some(path) = std::env::current_exe()
-        .ok()
-        .and_then(|exe| exe.parent().map(|d| relative_to(d.to_path_buf())))
-        .filter(|p| p.is_dir())
-    {
-        return path;
-    }
-
-    // 2. Relative to current working directory (dev / run-from-project-root)
-    if let Some(path) = std::env::current_dir()
-        .ok()
-        .map(relative_to)
-        .filter(|p| p.is_dir())
-    {
-        return path;
-    }
-
-    // 3. Relative to CARGO_MANIFEST_DIR (cargo run inside workspace)
-    #[cfg(debug_assertions)]
-    {
-        let manifest_weapons = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("assets")
-            .join("configs")
-            .join("weapons");
-        if manifest_weapons.is_dir() {
-            return manifest_weapons;
-        }
-
-        if let Some(path) = Path::new(env!("CARGO_MANIFEST_DIR"))
-            .parent()
-            .map(|root| root.join("assets").join("configs").join("weapons"))
-            .filter(|p| p.is_dir())
-        {
-            return path;
-        }
-    }
-
-    panic!("weapons directory not found — expected 'assets/configs/weapons' next to the executable or in the working directory");
+    crate::resolve_config_dir("weapons")
+        .expect("weapons directory not found — expected 'assets/configs/weapons' next to the executable or in the working directory")
 }
 
 pub(super) fn load_weapon_file(path: &Path) -> WeaponEntry {

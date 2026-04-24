@@ -35,27 +35,3 @@ pub(super) fn make_pipeline(
     })
 }
 
-pub(super) fn stencil_read_state(compare: wgpu::CompareFunction) -> wgpu::DepthStencilState {
-    wgpu::DepthStencilState {
-        format: wgpu::TextureFormat::Depth24PlusStencil8,
-        depth_write_enabled: Some(false),
-        depth_compare: Some(wgpu::CompareFunction::Always),
-        stencil: wgpu::StencilState {
-            front: wgpu::StencilFaceState {
-                compare,
-                fail_op: wgpu::StencilOperation::Keep,
-                depth_fail_op: wgpu::StencilOperation::Keep,
-                pass_op: wgpu::StencilOperation::Keep,
-            },
-            back: wgpu::StencilFaceState {
-                compare,
-                fail_op: wgpu::StencilOperation::Keep,
-                depth_fail_op: wgpu::StencilOperation::Keep,
-                pass_op: wgpu::StencilOperation::Keep,
-            },
-            read_mask: 0xFF,
-            write_mask: 0,
-        },
-        bias: wgpu::DepthBiasState::default(),
-    }
-}

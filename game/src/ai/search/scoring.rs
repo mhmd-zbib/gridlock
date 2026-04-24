@@ -89,7 +89,6 @@ pub(super) fn score_gaps(
 
         out.push(GapEvaluation {
             gap_id: gap.id,
-            sector: gap.sector,
             pos: gap.pos,
             score,
             norm_score: 0.0,

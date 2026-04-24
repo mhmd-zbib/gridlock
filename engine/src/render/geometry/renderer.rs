@@ -1,4 +1,5 @@
-use super::pipeline::{make_bgl, make_bind_group, make_geo_pipeline, stencil_read_state};
+use crate::render::stencil_read_state;
+use super::pipeline::{make_bgl, make_bind_group, make_geo_pipeline};
 use super::primitives::{GeoVertex, MAX_VERTS};
 
 pub(super) const SHADER: &str = r#"
@@ -94,6 +95,14 @@ impl GeometryRenderer {
         }
     }
 
+    fn write_uniforms(&self, queue: &wgpu::Queue, screen_w: f32, screen_h: f32) {
+        queue.write_buffer(
+            &self.uniform_buf,
+            0,
+            bytemuck::cast_slice(&[screen_w, screen_h, 0.0_f32, 0.0_f32]),
+        );
+    }
+
     pub fn draw(
         &self,
         encoder: &mut wgpu::CommandEncoder,
@@ -106,11 +115,7 @@ impl GeometryRenderer {
         if verts.is_empty() {
             return;
         }
-        queue.write_buffer(
-            &self.uniform_buf,
-            0,
-            bytemuck::cast_slice(&[screen_w, screen_h, 0.0_f32, 0.0_f32]),
-        );
+        self.write_uniforms(queue, screen_w, screen_h);
         queue.write_buffer(&self.vertex_buf, 0, bytemuck::cast_slice(verts));
 
         let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -146,11 +151,7 @@ impl GeometryRenderer {
         if verts.is_empty() {
             return;
         }
-        queue.write_buffer(
-            &self.uniform_buf,
-            0,
-            bytemuck::cast_slice(&[screen_w, screen_h, 0.0_f32, 0.0_f32]),
-        );
+        self.write_uniforms(queue, screen_w, screen_h);
         queue.write_buffer(&self.vertex_buf_masked, 0, bytemuck::cast_slice(verts));
 
         let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {

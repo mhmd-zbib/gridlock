@@ -1,4 +1,4 @@
-use game::math::vec2;
+use engine::math::vec2;
 use game::world::level::Pos;
 
 pub fn dist(ax: f32, ay: f32, bx: f32, by: f32) -> f32 {

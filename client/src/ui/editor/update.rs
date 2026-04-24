@@ -1,4 +1,4 @@
-use game::input::InputState;
+use engine::input::InputState;
 use game::world::units::px_to_tiles;
 
 use super::helpers::{bounds_from_points, effective_snap_mode, snap_point};

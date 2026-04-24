@@ -1,6 +1,6 @@
 use crate::camera::{CameraBehaviorState, TacticalCamera};
 use crate::render::views::HudView;
-use game::render::text::TextSection;
+use engine::render::text::TextSection;
 
 use super::shared::{net_status_line, ts};
 

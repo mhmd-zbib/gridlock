@@ -146,6 +146,13 @@ impl EnemyBrain {
         output
     }
 
+    fn log_tick(&mut self, msg: impl FnOnce() -> String) {
+        if AI_STATE_LOG && self.ai_log_timer <= 0.0 {
+            println!("[ai/brain] {}", msg());
+            self.ai_log_timer = AI_TICK_LOG_INTERVAL;
+        }
+    }
+
     /// Current search-phase label for debug display.
     pub fn phase_name(&self) -> &'static str {
         self.search.phase_name()
@@ -221,13 +228,8 @@ impl EnemyBrain {
                 let decision =
                     self.search
                         .update(pos, last_known, self.awareness.suspicion, walls, dt);
-                if AI_STATE_LOG && self.ai_log_timer <= 0.0 {
-                    println!(
-                        "[ai/brain] alert-search  suspicion={:.2}  last_known=({:.1},{:.1})",
-                        self.awareness.suspicion, last_known.0, last_known.1
-                    );
-                    self.ai_log_timer = AI_TICK_LOG_INTERVAL;
-                }
+                let s = self.awareness.suspicion;
+                self.log_tick(|| format!("alert-search  suspicion={s:.2}  last_known=({:.1},{:.1})", last_known.0, last_known.1));
                 BrainOutput {
                     look_dir: decision.look_dir,
                     move_target: decision.move_target,
@@ -264,13 +266,8 @@ impl EnemyBrain {
                 let decision =
                     self.search
                         .update(pos, last_known, self.awareness.suspicion, walls, dt);
-                if AI_STATE_LOG && self.ai_log_timer <= 0.0 {
-                    println!(
-                        "[ai/brain] idle-search  suspicion={:.2}  last_known=({:.1},{:.1})",
-                        self.awareness.suspicion, last_known.0, last_known.1
-                    );
-                    self.ai_log_timer = AI_TICK_LOG_INTERVAL;
-                }
+                let s = self.awareness.suspicion;
+                self.log_tick(|| format!("idle-search  suspicion={s:.2}  last_known=({:.1},{:.1})", last_known.0, last_known.1));
                 BrainOutput {
                     look_dir: decision.look_dir,
                     move_target: decision.move_target,
@@ -279,13 +276,8 @@ impl EnemyBrain {
             } else {
                 // Search complete — RoomGuard takes over, biased toward last known.
                 let d = self.room_guard.update(pos, Some(last_known), walls, dt);
-                if AI_STATE_LOG && self.ai_log_timer <= 0.0 {
-                    println!(
-                        "[ai/brain] idle-guard  suspicion={:.2}  hint=({:.1},{:.1})",
-                        self.awareness.suspicion, last_known.0, last_known.1
-                    );
-                    self.ai_log_timer = AI_TICK_LOG_INTERVAL;
-                }
+                let s = self.awareness.suspicion;
+                self.log_tick(|| format!("idle-guard  suspicion={s:.2}  hint=({:.1},{:.1})", last_known.0, last_known.1));
                 BrainOutput {
                     look_dir: d.look_dir,
                     move_target: None,
@@ -295,13 +287,8 @@ impl EnemyBrain {
         } else {
             // Never seen the player — pure structural entrance guarding.
             let d = self.room_guard.update(pos, None, walls, dt);
-            if AI_STATE_LOG && self.ai_log_timer <= 0.0 {
-                println!(
-                    "[ai/brain] idle-guard no-memory  suspicion={:.2}",
-                    self.awareness.suspicion
-                );
-                self.ai_log_timer = AI_TICK_LOG_INTERVAL;
-            }
+            let s = self.awareness.suspicion;
+            self.log_tick(|| format!("idle-guard no-memory  suspicion={s:.2}"));
             BrainOutput {
                 look_dir: d.look_dir,
                 move_target: None,

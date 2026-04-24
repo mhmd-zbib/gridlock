@@ -1,6 +1,5 @@
 use crate::world::spatial::{self, SCAN_SECTORS};
 
-const THREAT_MEMORY_WINDOW: f32 = 6.0;
 
 pub(super) fn update(
     pos: (f32, f32),

@@ -1,17 +1,14 @@
 use crate::entity::movement::{Movement, MovementInput};
-use crate::input::InputState;
-use crate::world::units::px_to_tiles;
+use crate::systems::movement::{PEEK_DISTANCE, PEEK_LERP_SPEED, clamped_peek_distance};
 use crate::world::wall::Wall;
+use crate::world::units::px_to_tiles;
+use engine::input::InputState;
 
 const WALK_SPEED: f32 = px_to_tiles(40.0);
 const NORMAL_SPEED: f32 = px_to_tiles(85.0);
 pub const RUN_SPEED: f32 = px_to_tiles(200.0);
 const SPRINT_MAX_SECS: f32 = 1.2;
-/// Cooldown ratio: each second of sprint used costs this many seconds of cooldown.
 const SPRINT_COOLDOWN_RATIO: f32 = 3.0;
-const PEEK_DISTANCE: f32 = px_to_tiles(18.0);
-
-const PEEK_LERP_SPEED: f32 = 12.0; // higher = faster slide to position
 
 pub struct LocomotionState {
     peek_origin: Option<(f32, f32)>,
@@ -36,7 +33,12 @@ impl LocomotionState {
         half_size: f32,
         walls: &[Wall],
     ) {
-        // Tick cooldown; refill sprint proportionally as it expires.
+        self.tick_sprint(dt, input, movement);
+        let dir = input_dir(input);
+        apply_peek_or_walk(dt, input, movement, dir, half_size, walls, &mut self.peek_origin);
+    }
+
+    fn tick_sprint(&mut self, dt: f32, input: &InputState, movement: &mut Movement) {
         if self.sprint_cooldown > 0.0 {
             let recovered = dt.min(self.sprint_cooldown) / SPRINT_COOLDOWN_RATIO;
             self.sprint_left = (self.sprint_left + recovered).min(SPRINT_MAX_SECS);
@@ -48,7 +50,6 @@ impl LocomotionState {
             let used = dt.min(self.sprint_left);
             self.sprint_left -= used;
             if self.sprint_left <= 0.0 {
-                // Burned the full burst — pay the full cooldown cost.
                 self.sprint_cooldown = SPRINT_MAX_SECS * SPRINT_COOLDOWN_RATIO;
             }
         }
@@ -60,103 +61,83 @@ impl LocomotionState {
         } else {
             NORMAL_SPEED
         };
-
-        let px: f32 = if input.right {
-            1.0
-        } else if input.left {
-            -1.0
-        } else {
-            0.0
-        };
-        let py: f32 = if input.down {
-            1.0
-        } else if input.up {
-            -1.0
-        } else {
-            0.0
-        };
-        let has_dir = px != 0.0 || py != 0.0;
-
-        // Latch origin the moment peek is first pressed.
-        if input.peek && self.peek_origin.is_none() {
-            self.peek_origin = Some((movement.x, movement.y));
-        }
-
-        if let Some(origin) = self.peek_origin {
-            // Peek key released while still holding a direction → exit peek
-            // immediately and resume walking from the current position.
-            if !input.peek && has_dir {
-                self.peek_origin = None;
-                movement.apply(
-                    MovementInput {
-                        up: input.up,
-                        down: input.down,
-                        left: input.left,
-                        right: input.right,
-                    },
-                    dt,
-                );
-                return;
-            }
-
-            // Determine target position.
-            let (target_x, target_y) = if input.peek && has_dir {
-                let len = (px * px + py * py).sqrt();
-                let dir = (px / len, py / len);
-                let dist = clamped_peek_distance(origin, dir, PEEK_DISTANCE, half_size, walls);
-                (origin.0 + dir.0 * dist, origin.1 + dir.1 * dist)
-            } else {
-                origin
-            };
-
-            // Smooth slide with no overshoot.
-            let alpha = (PEEK_LERP_SPEED * dt).min(1.0);
-            movement.x += (target_x - movement.x) * alpha;
-            movement.y += (target_y - movement.y) * alpha;
-            movement.velocity_frac = 0.0;
-
-            // Once fully returned to origin, exit peek mode.
-            if !input.peek {
-                let dx = movement.x - origin.0;
-                let dy = movement.y - origin.1;
-                if dx * dx + dy * dy < 1.0e-6 {
-                    movement.x = origin.0;
-                    movement.y = origin.1;
-                    self.peek_origin = None;
-                }
-            }
-        } else {
-            movement.apply(
-                MovementInput {
-                    up: input.up,
-                    down: input.down,
-                    left: input.left,
-                    right: input.right,
-                },
-                dt,
-            );
-        }
     }
 }
 
-fn clamped_peek_distance(
-    origin: (f32, f32),
+// ---------------------------------------------------------------------------
+// Peek movement
+// ---------------------------------------------------------------------------
+
+fn input_dir(input: &InputState) -> (f32, f32) {
+    let px = if input.right { 1.0 } else if input.left { -1.0 } else { 0.0 };
+    let py = if input.down { 1.0 } else if input.up { -1.0 } else { 0.0 };
+    (px, py)
+}
+
+fn apply_peek_or_walk(
+    dt: f32,
+    input: &InputState,
+    movement: &mut Movement,
     dir: (f32, f32),
-    max_dist: f32,
     half_size: f32,
     walls: &[Wall],
-) -> f32 {
-    const PEEK_STEP: f32 = px_to_tiles(0.5);
-    let mut safe_dist = 0.0;
-    let mut d = 0.0;
-    while d < max_dist {
-        d = (d + PEEK_STEP).min(max_dist);
-        let cx = origin.0 + dir.0 * d;
-        let cy = origin.1 + dir.1 * d;
-        if walls.iter().any(|w| w.overlaps(cx, cy, half_size)) {
-            break;
-        }
-        safe_dist = d;
+    peek_origin: &mut Option<(f32, f32)>,
+) {
+    let has_dir = dir.0 != 0.0 || dir.1 != 0.0;
+
+    if input.peek && peek_origin.is_none() {
+        *peek_origin = Some((movement.x, movement.y));
     }
-    safe_dist
+
+    let Some(origin) = *peek_origin else {
+        movement.apply(MovementInput::from_input(input), dt);
+        return;
+    };
+
+    // Peek key released while moving → exit peek immediately and walk.
+    if !input.peek && has_dir {
+        *peek_origin = None;
+        movement.apply(MovementInput::from_input(input), dt);
+        return;
+    }
+
+    apply_peek(dt, input, movement, dir, has_dir, half_size, walls, peek_origin, origin);
 }
+
+fn apply_peek(
+    dt: f32,
+    input: &InputState,
+    movement: &mut Movement,
+    dir: (f32, f32),
+    has_dir: bool,
+    half_size: f32,
+    walls: &[Wall],
+    peek_origin: &mut Option<(f32, f32)>,
+    origin: (f32, f32),
+) {
+    let target = if input.peek && has_dir {
+        let len = (dir.0 * dir.0 + dir.1 * dir.1).sqrt();
+        let norm = (dir.0 / len, dir.1 / len);
+        let dist = clamped_peek_distance(origin, norm, PEEK_DISTANCE, half_size, walls);
+        (origin.0 + norm.0 * dist, origin.1 + norm.1 * dist)
+    } else {
+        origin
+    };
+
+    let alpha = (PEEK_LERP_SPEED * dt).min(1.0);
+    movement.x += (target.0 - movement.x) * alpha;
+    movement.y += (target.1 - movement.y) * alpha;
+    movement.velocity_frac = 0.0;
+
+    // Once fully returned to origin, exit peek mode.
+    if !input.peek {
+        let dx = movement.x - origin.0;
+        let dy = movement.y - origin.1;
+        if dx * dx + dy * dy < 1.0e-6 {
+            movement.x = origin.0;
+            movement.y = origin.1;
+            *peek_origin = None;
+        }
+    }
+}
+

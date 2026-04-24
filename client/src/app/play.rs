@@ -8,8 +8,8 @@ use crate::systems::prediction::{
 };
 use crate::util::{enemies_in_combat, infer_world_bounds};
 use game::game::BULLET_MAX_RANGE;
-use game::input::InputState;
-use game::timing::FIXED_STEP;
+use engine::input::InputState;
+use engine::timing::FIXED_STEP;
 use game::world::ray::cast_ray;
 use game::world::units::{px_to_tiles, tiles_to_px};
 use net::ClientPacket;

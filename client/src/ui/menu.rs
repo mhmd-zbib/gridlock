@@ -1,5 +1,5 @@
 use ::ui::components::{PrimaryButton, PrimaryButtonFrame, PrimaryButtonQuad};
-use game::render::quad::ShadedQuadInstance;
+use engine::render::quad::ShadedQuadInstance;
 
 // ---------------------------------------------------------------------------
 // Button

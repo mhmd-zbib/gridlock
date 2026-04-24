@@ -32,173 +32,11 @@ impl TextRenderer {
     pub fn new(device: &wgpu::Device, queue: &wgpu::Queue, format: wgpu::TextureFormat) -> Self {
         let built = atlas::build();
 
-        // ---- upload atlas texture ----
-        let atlas_extent = wgpu::Extent3d {
-            width: built.atlas_w,
-            height: built.atlas_h,
-            depth_or_array_layers: 1,
-        };
-        let atlas_tex = device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("glyph atlas"),
-            size: atlas_extent,
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::R8Unorm,
-            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
-            view_formats: &[],
-        });
-        queue.write_texture(
-            atlas_tex.as_image_copy(),
-            &built.pixels,
-            wgpu::TexelCopyBufferLayout {
-                offset: 0,
-                bytes_per_row: Some(built.atlas_w),
-                rows_per_image: Some(built.atlas_h),
-            },
-            atlas_extent,
-        );
-        let atlas_view = atlas_tex.create_view(&wgpu::TextureViewDescriptor::default());
-
-        let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
-            address_mode_u: wgpu::AddressMode::ClampToEdge,
-            address_mode_v: wgpu::AddressMode::ClampToEdge,
-            mag_filter: wgpu::FilterMode::Linear,
-            min_filter: wgpu::FilterMode::Linear,
-            ..Default::default()
-        });
-
-        // ---- vertex / index buffers ----
-        let vertex_buf = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("text vertices"),
-            size: (MAX_CHARS * 4 * std::mem::size_of::<Vertex>()) as u64,
-            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
-
-        let indices: Vec<u16> = (0..MAX_CHARS as u16)
-            .flat_map(|i| {
-                let b = i * 4;
-                [b, b + 1, b + 2, b + 1, b + 3, b + 2]
-            })
-            .collect();
-        let index_buf = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("text indices"),
-            size: (indices.len() * 2) as u64,
-            usage: wgpu::BufferUsages::INDEX | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
-        queue.write_buffer(&index_buf, 0, bytemuck::cast_slice(&indices));
-
-        // ---- uniform buffer ----
-        let uniform_buf = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("text uniforms"),
-            size: 16,
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
-
-        // ---- bind group layouts ----
-        let bgl_uniform = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: Some("text uniform bgl"),
-            entries: &[wgpu::BindGroupLayoutEntry {
-                binding: 0,
-                visibility: wgpu::ShaderStages::VERTEX,
-                ty: wgpu::BindingType::Buffer {
-                    ty: wgpu::BufferBindingType::Uniform,
-                    has_dynamic_offset: false,
-                    min_binding_size: None,
-                },
-                count: None,
-            }],
-        });
-        let bgl_atlas = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: Some("text atlas bgl"),
-            entries: &[
-                wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Texture {
-                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                        view_dimension: wgpu::TextureViewDimension::D2,
-                        multisampled: false,
-                    },
-                    count: None,
-                },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 1,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                    count: None,
-                },
-            ],
-        });
-
-        let uniform_bg = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("text uniform bg"),
-            layout: &bgl_uniform,
-            entries: &[wgpu::BindGroupEntry {
-                binding: 0,
-                resource: uniform_buf.as_entire_binding(),
-            }],
-        });
-        let atlas_bg = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("text atlas bg"),
-            layout: &bgl_atlas,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::TextureView(&atlas_view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::Sampler(&sampler),
-                },
-            ],
-        });
-
-        // ---- render pipeline ----
-        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("text shader"),
-            source: wgpu::ShaderSource::Wgsl(SHADER.into()),
-        });
-        let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: Some("text pipeline layout"),
-            bind_group_layouts: &[Some(&bgl_uniform), Some(&bgl_atlas)],
-            immediate_size: 0,
-        });
-        let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("text pipeline"),
-            layout: Some(&pipeline_layout),
-            vertex: wgpu::VertexState {
-                module: &shader,
-                entry_point: Some("vs"),
-                compilation_options: Default::default(),
-                buffers: &[wgpu::VertexBufferLayout {
-                    array_stride: std::mem::size_of::<Vertex>() as u64,
-                    step_mode: wgpu::VertexStepMode::Vertex,
-                    attributes: &VERTEX_ATTRS,
-                }],
-            },
-            primitive: wgpu::PrimitiveState {
-                topology: wgpu::PrimitiveTopology::TriangleList,
-                ..Default::default()
-            },
-            depth_stencil: None,
-            multisample: wgpu::MultisampleState::default(),
-            fragment: Some(wgpu::FragmentState {
-                module: &shader,
-                entry_point: Some("fs"),
-                compilation_options: Default::default(),
-                targets: &[Some(wgpu::ColorTargetState {
-                    format,
-                    blend: Some(wgpu::BlendState::ALPHA_BLENDING),
-                    write_mask: wgpu::ColorWrites::ALL,
-                })],
-            }),
-            multiview_mask: None,
-            cache: None,
-        });
+        let (atlas_bg, bgl_atlas) = upload_atlas(device, queue, &built);
+        let (vertex_buf, index_buf) = build_text_buffers(device, queue);
+        let uniform_buf = build_uniform_buf(device);
+        let (uniform_bg, bgl_uniform) = build_uniform_bind_group(device, &uniform_buf);
+        let pipeline = build_pipeline(device, format, &bgl_uniform, &bgl_atlas);
 
         Self {
             pipeline,
@@ -280,43 +118,237 @@ impl TextRenderer {
                     continue;
                 }
                 let g = &self.glyphs[(code - FIRST_CHAR) as usize];
-
-                let x0 = pen_x + g.bear_x * scale;
-                let y0 = baseline - g.bear_y * scale;
-                let x1 = x0 + g.bmp_w as f32 * scale;
-                let y1 = y0 + g.bmp_h as f32 * scale;
-
-                let u0 = (g.cell_x + 1) as f32 / atlas_wf;
-                let v0 = (g.cell_y + 1) as f32 / atlas_hf;
-                let u1 = (g.cell_x + 1 + g.bmp_w) as f32 / atlas_wf;
-                let v1 = (g.cell_y + 1 + g.bmp_h) as f32 / atlas_hf;
-
-                let c = sec.color;
-                verts.push(Vertex {
-                    pos: [x0, y0],
-                    uv: [u0, v0],
-                    color: c,
-                });
-                verts.push(Vertex {
-                    pos: [x1, y0],
-                    uv: [u1, v0],
-                    color: c,
-                });
-                verts.push(Vertex {
-                    pos: [x0, y1],
-                    uv: [u0, v1],
-                    color: c,
-                });
-                verts.push(Vertex {
-                    pos: [x1, y1],
-                    uv: [u1, v1],
-                    color: c,
-                });
-
+                push_glyph_verts(&mut verts, g, pen_x, baseline, scale, atlas_wf, atlas_hf, sec.color);
                 pen_x += g.advance * scale;
             }
         }
 
         verts
     }
+}
+
+// ---------------------------------------------------------------------------
+// Vertex builder
+// ---------------------------------------------------------------------------
+
+fn push_glyph_verts(
+    verts: &mut Vec<Vertex>,
+    g: &Glyph,
+    pen_x: f32,
+    baseline: f32,
+    scale: f32,
+    atlas_w: f32,
+    atlas_h: f32,
+    color: [f32; 4],
+) {
+    let x0 = pen_x + g.bear_x * scale;
+    let y0 = baseline - g.bear_y * scale;
+    let x1 = x0 + g.bmp_w as f32 * scale;
+    let y1 = y0 + g.bmp_h as f32 * scale;
+
+    let u0 = (g.cell_x + 1) as f32 / atlas_w;
+    let v0 = (g.cell_y + 1) as f32 / atlas_h;
+    let u1 = (g.cell_x + 1 + g.bmp_w) as f32 / atlas_w;
+    let v1 = (g.cell_y + 1 + g.bmp_h) as f32 / atlas_h;
+
+    verts.push(Vertex { pos: [x0, y0], uv: [u0, v0], color });
+    verts.push(Vertex { pos: [x1, y0], uv: [u1, v0], color });
+    verts.push(Vertex { pos: [x0, y1], uv: [u0, v1], color });
+    verts.push(Vertex { pos: [x1, y1], uv: [u1, v1], color });
+}
+
+// ---------------------------------------------------------------------------
+// Initialisation helpers
+// ---------------------------------------------------------------------------
+
+fn upload_atlas(
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    built: &atlas::BuiltAtlas,
+) -> (wgpu::BindGroup, wgpu::BindGroupLayout) {
+    let extent = wgpu::Extent3d {
+        width: built.atlas_w,
+        height: built.atlas_h,
+        depth_or_array_layers: 1,
+    };
+    let tex = device.create_texture(&wgpu::TextureDescriptor {
+        label: Some("glyph atlas"),
+        size: extent,
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: wgpu::TextureFormat::R8Unorm,
+        usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+        view_formats: &[],
+    });
+    queue.write_texture(
+        tex.as_image_copy(),
+        &built.pixels,
+        wgpu::TexelCopyBufferLayout {
+            offset: 0,
+            bytes_per_row: Some(built.atlas_w),
+            rows_per_image: Some(built.atlas_h),
+        },
+        extent,
+    );
+    let view = tex.create_view(&wgpu::TextureViewDescriptor::default());
+    let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+        address_mode_u: wgpu::AddressMode::ClampToEdge,
+        address_mode_v: wgpu::AddressMode::ClampToEdge,
+        mag_filter: wgpu::FilterMode::Linear,
+        min_filter: wgpu::FilterMode::Linear,
+        ..Default::default()
+    });
+
+    let bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        label: Some("text atlas bgl"),
+        entries: &[
+            wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Texture {
+                    sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                    view_dimension: wgpu::TextureViewDimension::D2,
+                    multisampled: false,
+                },
+                count: None,
+            },
+            wgpu::BindGroupLayoutEntry {
+                binding: 1,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                count: None,
+            },
+        ],
+    });
+    let bg = device.create_bind_group(&wgpu::BindGroupDescriptor {
+        label: Some("text atlas bg"),
+        layout: &bgl,
+        entries: &[
+            wgpu::BindGroupEntry {
+                binding: 0,
+                resource: wgpu::BindingResource::TextureView(&view),
+            },
+            wgpu::BindGroupEntry {
+                binding: 1,
+                resource: wgpu::BindingResource::Sampler(&sampler),
+            },
+        ],
+    });
+
+    (bg, bgl)
+}
+
+fn build_text_buffers(
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+) -> (wgpu::Buffer, wgpu::Buffer) {
+    let vertex_buf = device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("text vertices"),
+        size: (MAX_CHARS * 4 * std::mem::size_of::<Vertex>()) as u64,
+        usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+        mapped_at_creation: false,
+    });
+
+    let indices: Vec<u16> = (0..MAX_CHARS as u16)
+        .flat_map(|i| {
+            let b = i * 4;
+            [b, b + 1, b + 2, b + 1, b + 3, b + 2]
+        })
+        .collect();
+    let index_buf = device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("text indices"),
+        size: (indices.len() * 2) as u64,
+        usage: wgpu::BufferUsages::INDEX | wgpu::BufferUsages::COPY_DST,
+        mapped_at_creation: false,
+    });
+    queue.write_buffer(&index_buf, 0, bytemuck::cast_slice(&indices));
+
+    (vertex_buf, index_buf)
+}
+
+fn build_uniform_buf(device: &wgpu::Device) -> wgpu::Buffer {
+    device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("text uniforms"),
+        size: 16,
+        usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        mapped_at_creation: false,
+    })
+}
+
+fn build_uniform_bind_group(
+    device: &wgpu::Device,
+    uniform_buf: &wgpu::Buffer,
+) -> (wgpu::BindGroup, wgpu::BindGroupLayout) {
+    let bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        label: Some("text uniform bgl"),
+        entries: &[wgpu::BindGroupLayoutEntry {
+            binding: 0,
+            visibility: wgpu::ShaderStages::VERTEX,
+            ty: wgpu::BindingType::Buffer {
+                ty: wgpu::BufferBindingType::Uniform,
+                has_dynamic_offset: false,
+                min_binding_size: None,
+            },
+            count: None,
+        }],
+    });
+    let bg = device.create_bind_group(&wgpu::BindGroupDescriptor {
+        label: Some("text uniform bg"),
+        layout: &bgl,
+        entries: &[wgpu::BindGroupEntry {
+            binding: 0,
+            resource: uniform_buf.as_entire_binding(),
+        }],
+    });
+    (bg, bgl)
+}
+
+fn build_pipeline(
+    device: &wgpu::Device,
+    format: wgpu::TextureFormat,
+    bgl_uniform: &wgpu::BindGroupLayout,
+    bgl_atlas: &wgpu::BindGroupLayout,
+) -> wgpu::RenderPipeline {
+    let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+        label: Some("text shader"),
+        source: wgpu::ShaderSource::Wgsl(SHADER.into()),
+    });
+    let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+        label: Some("text pipeline layout"),
+        bind_group_layouts: &[Some(bgl_uniform), Some(bgl_atlas)],
+        immediate_size: 0,
+    });
+    device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        label: Some("text pipeline"),
+        layout: Some(&layout),
+        vertex: wgpu::VertexState {
+            module: &shader,
+            entry_point: Some("vs"),
+            compilation_options: Default::default(),
+            buffers: &[wgpu::VertexBufferLayout {
+                array_stride: std::mem::size_of::<Vertex>() as u64,
+                step_mode: wgpu::VertexStepMode::Vertex,
+                attributes: &VERTEX_ATTRS,
+            }],
+        },
+        primitive: wgpu::PrimitiveState {
+            topology: wgpu::PrimitiveTopology::TriangleList,
+            ..Default::default()
+        },
+        depth_stencil: None,
+        multisample: wgpu::MultisampleState::default(),
+        fragment: Some(wgpu::FragmentState {
+            module: &shader,
+            entry_point: Some("fs"),
+            compilation_options: Default::default(),
+            targets: &[Some(wgpu::ColorTargetState {
+                format,
+                blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                write_mask: wgpu::ColorWrites::ALL,
+            })],
+        }),
+        multiview_mask: None,
+        cache: None,
+    })
 }

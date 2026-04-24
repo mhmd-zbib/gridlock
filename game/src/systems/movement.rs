@@ -1,6 +1,6 @@
 use crate::entity::enemy::Enemy;
 use crate::entity::player::Player;
-use crate::input::InputState;
+use engine::input::InputState;
 use crate::spawn::SpawnQueue;
 use crate::world::bounds::clamp_actor_to_level_bounds;
 use crate::world::level::LevelBounds;

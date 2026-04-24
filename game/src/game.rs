@@ -1,6 +1,7 @@
 use super::entity::bullet::Bullet;
 use super::entity::enemy::Enemy;
-use super::entity::player::{Player, PlayerLoadoutConfig, sanitize_loadout};
+use super::entity::player::{Player, PlayerLoadoutConfig};
+use super::world::bounds::clamp_actor_to_level_bounds;
 use super::spawn::SpawnQueue;
 pub use super::systems::projectile::ImpactEvent;
 use super::systems::{movement, projectile, spawn as spawn_system, visibility};
@@ -10,7 +11,7 @@ use super::world::prop::{self, ResolvedProp};
 use super::world::rooms::LevelRooms;
 use super::world::units::px_to_tiles;
 use super::world::wall::Wall;
-use crate::input::InputState;
+use engine::input::InputState;
 
 // ---------------------------------------------------------------------------
 // Domain constants — authoritative sizes used by movement and combat systems
@@ -99,7 +100,7 @@ impl Game {
 
     pub fn set_player_loadout(&mut self, loadout: PlayerLoadoutConfig) {
         let mut sanitized = loadout;
-        sanitize_loadout(&mut sanitized);
+        sanitized.sanitize();
         self.player_loadout = sanitized;
         self.player.apply_loadout(&self.player_loadout);
     }
@@ -115,45 +116,15 @@ impl Game {
     }
 
     pub fn load_level(&mut self, level: &LevelData, level_width: f32, level_height: f32) {
-        self.player = match level.player_spawn {
-            Some(sp) => Player::new(sp.x, sp.y),
-            None => Player::new(px_to_tiles(400.0), px_to_tiles(300.0)),
-        };
-        sanitize_loadout(&mut self.player_loadout);
-        self.player.apply_loadout(&self.player_loadout);
-
-        self.enemies = level
-            .enemies
-            .iter()
-            .map(|p| Enemy::new(p.x, p.y))
-            .chain(
-                level
-                    .target_enemies
-                    .iter()
-                    .map(|p| Enemy::target_dummy(p.x, p.y)),
-            )
-            .collect();
+        self.player_loadout.sanitize();
+        self.player = spawn_player(level, &self.player_loadout);
+        self.enemies = spawn_enemies(level);
 
         let floor_assets = floor_world::load_assets();
         self.floors = floor_world::resolve_level_floors(&level.floors, &floor_assets);
         let prop_assets = prop::load_assets();
         self.props = prop::resolve_level_props(&level.props, &prop_assets);
-        self.walls = level.walls.clone();
-        for wall in &mut self.walls {
-            wall.init_segments();
-        }
-        // Promote collidable props to walls so movement and combat systems share
-        // a single wall list.
-        for prop in self.props.iter().filter(|p| p.is_collider) {
-            let mut w = Wall::new(
-                prop.x - prop.width * 0.5,
-                prop.y - prop.height * 0.5,
-                prop.width,
-                prop.height,
-            );
-            w.is_prop = true;
-            self.walls.push(w);
-        }
+        self.walls = build_walls(&level.walls, &self.props);
 
         self.bullets = Vec::new();
         self.impacts = Vec::new();
@@ -161,8 +132,6 @@ impl Game {
         self.bullet_traces = Vec::new();
         self.level_bounds = level.map_bounds;
 
-        // Clamp initial positions inside the level.
-        use super::world::bounds::clamp_actor_to_level_bounds;
         clamp_actor_to_level_bounds(
             &mut self.player.movement.x,
             &mut self.player.movement.y,
@@ -178,15 +147,8 @@ impl Game {
             );
         }
 
-        // Compute room / gap topology once at level load and cache it.
-        let room_w = match level.map_bounds {
-            Some(bounds) => (bounds.x + bounds.w).max(level_width),
-            None => level_width,
-        };
-        let room_h = match level.map_bounds {
-            Some(bounds) => (bounds.y + bounds.h).max(level_height),
-            None => level_height,
-        };
+        let room_w = level.map_bounds.map_or(level_width, |b| (b.x + b.w).max(level_width));
+        let room_h = level.map_bounds.map_or(level_height, |b| (b.y + b.h).max(level_height));
         self.rooms = LevelRooms::compute(&self.walls, room_w, room_h);
     }
 
@@ -285,4 +247,43 @@ impl Game {
             BULLET_MAX_RANGE,
         );
     }
+}
+
+// ---------------------------------------------------------------------------
+// Level-load helpers (pure: take data, return data)
+// ---------------------------------------------------------------------------
+
+fn spawn_player(level: &LevelData, loadout: &PlayerLoadoutConfig) -> Player {
+    let (x, y) = level.player_spawn
+        .map(|sp| (sp.x, sp.y))
+        .unwrap_or((px_to_tiles(400.0), px_to_tiles(300.0)));
+    let mut player = Player::new(x, y);
+    player.apply_loadout(loadout);
+    player
+}
+
+fn spawn_enemies(level: &LevelData) -> Vec<Enemy> {
+    level.enemies.iter().map(|p| Enemy::new(p.x, p.y))
+        .chain(level.target_enemies.iter().map(|p| Enemy::target_dummy(p.x, p.y)))
+        .collect()
+}
+
+/// Build the unified wall list: level walls (with segments) plus collidable
+/// props promoted to phantom walls so movement and combat share a single list.
+fn build_walls(level_walls: &[Wall], props: &[ResolvedProp]) -> Vec<Wall> {
+    let mut walls: Vec<Wall> = level_walls.to_vec();
+    for wall in &mut walls {
+        wall.init_segments();
+    }
+    for prop in props.iter().filter(|p| p.is_collider) {
+        let mut w = Wall::new(
+            prop.x - prop.width * 0.5,
+            prop.y - prop.height * 0.5,
+            prop.width,
+            prop.height,
+        );
+        w.is_prop = true;
+        walls.push(w);
+    }
+    walls
 }

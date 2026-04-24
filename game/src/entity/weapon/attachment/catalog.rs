@@ -124,38 +124,8 @@ fn load_catalog() -> Vec<AttachmentDef> {
 }
 
 fn resolve_attachments_dir() -> PathBuf {
-    let cwd_attachments = std::env::current_dir()
-        .ok()
-        .map(|cwd| cwd.join("assets").join("configs").join("attachments"))
-        .filter(|path| path.is_dir());
-    if let Some(path) = cwd_attachments {
-        return path;
-    }
-
-    let manifest_attachments = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("assets")
-        .join("configs")
-        .join("attachments");
-    if manifest_attachments.is_dir() {
-        return manifest_attachments;
-    }
-
-    let workspace_attachments = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .map(|root| root.join("assets").join("configs").join("attachments"));
-    if let Some(path) = workspace_attachments.as_ref().filter(|path| path.is_dir()) {
-        return path.to_path_buf();
-    }
-
-    panic!(
-        "attachments directory not found (checked './assets/configs/attachments', '{}/assets/configs/attachments', and '{}')",
-        env!("CARGO_MANIFEST_DIR"),
-        workspace_attachments
-            .map(|path| path.display().to_string())
-            .unwrap_or_else(
-                || "<workspace-root-unavailable>/assets/configs/attachments".to_string()
-            )
-    );
+    crate::resolve_config_dir("attachments")
+        .expect("attachments directory not found — expected 'assets/configs/attachments' next to the executable or in the working directory")
 }
 
 fn load_attachment_file(path: &Path) -> AttachmentDef {

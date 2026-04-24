@@ -19,10 +19,10 @@ use crate::ui::loadout::LoadoutMenu;
 use crate::ui::lobby::LobbyMenu;
 use crate::ui::menu::MainMenu;
 use game::game::Game;
-use game::input::InputHandler;
-use game::render::sprite::AssetHandle;
-use game::render::state::State;
-use game::timing::GameLoop;
+use engine::asset::AssetHandle;
+use engine::input::InputHandler;
+use engine::render::state::State;
+use engine::timing::GameLoop;
 use net::{ClientPacket, LobbyState, MatchState, PlayerState, SelfState, TeammateView};
 
 // ---------------------------------------------------------------------------
@@ -260,28 +260,27 @@ impl App {
         const OUTSIDE_CONE_DIM: f32 = 0.60;
         let viewport_px = (sw, sh);
         let (scene_quads, wall_quads, masked_quads) = self.build_quads(viewport_px, mx, my);
-        let scene_gradient_quads = Vec::new();
         let scene_shaded_quads = self.build_shaded_quads(viewport_px, mx, my);
-        let mask = self.build_mask(viewport_px);
+        let fov_mask = self.build_mask(viewport_px);
         let (geo, masked_geo) = self.build_geo(viewport_px);
-        let (scene_floor_sprites, scene_prop_sprites) = self.build_sprites(viewport_px);
+        let (floor_sprites, prop_sprites) = self.build_sprites(viewport_px);
         let texts = self.build_texts(sw, sh, mx, my);
 
         if let Some(state) = self.wgpu_state.as_mut() {
-            state.render(
-                &mask,
-                &scene_quads,
-                &scene_gradient_quads,
-                &scene_shaded_quads,
-                &masked_quads,
-                &scene_floor_sprites,
-                &scene_prop_sprites,
-                &wall_quads,
-                &geo,
-                &masked_geo,
-                &texts,
-                OUTSIDE_CONE_DIM,
-            );
+            state.render_frame(&engine::render::frame::Frame {
+                fov_mask,
+                outside_dim: OUTSIDE_CONE_DIM,
+                scene_quads,
+                scene_gradient_quads: Vec::new(),
+                scene_shaded_quads,
+                masked_quads,
+                floor_sprites,
+                prop_sprites,
+                wall_quads,
+                geo,
+                masked_geo,
+                texts,
+            });
         }
     }
 }

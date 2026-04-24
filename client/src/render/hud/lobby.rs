@@ -1,5 +1,5 @@
 use crate::net::NetClient;
-use game::render::text::TextSection;
+use engine::render::text::TextSection;
 use net::LobbyState;
 
 use super::shared::{net_status_line, ts};

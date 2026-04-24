@@ -1,4 +1,3 @@
-use super::ray::wrap_angle;
 
 // ---------------------------------------------------------------------------
 // Tunable constants — edit these to feel the behaviour

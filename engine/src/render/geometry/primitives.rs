@@ -19,13 +19,14 @@ pub fn push_circle_fan(
     n: usize,
 ) {
     use std::f32::consts::TAU;
-    let arc: Vec<[f32; 2]> = (0..=n)
-        .map(|i| {
-            let a = i as f32 / n as f32 * TAU;
-            [center.0 + a.cos() * radius, center.1 + a.sin() * radius]
-        })
-        .collect();
-    push_cone_fan(out, center, &arc, color);
+    let c = GeoVertex { pos: [center.0, center.1], color };
+    for i in 1..=n {
+        let a0 = (i - 1) as f32 / n as f32 * TAU;
+        let a1 = i as f32 / n as f32 * TAU;
+        out.push(c);
+        out.push(GeoVertex { pos: [center.0 + a0.cos() * radius, center.1 + a0.sin() * radius], color });
+        out.push(GeoVertex { pos: [center.0 + a1.cos() * radius, center.1 + a1.sin() * radius], color });
+    }
 }
 
 pub fn push_cone_fan(

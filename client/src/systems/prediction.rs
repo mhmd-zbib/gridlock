@@ -5,7 +5,7 @@ use game::game::{Game, PLAYER_HALF};
 use game::systems::movement::{
     PEEK_DISTANCE, PEEK_LERP_SPEED, apply_actor_movement, clamped_peek_distance,
 };
-use game::timing::FIXED_STEP;
+use engine::timing::FIXED_STEP;
 use game::world::level::LevelBounds;
 use game::world::units::px_to_tiles;
 use net::{ClientPacket, MoveSpeed, SelfState, decode_rotation};

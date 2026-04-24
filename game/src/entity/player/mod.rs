@@ -7,7 +7,7 @@ use crate::entity::weapon::attachment::{AttachmentCategory, AttachmentLoadout};
 use crate::entity::weapon::{
     WeaponId, all_weapon_ids, weapon_supports_attachment, weapon_supports_attachment_category,
 };
-use crate::input::InputState;
+use engine::input::InputState;
 use crate::spawn::{SpawnQueue, SpawnRequest};
 use crate::world::aim_cone::AimCone;
 use crate::world::sight::Sight;
@@ -44,20 +44,19 @@ impl Default for PlayerLoadoutConfig {
     }
 }
 
-/// Remove any attachment that is incompatible with the chosen weapon.
-///
-/// Called after the player edits their loadout config so the game state never
-/// holds an attachment that the weapon does not support.
-pub fn sanitize_loadout(loadout: &mut PlayerLoadoutConfig) {
-    for category in AttachmentCategory::all() {
-        if weapon_supports_attachment_category(loadout.weapon, *category) {
-            if let Some(attachment) = loadout.attachments.get(*category) {
-                if !weapon_supports_attachment(loadout.weapon, attachment) {
-                    loadout.attachments.unequip(*category);
+impl PlayerLoadoutConfig {
+    /// Remove any attachment incompatible with the chosen weapon.
+    pub fn sanitize(&mut self) {
+        for category in AttachmentCategory::all() {
+            if weapon_supports_attachment_category(self.weapon, *category) {
+                if let Some(attachment) = self.attachments.get(*category) {
+                    if !weapon_supports_attachment(self.weapon, attachment) {
+                        self.attachments.unequip(*category);
+                    }
                 }
+            } else {
+                self.attachments.unequip(*category);
             }
-        } else {
-            loadout.attachments.unequip(*category);
         }
     }
 }

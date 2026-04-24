@@ -1,6 +1,6 @@
 use crate::camera::TacticalCamera;
 use crate::render::views::EntitiesView;
-use game::render::quad::{QuadInstance, push_quad};
+use engine::render::quad::{QuadInstance, push_quad};
 
 /// Half-size of an enemy body quad in screen pixels.
 const ENEMY_BODY_HALF_PX: f32 = 8.0;

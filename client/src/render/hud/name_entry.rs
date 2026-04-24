@@ -1,4 +1,4 @@
-use game::render::text::TextSection;
+use engine::render::text::TextSection;
 
 use super::shared::ts;
 

@@ -3,7 +3,7 @@
 /// Render functions never import `Game` or any game logic type.
 /// All view assembly (including server-authoritative overrides) happens in
 /// `app/render.rs` — the single translation boundary between game and render.
-use game::render::sprite::AssetHandle;
+use engine::asset::AssetHandle;
 use game::world::level::LevelBounds;
 use game::world::wall::Wall;
 use net::PlayerState;
