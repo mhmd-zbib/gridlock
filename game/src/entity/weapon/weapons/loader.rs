@@ -92,36 +92,47 @@ pub(super) fn load_catalog() -> Vec<WeaponEntry> {
 }
 
 pub(super) fn resolve_weapons_dir() -> PathBuf {
-    let cwd_weapons = std::env::current_dir()
+    let relative_to = |base: PathBuf| base.join("assets").join("configs").join("weapons");
+
+    // 1. Relative to the running executable (release distribution layout)
+    if let Some(path) = std::env::current_exe()
         .ok()
-        .map(|cwd| cwd.join("assets").join("configs").join("weapons"))
-        .filter(|path| path.is_dir());
-    if let Some(path) = cwd_weapons {
+        .and_then(|exe| exe.parent().map(|d| relative_to(d.to_path_buf())))
+        .filter(|p| p.is_dir())
+    {
         return path;
     }
 
-    let manifest_weapons = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("assets")
-        .join("configs")
-        .join("weapons");
-    if manifest_weapons.is_dir() {
-        return manifest_weapons;
+    // 2. Relative to current working directory (dev / run-from-project-root)
+    if let Some(path) = std::env::current_dir()
+        .ok()
+        .map(relative_to)
+        .filter(|p| p.is_dir())
+    {
+        return path;
     }
 
-    let workspace_weapons = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .map(|root| root.join("assets").join("configs").join("weapons"));
-    if let Some(path) = workspace_weapons.as_ref().filter(|path| path.is_dir()) {
-        return path.to_path_buf();
+    // 3. Relative to CARGO_MANIFEST_DIR (cargo run inside workspace)
+    #[cfg(debug_assertions)]
+    {
+        let manifest_weapons = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("assets")
+            .join("configs")
+            .join("weapons");
+        if manifest_weapons.is_dir() {
+            return manifest_weapons;
+        }
+
+        if let Some(path) = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .map(|root| root.join("assets").join("configs").join("weapons"))
+            .filter(|p| p.is_dir())
+        {
+            return path;
+        }
     }
 
-    panic!(
-        "weapons directory not found (checked './assets/configs/weapons', '{}/assets/configs/weapons', and '{}')",
-        env!("CARGO_MANIFEST_DIR"),
-        workspace_weapons
-            .map(|path| path.display().to_string())
-            .unwrap_or_else(|| "<workspace-root-unavailable>/assets/configs/weapons".to_string())
-    );
+    panic!("weapons directory not found — expected 'assets/configs/weapons' next to the executable or in the working directory");
 }
 
 pub(super) fn load_weapon_file(path: &Path) -> WeaponEntry {
