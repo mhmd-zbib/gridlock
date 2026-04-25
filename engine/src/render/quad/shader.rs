@@ -89,6 +89,82 @@ fn rounded_rect_sdf(p: vec2<f32>, half_size: vec2<f32>, radius: f32) -> f32 {
     return mix(in.bottom_color, in.top_color, in.t);
 }
 
+// ── Cone-visibility pipeline ─────────────────────────────────────────────────
+// Per-pixel visibility V(P) = A(P)·D(P) + halo.
+// A(P): smootherstep angular fade between cos_outer (cone edge) and cos_inner.
+// D(P): quadratic distance falloff between range_inner and range_outer.
+// halo: always-visible near-disk (circle_radius).
+// Wall occlusion is provided by the stencil buffer — this shader runs only
+// inside the wall-aware visible region (stencil == 1).
+
+struct InstConeVis {
+    @location(1) center:     vec2<f32>,
+    @location(2) half_size:  vec2<f32>,
+    @location(3) color:      vec4<f32>,
+    @location(4) viewer_pos: vec2<f32>,
+    @location(5) view_dir:   vec2<f32>,
+    // [cos_inner, cos_outer, range_inner_px, range_outer_px]
+    @location(6) cone_a:     vec4<f32>,
+    // [circle_radius_px, _pad, _pad, _pad]
+    @location(7) cone_b:     vec4<f32>,
+}
+struct VertOutConeVis {
+    @builtin(position) clip: vec4<f32>,
+    @location(0) color:      vec4<f32>,
+    @location(1) viewer_pos: vec2<f32>,
+    @location(2) view_dir:   vec2<f32>,
+    @location(3) cone_a:     vec4<f32>,
+    @location(4) cone_b:     vec4<f32>,
+}
+
+@vertex fn vs_cone_vis(v: VertIn, inst: InstConeVis) -> VertOutConeVis {
+    let world = v.position * inst.half_size + inst.center;
+    let nx = (world.x / u.screen_size.x) * 2.0 - 1.0;
+    let ny = -(world.y / u.screen_size.y) * 2.0 + 1.0;
+    return VertOutConeVis(
+        vec4<f32>(nx, ny, 0.0, 1.0),
+        inst.color, inst.viewer_pos, inst.view_dir, inst.cone_a, inst.cone_b,
+    );
+}
+
+fn vis_smootherstep(t: f32) -> f32 {
+    let c = clamp(t, 0.0, 1.0);
+    return c * c * c * (c * (c * 6.0 - 15.0) + 10.0);
+}
+
+@fragment fn fs_cone_vis(in: VertOutConeVis) -> @location(0) vec4<f32> {
+    let px            = in.clip.xy;
+    let cos_inner     = in.cone_a.x;
+    let cos_outer     = in.cone_a.y;
+    let range_inner   = in.cone_a.z;
+    let range_outer   = in.cone_a.w;
+    let circle_radius = in.cone_b.x;
+
+    let offset = px - in.viewer_pos;
+    let dist   = length(offset);
+
+    // Halo: omnidirectional near-disk, smoothly fades to zero at circle_radius.
+    let halo = 1.0 - vis_smootherstep(dist / max(circle_radius, 1.0));
+
+    // D(P): quadratic falloff; full inside range_inner, zero at range_outer.
+    let d_t = clamp((dist - range_inner) / max(range_outer - range_inner, 1.0), 0.0, 1.0);
+    let D   = (1.0 - d_t) * (1.0 - d_t);
+
+    // A(P): smootherstep angular fade; 1 at cos_inner, 0 at cos_outer.
+    var A = 1.0;
+    if dist > 0.5 && cos_outer > -1.5 {
+        let cos_theta = dot(normalize(offset), in.view_dir);
+        let denom     = max(cos_inner - cos_outer, 0.0001);
+        let t_ang     = clamp((cos_theta - cos_outer) / denom, 0.0, 1.0);
+        A = vis_smootherstep(t_ang);
+    }
+
+    let V = clamp(halo + A * D, 0.0, 1.0);
+    var c = in.color;
+    c.a   = c.a * V;
+    return c;
+}
+
 @fragment fn fs_shaded(in: VertOutShaded) -> @location(0) vec4<f32> {
     let aa = 0.014;
     let p = in.local;

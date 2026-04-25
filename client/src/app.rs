@@ -84,6 +84,9 @@ pub struct App {
     prop_textures: HashMap<String, AssetHandle>,
     /// floor id → GPU texture handle, populated once after the GPU is ready.
     floor_textures: HashMap<String, AssetHandle>,
+    /// Temporally-smoothed visibility alpha per enemy (indexed by game.enemies position).
+    /// Lerps toward 1.0 when visible_to_player, toward 0.0 when not.
+    enemy_vis_alphas: Vec<f32>,
     _hud_deps: ::ui::hud::HudDependencies,
 }
 
@@ -124,6 +127,7 @@ impl Default for App {
             my_team: 0,
             prop_textures: HashMap::new(),
             floor_textures: HashMap::new(),
+            enemy_vis_alphas: Vec::new(),
             _hud_deps: ::ui::hud::HudDependencies::tactical_defaults(),
         }
     }
@@ -259,7 +263,8 @@ impl App {
     fn render_frame(&mut self, sw: f32, sh: f32, mx: f32, my: f32) {
         const OUTSIDE_CONE_DIM: f32 = 0.75;
         let viewport_px = (sw, sh);
-        let (scene_quads, wall_quads, masked_quads) = self.build_quads(viewport_px, mx, my);
+        let (scene_quads, wall_quads, masked_quads, cone_vis_quads) =
+            self.build_quads(viewport_px, mx, my);
         let scene_shaded_quads = self.build_shaded_quads(viewport_px, mx, my);
         let fov_mask = self.build_mask(viewport_px);
         let fog = self.build_fog(viewport_px, OUTSIDE_CONE_DIM);
@@ -277,6 +282,7 @@ impl App {
                 scene_gradient_quads: vec![],
                 scene_shaded_quads,
                 masked_quads,
+                cone_vis_quads,
                 floor_sprites,
                 prop_sprites,
                 wall_quads,

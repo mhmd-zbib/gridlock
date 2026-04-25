@@ -1,6 +1,6 @@
 use crate::camera::TacticalCamera;
 use crate::render::views::EntitiesView;
-use engine::render::quad::{QuadInstance, push_quad};
+use engine::render::quad::{ConeVisInstance, QuadInstance, push_quad};
 
 /// Half-size of an enemy body quad in screen pixels.
 const ENEMY_BODY_HALF_PX: f32 = 8.0;
@@ -19,29 +19,52 @@ pub struct NetBulletTrace {
 /// Total lifetime of a network bullet tracer in seconds.
 pub const NET_BULLET_TTL: f32 = 0.08;
 
+pub struct EntityQuadLayers {
+    pub scene: Vec<QuadInstance>,
+    pub masked: Vec<QuadInstance>,
+    /// Enemies rendered with per-pixel cone visibility (no hard stencil pop).
+    pub cone_vis: Vec<ConeVisInstance>,
+}
+
 /// Build quad instances for dynamic entities: player, remote players, enemies,
 /// and local bullets.
 ///
-/// Returns `(scene_quads, masked_quads)`.
-/// - `scene_quads` are dimmed outside the vision cone.
-/// - `masked_quads` are completely hidden outside the cone.
+/// - `scene`: dimmed outside the vision cone (debug markers).
+/// - `masked`: binary stencil — dim teammates-cone-only enemies, bullets.
+/// - `cone_vis`: per-pixel V(P) for player-visible enemies — soft reveal.
 pub fn entity_quads(
     view: &EntitiesView<'_>,
     camera: &TacticalCamera,
     viewport_px: (f32, f32),
-) -> (Vec<QuadInstance>, Vec<QuadInstance>) {
+) -> EntityQuadLayers {
     let mut scene = Vec::new();
     let mut masked = Vec::new();
+    let mut cone_vis: Vec<ConeVisInstance> = Vec::new();
 
     // Enemies.
     for e in &view.enemies {
         let ep = camera.world_to_screen(e.pos, viewport_px);
-        push_quad(
-            &mut masked,
-            ep,
-            (ENEMY_BODY_HALF_PX, ENEMY_BODY_HALF_PX),
-            e.color,
-        );
+
+        if e.is_visible_to_player {
+            // Per-pixel cone visibility: soft angular + distance fade, no hard clip.
+            cone_vis.push(ConeVisInstance {
+                center: [ep.0, ep.1],
+                half_size: [ENEMY_BODY_HALF_PX, ENEMY_BODY_HALF_PX],
+                color: e.color,
+                viewer_pos: [view.vis_viewer_pos.0, view.vis_viewer_pos.1],
+                view_dir: [view.vis_view_dir.0, view.vis_view_dir.1],
+                cone_a: [
+                    view.vis_cos_inner,
+                    view.vis_cos_outer,
+                    view.vis_range_inner_px,
+                    view.vis_range_outer_px,
+                ],
+                cone_b: [view.vis_circle_radius_px, 0.0, 0.0, 0.0],
+            });
+        } else {
+            // Dim appearance inside stencil (teammate-cone area or outside all cones).
+            push_quad(&mut masked, ep, (ENEMY_BODY_HALF_PX, ENEMY_BODY_HALF_PX), e.color);
+        }
 
         if let Some(dbg) = &e.debug {
             let anchor = camera.world_to_screen(dbg.spawn_anchor, viewport_px);
@@ -70,5 +93,5 @@ pub fn entity_quads(
         push_quad(&mut masked, bullet, (3.0, 3.0), [1.0, 1.0, 0.0, 1.0]);
     }
 
-    (scene, masked)
+    EntityQuadLayers { scene, masked, cone_vis }
 }

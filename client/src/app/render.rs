@@ -1,4 +1,4 @@
-use crate::render::entities::entity_quads;
+use crate::render::entities::{entity_quads, EntityQuadLayers};
 use crate::render::fog::{vision_cone_fog, vision_cone_mask};
 use crate::render::geometry::play_geometry;
 use crate::render::hud::{
@@ -16,7 +16,7 @@ use game::entity::weapon::attachment::AttachmentCategory;
 use game::game::IMPACT_TTL;
 use engine::render::geometry::GeoVertex;
 use engine::render::light::{GpuLight, LightingUniform};
-use engine::render::quad::{QuadInstance, ShadedQuadInstance};
+use engine::render::quad::{ConeVisInstance, QuadInstance, ShadedQuadInstance};
 use engine::render::sprite::SpriteCommand;
 use engine::render::text::TextSection;
 use game::world::floor;
@@ -59,16 +59,16 @@ impl App {
     }
 
     pub(super) fn build_quads(
-        &self,
+        &mut self,
         viewport_px: (f32, f32),
         mx: f32,
         my: f32,
-    ) -> (Vec<QuadInstance>, Vec<QuadInstance>, Vec<QuadInstance>) {
+    ) -> (Vec<QuadInstance>, Vec<QuadInstance>, Vec<QuadInstance>, Vec<ConeVisInstance>) {
         match &self.app_state {
-            AppState::MainMenu(_) => (vec![], vec![], vec![]),
-            AppState::NameEntry => (vec![], vec![], vec![]),
+            AppState::MainMenu(_) => (vec![], vec![], vec![], vec![]),
+            AppState::NameEntry => (vec![], vec![], vec![], vec![]),
             AppState::Loadout(loadout) => {
-                (loadout.instances(viewport_px.0, viewport_px.1), vec![], vec![])
+                (loadout.instances(viewport_px.0, viewport_px.1), vec![], vec![], vec![])
             }
             AppState::Lobby(lobby) => {
                 let selected_team = self.lobby_state.as_ref().map(|s| s.your_team).unwrap_or(0);
@@ -94,24 +94,27 @@ impl App {
                     ),
                     vec![],
                     vec![],
+                    vec![],
                 )
             }
             AppState::Playing => {
                 let world_view = self.playing_world_view();
                 let world = world_quads(&world_view, &self.camera, viewport_px);
 
-                let entities_view = self.playing_entities_view();
-                let (entity_scene, entity_masked) =
+                // Update vis_alphas (needs &mut self) before building the view (&self).
+                self.update_enemy_vis_alphas();
+                let entities_view = self.playing_entities_view(viewport_px);
+                let EntityQuadLayers { scene: entity_scene, masked: entity_masked, cone_vis } =
                     entity_quads(&entities_view, &self.camera, viewport_px);
 
                 let mut scene = world.scene;
                 scene.extend(entity_scene);
-                (scene, world.walls, entity_masked)
+                (scene, world.walls, entity_masked, cone_vis)
             }
             AppState::Editing => {
                 let (scene, walls) =
                     self.editor.layered_instances(viewport_px.0, viewport_px.1, mx, my);
-                (scene, walls, vec![])
+                (scene, walls, vec![], vec![])
             }
         }
     }
@@ -319,12 +322,48 @@ impl App {
         }
     }
 
-    fn playing_entities_view(&self) -> EntitiesView<'_> {
+    fn update_enemy_vis_alphas(&mut self) {
+        const BETA_APPEAR: f32 = 0.25;
+        const BETA_DISAPPEAR: f32 = 0.30;
+        let n = self.game.enemies.len();
+        self.enemy_vis_alphas.resize(n, 0.0);
+        for (i, enemy) in self.game.enemies.iter().enumerate() {
+            let (target, beta) = if enemy.visible_to_player {
+                (1.0_f32, BETA_APPEAR)
+            } else {
+                (0.0_f32, BETA_DISAPPEAR)
+            };
+            self.enemy_vis_alphas[i] += (target - self.enemy_vis_alphas[i]) * beta;
+        }
+    }
+
+    fn playing_entities_view(&self, viewport_px: (f32, f32)) -> EntitiesView<'_> {
+        // Cone params for the per-pixel visibility shader — player's sight in screen space.
+        let transform = self.camera.screen_transform(viewport_px);
+        let ppu = transform.pixels_per_unit;
+        let player = &self.game.player;
+        let direction = player.sight.direction;
+        let half_angle = player.sight.half_angle;
+        let range_px = player.sight.range * ppu;
+        let circle_radius_px = player.sight.circle_radius * ppu;
+
+        // Match the fog shader's feather width (CONE_EDGE_FEATHER = 0.25 rad).
+        const CONE_EDGE_FEATHER: f32 = 0.25;
+        let feather = CONE_EDGE_FEATHER.min(half_angle * 0.4);
+        let cos_inner = (half_angle - feather).cos();
+        let cos_outer = half_angle.cos();
+        let range_inner_px = range_px * 0.15;
+
+        let (viewer_sx, viewer_sy) =
+            transform.world_to_screen((player.movement.x, player.movement.y));
+        let vis_view_dir = (direction.cos(), direction.sin());
+
         let enemies = self
             .game
             .enemies
             .iter()
-            .map(|enemy| {
+            .enumerate()
+            .map(|(i, enemy)| {
                 let pos = (enemy.movement.x, enemy.movement.y);
                 let debug = if self.debug_mode && enemy.kind == EnemyKind::Shooter {
                     Some(EnemyDebugView {
@@ -337,9 +376,17 @@ impl App {
                     None
                 };
 
+                let color = if enemy.visible_to_player {
+                    let vis_alpha = self.enemy_vis_alphas[i];
+                    enemy_body_color_with_alpha(enemy.kind, vis_alpha)
+                } else {
+                    enemy_body_color_dim(enemy.kind)
+                };
+
                 EnemyBodyView {
                     pos,
-                    color: enemy_body_color(enemy.kind, enemy.visible_to_player),
+                    color,
+                    is_visible_to_player: enemy.visible_to_player,
                     debug,
                 }
             })
@@ -356,6 +403,13 @@ impl App {
             enemies,
             bullet_positions,
             remote_players: &self.net_players,
+            vis_viewer_pos: (viewer_sx, viewer_sy),
+            vis_view_dir,
+            vis_cos_inner: cos_inner,
+            vis_cos_outer: cos_outer,
+            vis_range_inner_px: range_inner_px,
+            vis_range_outer_px: range_px,
+            vis_circle_radius_px: circle_radius_px,
         }
     }
 
@@ -627,12 +681,17 @@ fn floor_uv_rect_for_world_size(half_size: (f32, f32)) -> [f32; 4] {
     [u_min, v_min, u_max, v_max]
 }
 
-fn enemy_body_color(kind: EnemyKind, visible: bool) -> [f32; 4] {
-    match (kind, visible) {
-        (EnemyKind::Shooter, true) => [1.0, 0.2, 0.2, 1.0],
-        (EnemyKind::Shooter, false) => [0.6, 0.15, 0.15, 0.55],
-        (EnemyKind::TargetDummy, true) => [1.0, 0.85, 0.2, 1.0],
-        (EnemyKind::TargetDummy, false) => [0.6, 0.5, 0.12, 0.55],
+fn enemy_body_color_with_alpha(kind: EnemyKind, alpha: f32) -> [f32; 4] {
+    match kind {
+        EnemyKind::Shooter => [1.0, 0.2, 0.2, alpha],
+        EnemyKind::TargetDummy => [1.0, 0.85, 0.2, alpha],
+    }
+}
+
+fn enemy_body_color_dim(kind: EnemyKind) -> [f32; 4] {
+    match kind {
+        EnemyKind::Shooter => [0.6, 0.15, 0.15, 0.55],
+        EnemyKind::TargetDummy => [0.6, 0.5, 0.12, 0.55],
     }
 }
 

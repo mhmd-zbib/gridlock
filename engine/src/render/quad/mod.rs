@@ -9,4 +9,4 @@ pub use primitives::{
     shaded_quad, world_quad,
 };
 pub use renderer::Renderer;
-pub use types::{GradientQuadInstance, QuadInstance, ShadedQuadInstance};
+pub use types::{ConeVisInstance, GradientQuadInstance, QuadInstance, ShadedQuadInstance};

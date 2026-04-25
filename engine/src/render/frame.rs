@@ -2,7 +2,7 @@ use super::{
     fog::FogUniforms,
     geometry::GeoVertex,
     light::LightingUniform,
-    quad::{GradientQuadInstance, QuadInstance, ShadedQuadInstance},
+    quad::{ConeVisInstance, GradientQuadInstance, QuadInstance, ShadedQuadInstance},
     sprite::SpriteCommand,
     text::TextSection,
 };
@@ -31,6 +31,9 @@ pub struct Frame {
     pub scene_shaded_quads: Vec<ShadedQuadInstance>,
     /// Non-world entities hidden completely outside the vision cone.
     pub masked_quads: Vec<QuadInstance>,
+    /// Enemies rendered with per-pixel cone visibility (soft angular + distance fade).
+    /// Each instance carries the viewer's cone params so the shader computes V(P) per pixel.
+    pub cone_vis_quads: Vec<ConeVisInstance>,
     /// Textured floor quads (rendered below props and walls).
     pub floor_sprites: Vec<SpriteCommand>,
     /// Textured prop quads (rendered below walls).
@@ -57,6 +60,7 @@ impl Frame {
         self.scene_gradient_quads.clear();
         self.scene_shaded_quads.clear();
         self.masked_quads.clear();
+        self.cone_vis_quads.clear();
         self.floor_sprites.clear();
         self.prop_sprites.clear();
         self.wall_quads.clear();
@@ -76,6 +80,7 @@ impl Default for Frame {
             scene_gradient_quads: Vec::new(),
             scene_shaded_quads: Vec::new(),
             masked_quads: Vec::new(),
+            cone_vis_quads: Vec::new(),
             floor_sprites: Vec::new(),
             prop_sprites: Vec::new(),
             wall_quads: Vec::new(),

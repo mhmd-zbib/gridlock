@@ -116,8 +116,12 @@ pub struct EnemyDebugView {
 
 pub struct EnemyBodyView {
     pub pos: (f32, f32),
-    /// Pre-computed from kind + visibility.
+    /// Base color (RGB). Alpha carries the temporally-smoothed vis_alpha for
+    /// visible enemies, or the fixed dim alpha for teammate-cone-only enemies.
     pub color: [f32; 4],
+    /// True when the enemy is visible through the local player's own cone.
+    /// Determines which render path: cone_vis (soft per-pixel) vs. masked (dim binary).
+    pub is_visible_to_player: bool,
     /// `Some` only when debug mode is active and enemy kind supports it.
     pub debug: Option<EnemyDebugView>,
 }
@@ -126,6 +130,20 @@ pub struct EntitiesView<'a> {
     pub enemies: Vec<EnemyBodyView>,
     pub bullet_positions: Vec<(f32, f32)>,
     pub remote_players: &'a [PlayerState],
+    /// Player position in screen pixels — origin for cone visibility math.
+    pub vis_viewer_pos: (f32, f32),
+    /// Normalised forward vector of the player's sight cone (screen space).
+    pub vis_view_dir: (f32, f32),
+    /// cos(half_angle − feather): inner angular boundary, fully visible inside.
+    pub vis_cos_inner: f32,
+    /// cos(half_angle): outer angular boundary, fully dark at/beyond.
+    pub vis_cos_outer: f32,
+    /// Distance in screen pixels at which cone brightness starts to fall off.
+    pub vis_range_inner_px: f32,
+    /// Maximum cone range in screen pixels — zero brightness beyond this.
+    pub vis_range_outer_px: f32,
+    /// Near-halo radius in screen pixels — always visible within this disk.
+    pub vis_circle_radius_px: f32,
 }
 
 // ---------------------------------------------------------------------------

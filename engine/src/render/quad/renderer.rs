@@ -1,7 +1,7 @@
 use crate::render::stencil_read_state;
 use super::pipeline::make_pipeline;
 use super::shader::SHADER;
-use super::types::{GradientQuadInstance, QuadInstance, ShadedQuadInstance};
+use super::types::{ConeVisInstance, GradientQuadInstance, QuadInstance, ShadedQuadInstance};
 
 use bytemuck::Pod;
 use wgpu::util::DeviceExt;
@@ -35,6 +35,8 @@ pub struct Renderer {
     shaded_pipeline: wgpu::RenderPipeline,
     shaded_pipeline_stencil_equal: wgpu::RenderPipeline,
     shaded_pipeline_stencil_not_equal: wgpu::RenderPipeline,
+    /// Per-pixel cone visibility pipeline (stencil Equal for wall occlusion).
+    cone_vis_pipeline_equal: wgpu::RenderPipeline,
     vertex_buf: wgpu::Buffer,
     index_buf: wgpu::Buffer,
     instance_buf: wgpu::Buffer,
@@ -43,6 +45,7 @@ pub struct Renderer {
     gradient_instance_buf_masked: wgpu::Buffer,
     shaded_instance_buf: wgpu::Buffer,
     shaded_instance_buf_masked: wgpu::Buffer,
+    cone_vis_instance_buf: wgpu::Buffer,
     uniform_buf: wgpu::Buffer,
     bind_group: wgpu::BindGroup,
 }
@@ -116,6 +119,9 @@ impl Renderer {
             write_mask: wgpu::ColorWrites::ALL,
         };
 
+        let cone_vis_instance_buf =
+            make_instance_buf::<ConeVisInstance>(device, "cone vis instances");
+
         // Vertex buffer layouts — defined inline so the attribute arrays' lifetimes
         // are tied to this function scope, which is what make_pipeline needs.
         let solid_vbl = &[
@@ -159,6 +165,21 @@ impl Renderer {
                 ],
             },
         ];
+        let cone_vis_vbl = &[
+            wgpu::VertexBufferLayout {
+                array_stride: std::mem::size_of::<[f32; 2]>() as u64,
+                step_mode: wgpu::VertexStepMode::Vertex,
+                attributes: &wgpu::vertex_attr_array![0 => Float32x2],
+            },
+            wgpu::VertexBufferLayout {
+                array_stride: std::mem::size_of::<ConeVisInstance>() as u64,
+                step_mode: wgpu::VertexStepMode::Instance,
+                attributes: &wgpu::vertex_attr_array![
+                    1 => Float32x2, 2 => Float32x2, 3 => Float32x4,
+                    4 => Float32x2, 5 => Float32x2, 6 => Float32x4, 7 => Float32x4
+                ],
+            },
+        ];
 
         // Closure so each pipeline call is one line instead of nine arguments repeated.
         let make = |vbl, stencil, vs, fs, label| {
@@ -176,8 +197,9 @@ impl Renderer {
             gradient_pipeline_stencil_equal: make(gradient_vbl, eq.clone(), "vs_gradient", "fs_gradient", "grad (eq)"),
             gradient_pipeline_stencil_not_equal: make(gradient_vbl, ne.clone(), "vs_gradient", "fs_gradient", "grad (ne)"),
             shaded_pipeline: make(shaded_vbl, None, "vs_shaded", "fs_shaded", "shaded (plain)"),
-            shaded_pipeline_stencil_equal: make(shaded_vbl, eq, "vs_shaded", "fs_shaded", "shaded (eq)"),
+            shaded_pipeline_stencil_equal: make(shaded_vbl, eq.clone(), "vs_shaded", "fs_shaded", "shaded (eq)"),
             shaded_pipeline_stencil_not_equal: make(shaded_vbl, ne, "vs_shaded", "fs_shaded", "shaded (ne)"),
+            cone_vis_pipeline_equal: make(cone_vis_vbl, eq, "vs_cone_vis", "fs_cone_vis", "cone vis (eq)"),
             vertex_buf,
             index_buf,
             instance_buf,
@@ -186,6 +208,7 @@ impl Renderer {
             gradient_instance_buf_masked,
             shaded_instance_buf,
             shaded_instance_buf_masked,
+            cone_vis_instance_buf,
             uniform_buf,
             bind_group,
         }
@@ -427,6 +450,19 @@ impl Renderer {
     ) {
         self.upload_and_draw_stenciled(encoder, view, stencil_view, queue, sw, sh,
             &self.shaded_pipeline_stencil_equal, &self.shaded_instance_buf_masked, instances);
+    }
+
+    /// Draw enemy quads with per-pixel cone visibility (stencil Equal for wall occlusion).
+    ///
+    /// The shader computes V(P) = A(P)·D(P) + halo for each pixel of each enemy
+    /// quad, giving soft angular and distance falloff instead of a hard stencil clip.
+    pub fn draw_cone_vis_masked(
+        &self, encoder: &mut wgpu::CommandEncoder, view: &wgpu::TextureView,
+        stencil_view: &wgpu::TextureView, queue: &wgpu::Queue, sw: f32, sh: f32,
+        instances: &[ConeVisInstance],
+    ) {
+        self.upload_and_draw_stenciled(encoder, view, stencil_view, queue, sw, sh,
+            &self.cone_vis_pipeline_equal, &self.cone_vis_instance_buf, instances);
     }
 
     pub fn draw_shaded_outside_cone(

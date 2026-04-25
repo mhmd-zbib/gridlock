@@ -9,7 +9,7 @@ use crate::asset::{AssetHandle, TextureCache};
 use super::fog::{FogRenderer, FogUniforms};
 use super::frame::Frame;
 use super::geometry::{GeoVertex, GeometryRenderer, MaskGeometryRenderer};
-use super::quad::{GradientQuadInstance, QuadInstance, Renderer, ShadedQuadInstance};
+use super::quad::{ConeVisInstance, GradientQuadInstance, QuadInstance, Renderer, ShadedQuadInstance};
 use super::sprite::{SpriteCommand, SpriteRenderer};
 use super::text::{TextRenderer, TextSection};
 
@@ -149,6 +149,7 @@ impl State {
             &frame.scene_gradient_quads,
             &frame.scene_shaded_quads,
             &frame.masked_quads,
+            &frame.cone_vis_quads,
             &frame.floor_sprites,
             &frame.prop_sprites,
             &frame.wall_quads,
@@ -166,6 +167,7 @@ impl State {
         scene_gradient_quads: &[GradientQuadInstance],
         scene_shaded_quads: &[ShadedQuadInstance],
         masked_quads: &[QuadInstance],
+        cone_vis_quads: &[ConeVisInstance],
         scene_floor_sprites: &[SpriteCommand],
         scene_prop_sprites: &[SpriteCommand],
         wall_quads: &[QuadInstance],
@@ -180,6 +182,7 @@ impl State {
             scene_gradient_quads,
             scene_shaded_quads,
             masked_quads,
+            cone_vis_quads,
             scene_floor_sprites,
             scene_prop_sprites,
             wall_quads,
@@ -198,6 +201,7 @@ impl State {
         scene_gradient_quads: &[GradientQuadInstance],
         scene_shaded_quads: &[ShadedQuadInstance],
         masked_quads: &[QuadInstance],
+        cone_vis_quads: &[ConeVisInstance],
         scene_floor_sprites: &[SpriteCommand],
         scene_prop_sprites: &[SpriteCommand],
         wall_quads: &[QuadInstance],
@@ -243,7 +247,7 @@ impl State {
             self.render_stencil(
                 &mut encoder, &view, sw, sh,
                 mask_verts, fog, scene_quads, scene_gradient_quads, scene_shaded_quads,
-                masked_quads, scene_floor_sprites, scene_prop_sprites, wall_quads,
+                masked_quads, cone_vis_quads, scene_floor_sprites, scene_prop_sprites, wall_quads,
                 masked_geo_verts,
             );
         }
@@ -307,6 +311,7 @@ impl State {
         scene_gradient_quads: &[GradientQuadInstance],
         scene_shaded_quads: &[ShadedQuadInstance],
         masked_quads: &[QuadInstance],
+        cone_vis_quads: &[ConeVisInstance],
         scene_floor_sprites: &[SpriteCommand],
         scene_prop_sprites: &[SpriteCommand],
         wall_quads: &[QuadInstance],
@@ -322,18 +327,18 @@ impl State {
         self.sprite.draw(encoder, view, &self.queue, sw, sh, scene_prop_sprites, &self.texture_cache);
         self.renderer.draw_load(encoder, view, &self.queue, sw, sh, wall_quads);
         // Pass 3a: spotlight gradient — stencil Equal (inside visible region).
-        //   Bright at the player position, smoothly dims toward the perimeter.
-        //   Because the gradient reaches exactly `outside_dim` at the stencil
-        //   boundary, there is no seam at wall edges.
         // Pass 3b: flat darkness — stencil NotEqual (outside / wall-blocked).
-        //   Light never crosses walls because this two-pass split uses the same
-        //   ray-cast stencil that was written by the cone geometry.
         if let Some(f) = fog {
             self.fog.draw(encoder, view, &self.stencil_view, &self.queue, f);
             self.renderer.draw_dim_overlay(encoder, view, &self.stencil_view, &self.queue, sw, sh, f.outside_dim);
         }
-        // Pass 4: entities — visible only inside the cone.
+        // Pass 4a: dim entities in teammate-cone areas (binary stencil mask).
         self.renderer.draw_masked(encoder, view, &self.stencil_view, &self.queue, sw, sh, masked_quads);
+        // Pass 4b: enemies with per-pixel cone visibility — soft angular + distance fade.
+        //   Each quad carries the viewer's cone params; the shader computes V(P) per pixel
+        //   so cone edges are feathered mathematically rather than hard-clipped by stencil.
+        //   The stencil Equal test is still applied for hard wall occlusion.
+        self.renderer.draw_cone_vis_masked(encoder, view, &self.stencil_view, &self.queue, sw, sh, cone_vis_quads);
         // Pass 5: geometry overlays masked by the cone.
         self.geo.draw_masked(encoder, view, &self.stencil_view, &self.queue, sw, sh, masked_geo_verts);
     }
