@@ -257,11 +257,12 @@ impl App {
     }
 
     fn render_frame(&mut self, sw: f32, sh: f32, mx: f32, my: f32) {
-        const OUTSIDE_CONE_DIM: f32 = 0.60;
+        const OUTSIDE_CONE_DIM: f32 = 0.75;
         let viewport_px = (sw, sh);
         let (scene_quads, wall_quads, masked_quads) = self.build_quads(viewport_px, mx, my);
         let scene_shaded_quads = self.build_shaded_quads(viewport_px, mx, my);
         let fov_mask = self.build_mask(viewport_px);
+        let fog = self.build_fog(viewport_px, OUTSIDE_CONE_DIM);
         let (geo, masked_geo) = self.build_geo(viewport_px);
         let (floor_sprites, prop_sprites) = self.build_sprites(viewport_px);
         let lighting = self.build_lighting(viewport_px);
@@ -270,10 +271,10 @@ impl App {
         if let Some(state) = self.wgpu_state.as_mut() {
             state.render_frame(&engine::render::frame::Frame {
                 fov_mask,
-                outside_dim: OUTSIDE_CONE_DIM,
+                fog,
                 lighting,
                 scene_quads,
-                scene_gradient_quads: Vec::new(),
+                scene_gradient_quads: vec![],
                 scene_shaded_quads,
                 masked_quads,
                 floor_sprites,

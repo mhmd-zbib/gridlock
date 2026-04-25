@@ -1,3 +1,4 @@
+pub mod fog;
 pub mod frame;
 pub mod geometry;
 pub mod light;

@@ -6,6 +6,7 @@ use winit::window::Window;
 
 use crate::asset::{AssetHandle, TextureCache};
 
+use super::fog::{FogRenderer, FogUniforms};
 use super::frame::Frame;
 use super::geometry::{GeoVertex, GeometryRenderer, MaskGeometryRenderer};
 use super::quad::{GradientQuadInstance, QuadInstance, Renderer, ShadedQuadInstance};
@@ -28,6 +29,9 @@ pub struct State {
     stencil_tex: wgpu::Texture,
     stencil_view: wgpu::TextureView,
     mask: MaskGeometryRenderer,
+    /// Per-pixel spotlight fog renderer — computes the darkness/light gradient
+    /// mathematically in the fragment shader rather than via triangle fans.
+    fog: FogRenderer,
 }
 
 impl State {
@@ -75,6 +79,7 @@ impl State {
         let geo = GeometryRenderer::new(&device, format);
         let text = TextRenderer::new(&device, &queue, format);
         let mask = MaskGeometryRenderer::new(&device, format);
+        let fog = FogRenderer::new(&device, format);
         let (stencil_tex, stencil_view) = create_stencil_texture(&device, size.width, size.height);
         let texture_cache = TextureCache::new(&device);
         let sprite = SpriteRenderer::new(&device, format, &texture_cache.bgl);
@@ -94,6 +99,7 @@ impl State {
             stencil_tex,
             stencil_view,
             mask,
+            fog,
         }
     }
 
@@ -105,7 +111,6 @@ impl State {
         self.config.width = new_size.width;
         self.config.height = new_size.height;
         self.surface.configure(&self.device, &self.config);
-        // Recreate stencil texture to match the new viewport dimensions.
         let (tex, view) = create_stencil_texture(&self.device, new_size.width, new_size.height);
         self.stencil_tex = tex;
         self.stencil_view = view;
@@ -121,50 +126,25 @@ impl State {
 
     // ── Asset API ─────────────────────────────────────────────────────────────
 
-    /// Load a PNG from `path`, upload it to the GPU, and return its handle.
-    ///
-    /// Subsequent calls for the same path are deduplicated: the texture is
-    /// only uploaded once and the ref-count is incremented.
-    /// Returns `None` if the file is missing or the format is unsupported.
     pub fn load_texture(&mut self, path: &str) -> Option<AssetHandle> {
         self.texture_cache.load(&self.device, &self.queue, path)
     }
 
-    /// Decrement the ref-count for a previously loaded texture.
-    /// Call `gc_textures()` to reclaim zero-count entries.
     pub fn release_texture(&mut self, handle: AssetHandle) {
         self.texture_cache.release(handle);
     }
 
-    /// Free all textures whose ref-count has dropped to zero.
     pub fn gc_textures(&mut self) {
         self.texture_cache.collect_garbage();
     }
 
     // ── Render ────────────────────────────────────────────────────────────────
 
-    /// Render a frame.
-    ///
-    /// `mask_verts`      — cone geometry written into the stencil buffer.
-    ///   Empty slice = no masking (menus use the plain unmasked path).
-    ///
-    /// `scene_quads`     — base quads (UI / non-wall world quads / scene markers).
-    ///   Outside the cone they receive the `outside_dim` dark overlay.
-    ///
-    /// `masked_quads`    — non-world entities hidden completely outside the cone.
-    ///
-    /// `scene_floor_sprites` — textured floor quads (below props and walls).
-    /// `scene_prop_sprites`  — textured prop quads (below walls).
-    /// `wall_quads`          — wall quads composited above world quads/sprites.
-    ///
-    /// `outside_dim`     — black overlay alpha applied only outside the cone.
-    ///
-    /// `geo_verts`       — overlays always visible on top (UI/debug visuals).
-    /// `masked_geo_verts`— overlays hidden outside the cone (impacts/traces).
     pub fn render_frame(&mut self, frame: &Frame) {
         self.sprite.update_lighting(&self.queue, &frame.lighting);
         self.render(
             &frame.fov_mask,
+            frame.fog.as_ref(),
             &frame.scene_quads,
             &frame.scene_gradient_quads,
             &frame.scene_shaded_quads,
@@ -175,13 +155,13 @@ impl State {
             &frame.geo,
             &frame.masked_geo,
             &frame.texts,
-            frame.outside_dim,
         );
     }
 
     pub fn render(
         &mut self,
         mask_verts: &[GeoVertex],
+        fog: Option<&FogUniforms>,
         scene_quads: &[QuadInstance],
         scene_gradient_quads: &[GradientQuadInstance],
         scene_shaded_quads: &[ShadedQuadInstance],
@@ -192,10 +172,10 @@ impl State {
         geo_verts: &[GeoVertex],
         masked_geo_verts: &[GeoVertex],
         texts: &[TextSection],
-        outside_dim: f32,
     ) {
         self.render_with_overlay(
             mask_verts,
+            fog,
             scene_quads,
             scene_gradient_quads,
             scene_shaded_quads,
@@ -206,7 +186,6 @@ impl State {
             geo_verts,
             masked_geo_verts,
             texts,
-            outside_dim,
             |_, _, _, _, _| {},
         );
     }
@@ -214,6 +193,7 @@ impl State {
     pub fn render_with_overlay<F>(
         &mut self,
         mask_verts: &[GeoVertex],
+        fog: Option<&FogUniforms>,
         scene_quads: &[QuadInstance],
         scene_gradient_quads: &[GradientQuadInstance],
         scene_shaded_quads: &[ShadedQuadInstance],
@@ -224,7 +204,6 @@ impl State {
         geo_verts: &[GeoVertex],
         masked_geo_verts: &[GeoVertex],
         texts: &[TextSection],
-        outside_dim: f32,
         overlay: F,
     ) where
         F: FnOnce(
@@ -263,9 +242,9 @@ impl State {
         } else {
             self.render_stencil(
                 &mut encoder, &view, sw, sh,
-                mask_verts, scene_quads, scene_gradient_quads, scene_shaded_quads,
+                mask_verts, fog, scene_quads, scene_gradient_quads, scene_shaded_quads,
                 masked_quads, scene_floor_sprites, scene_prop_sprites, wall_quads,
-                masked_geo_verts, outside_dim,
+                masked_geo_verts,
             );
         }
 
@@ -304,6 +283,17 @@ impl State {
     }
 
     /// Render pass for gameplay: stencil-masked vision cone.
+    ///
+    /// Pass order:
+    ///   1. Write the FOV cone shape into the stencil buffer; clear colour.
+    ///   2. Draw all world content (scene quads, sprites, walls).
+    ///   3. Fog shader — full-screen per-pixel darkness/spotlight computation.
+    ///      A single pass replaces the old "dim outside" + "cone gradient"
+    ///      approach: the math handles both the illuminated interior and the
+    ///      dark exterior simultaneously with smooth C² falloff curves.
+    ///   4. Entities — hard-masked by the stencil (Equal) so they are
+    ///      completely hidden outside the cone.
+    ///   5. Geometry overlays (impacts, traces) — also stencil-masked.
     #[allow(clippy::too_many_arguments)]
     fn render_stencil(
         &self,
@@ -312,6 +302,7 @@ impl State {
         sw: f32,
         sh: f32,
         mask_verts: &[GeoVertex],
+        fog: Option<&FogUniforms>,
         scene_quads: &[QuadInstance],
         scene_gradient_quads: &[GradientQuadInstance],
         scene_shaded_quads: &[ShadedQuadInstance],
@@ -320,24 +311,30 @@ impl State {
         scene_prop_sprites: &[SpriteCommand],
         wall_quads: &[QuadInstance],
         masked_geo_verts: &[GeoVertex],
-        outside_dim: f32,
     ) {
-        // Pass 1: write cone into stencil buffer; clear colour to black.
+        // Pass 1: cone → stencil; colour cleared to dark background.
         self.mask.draw(encoder, view, &self.stencil_view, &self.queue, sw, sh, mask_verts);
-        // Pass 2: scene geometry (visible everywhere, dimmed outside cone in pass 3).
+        // Pass 2: world geometry (fully visible, fog composited on top).
         self.renderer.draw_load(encoder, view, &self.queue, sw, sh, scene_quads);
         self.renderer.draw_gradient_load(encoder, view, &self.queue, sw, sh, scene_gradient_quads);
         self.renderer.draw_shaded_load(encoder, view, &self.queue, sw, sh, scene_shaded_quads);
-        // Pass 2.5: world sprites, floor below props.
         self.sprite.draw(encoder, view, &self.queue, sw, sh, scene_floor_sprites, &self.texture_cache);
         self.sprite.draw(encoder, view, &self.queue, sw, sh, scene_prop_sprites, &self.texture_cache);
-        // Pass 2.75: walls above sprites.
         self.renderer.draw_load(encoder, view, &self.queue, sw, sh, wall_quads);
-        // Pass 3: darken everything outside the cone.
-        self.renderer.draw_dim_overlay(encoder, view, &self.stencil_view, &self.queue, sw, sh, outside_dim);
-        // Pass 4: entities — hidden completely outside the cone.
+        // Pass 3a: spotlight gradient — stencil Equal (inside visible region).
+        //   Bright at the player position, smoothly dims toward the perimeter.
+        //   Because the gradient reaches exactly `outside_dim` at the stencil
+        //   boundary, there is no seam at wall edges.
+        // Pass 3b: flat darkness — stencil NotEqual (outside / wall-blocked).
+        //   Light never crosses walls because this two-pass split uses the same
+        //   ray-cast stencil that was written by the cone geometry.
+        if let Some(f) = fog {
+            self.fog.draw(encoder, view, &self.stencil_view, &self.queue, f);
+            self.renderer.draw_dim_overlay(encoder, view, &self.stencil_view, &self.queue, sw, sh, f.outside_dim);
+        }
+        // Pass 4: entities — visible only inside the cone.
         self.renderer.draw_masked(encoder, view, &self.stencil_view, &self.queue, sw, sh, masked_quads);
-        // Pass 5: geometry overlays masked by cone (impacts, traces).
+        // Pass 5: geometry overlays masked by the cone.
         self.geo.draw_masked(encoder, view, &self.stencil_view, &self.queue, sw, sh, masked_geo_verts);
     }
 }

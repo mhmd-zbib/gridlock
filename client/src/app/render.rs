@@ -1,5 +1,5 @@
 use crate::render::entities::entity_quads;
-use crate::render::fog::vision_cone_mask;
+use crate::render::fog::{vision_cone_fog, vision_cone_mask};
 use crate::render::geometry::play_geometry;
 use crate::render::hud::{
     editor_texts, loadout_texts, lobby_texts, main_menu_texts, name_entry_texts, play_texts,
@@ -33,6 +33,19 @@ impl App {
             vision_cone_mask(&view, &self.camera, viewport_px)
         } else {
             vec![]
+        }
+    }
+
+    pub(super) fn build_fog(
+        &self,
+        viewport_px: (f32, f32),
+        outside_dim: f32,
+    ) -> Option<engine::render::fog::FogUniforms> {
+        if matches!(&self.app_state, AppState::Playing) {
+            let view = self.playing_fog_view();
+            Some(vision_cone_fog(&view, &self.camera, viewport_px, outside_dim))
+        } else {
+            None
         }
     }
 

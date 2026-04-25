@@ -1,4 +1,5 @@
 use super::{
+    fog::FogUniforms,
     geometry::GeoVertex,
     light::LightingUniform,
     quad::{GradientQuadInstance, QuadInstance, ShadedQuadInstance},
@@ -16,8 +17,11 @@ pub struct Frame {
     /// Cone geometry written into the stencil buffer.
     /// Empty = no masking (menus, lobby).
     pub fov_mask: Vec<GeoVertex>,
-    /// Black overlay alpha applied only outside the vision cone.
-    pub outside_dim: f32,
+    /// Per-pixel fog/spotlight parameters.  `Some` during gameplay, `None`
+    /// for menus and lobby (no vision-cone effect).
+    /// The fog renderer composites a mathematically correct spotlight gradient
+    /// over the entire framebuffer in a single pass — no triangle fans needed.
+    pub fog: Option<FogUniforms>,
     /// Per-frame lighting: ambient term + up to 16 point lights.
     /// Defaults to full-ambient (unlit look) when not set.
     pub lighting: LightingUniform,
@@ -47,7 +51,7 @@ impl Frame {
 
     pub fn clear(&mut self) {
         self.fov_mask.clear();
-        self.outside_dim = 0.0;
+        self.fog = None;
         self.lighting = LightingUniform::default();
         self.scene_quads.clear();
         self.scene_gradient_quads.clear();
@@ -66,7 +70,7 @@ impl Default for Frame {
     fn default() -> Self {
         Self {
             fov_mask: Vec::new(),
-            outside_dim: 0.0,
+            fog: None,
             lighting: LightingUniform::default(),
             scene_quads: Vec::new(),
             scene_gradient_quads: Vec::new(),

@@ -49,6 +49,7 @@ pub fn push_cone_fan(
     }
 }
 
+
 /// Push a filled axis-aligned rectangle in screen space.
 pub fn push_rect(
     out: &mut Vec<GeoVertex>,
