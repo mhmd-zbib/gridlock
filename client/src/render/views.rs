@@ -88,6 +88,18 @@ pub struct PlayerCircleView {
     pub color: [f32; 4],
 }
 
+pub struct SoundRingView {
+    pub radius_px: f32,
+    pub alpha: f32,
+}
+
+pub struct SoundFieldView {
+    pub pos: (f32, f32),
+    pub smoothed_radius_px: f32,
+    pub speed_frac: f32,
+    pub rings: Vec<SoundRingView>,
+}
+
 pub struct GeometryView<'a> {
     pub walls: &'a [Wall],
     pub player_sight: SightConeView,
@@ -101,6 +113,8 @@ pub struct GeometryView<'a> {
     pub debug_rooms: Option<DebugRoomsView>,
     /// True when the local player is dead/spectating — suppresses the aim cone.
     pub is_spectating: bool,
+    /// Sound field for the local player — `None` when spectating.
+    pub sound_field: Option<SoundFieldView>,
 }
 
 // ---------------------------------------------------------------------------

@@ -59,8 +59,7 @@ impl App {
             self.game
                 .load_level(&level, px_to_tiles(sw), px_to_tiles(sh));
         }
-        self.camera
-            .reset((self.game.player.movement.x, self.game.player.movement.y));
+        self.camera.reset(self.game.player_pos());
         self.pending_local_inputs.clear();
         self.predicted_peek_origin = None;
         self.predicted_shot_cooldown = 0.0;

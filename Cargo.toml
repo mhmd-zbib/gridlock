@@ -1,11 +1,12 @@
 [workspace]
-members = ["engine", "game", "client", "server", "net", "ui"]
+members = ["ecs", "engine", "game", "client", "server", "net", "ui"]
 resolver = "2"
 
 [workspace.package]
 edition = "2024"
 
 [workspace.dependencies]
+ecs    = { path = "ecs" }
 game   = { path = "game" }
 engine = { path = "engine" }
 net    = { path = "net" }

@@ -1,3 +1,4 @@
+use ecs::Component;
 
 // ---------------------------------------------------------------------------
 // Tunable constants — edit these to feel the behaviour
@@ -28,6 +29,7 @@ pub const MOVEMENT_SPREAD_FALL_RATE: f32 = 1.8;
 // AimCone
 // ---------------------------------------------------------------------------
 
+#[derive(Clone)]
 pub struct AimCone {
     /// Current aiming direction in radians (matches Sight::direction).
     pub direction: f32,
@@ -167,3 +169,5 @@ pub fn xorshift32(mut state: u32) -> u32 {
     state ^= state << 5;
     state
 }
+
+impl Component for AimCone {}

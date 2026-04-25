@@ -138,8 +138,7 @@ impl App {
                 if f1 {
                     self.game
                         .load_level(&self.editor.level, px_to_tiles(sw), px_to_tiles(sh));
-                    self.camera
-                        .reset((self.game.player.movement.x, self.game.player.movement.y));
+                    self.camera.reset(self.game.player_pos());
                     return Some(AppState::Playing);
                 }
                 None

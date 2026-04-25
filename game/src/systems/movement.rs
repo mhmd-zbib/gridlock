@@ -1,7 +1,6 @@
-use crate::entity::enemy::Enemy;
-use crate::entity::player::Player;
-use engine::input::InputState;
-use crate::spawn::SpawnQueue;
+use ecs::World;
+
+use crate::components::{BulletTag, Position, Velocity};
 use crate::world::bounds::clamp_actor_to_level_bounds;
 use crate::world::level::LevelBounds;
 use crate::world::units::px_to_tiles;
@@ -9,6 +8,29 @@ use crate::world::wall::{self, Wall};
 
 pub const PEEK_DISTANCE: f32 = px_to_tiles(18.0);
 pub const PEEK_LERP_SPEED: f32 = 12.0;
+
+// ---------------------------------------------------------------------------
+// Generic movement system
+// ---------------------------------------------------------------------------
+
+/// Applies velocity to position for all bullet entities.
+///
+/// Actor entities (player and enemies) update their own position through the
+/// input and AI systems, which handle the more complex locomotion logic.
+pub fn run(world: &mut World, dt: f32) {
+    let bullets: Vec<_> = world.entities_with::<BulletTag>();
+    for entity in bullets {
+        let vel = world.get::<Velocity>(entity).copied();
+        if let (Some(vel), Some(pos)) = (vel, world.get_mut::<Position>(entity)) {
+            pos.x += vel.x * dt;
+            pos.y += vel.y * dt;
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Reusable actor movement helpers (shared by server and input/AI systems)
+// ---------------------------------------------------------------------------
 
 /// Step-march `origin` in `dir` up to `max_dist`, stopping before a wall hit.
 /// Returns the farthest safe distance the actor can peek to.
@@ -35,12 +57,9 @@ pub fn clamped_peek_distance(
 }
 
 /// Move an actor by a raw direction vector at a given speed, resolve wall
-/// collisions, and clamp to level bounds.
-///
-/// `dx`/`dy` are the unnormalised intent (e.g. `-1`, `0`, `1`). This function
-/// normalises them so diagonal movement is not faster than axis-aligned movement.
-/// Designed to be called by the server for each connected session so that all
-/// physics math lives in `game`, not in the server crate.
+/// collisions, and clamp to level bounds.  Called by the server for each
+/// connected session so that all physics math lives in `game`, not in the
+/// server crate.
 pub fn apply_actor_movement(
     x: &mut f32,
     y: &mut f32,
@@ -53,67 +72,9 @@ pub fn apply_actor_movement(
     level_bounds: Option<LevelBounds>,
 ) {
     let len = (dx * dx + dy * dy).sqrt();
-    let (ndx, ndy) = if len > 1.0 {
-        (dx / len, dy / len)
-    } else {
-        (dx, dy)
-    };
+    let (ndx, ndy) = if len > 1.0 { (dx / len, dy / len) } else { (dx, dy) };
     *x += ndx * speed * dt;
     *y += ndy * speed * dt;
     wall::resolve_all(x, y, actor_half, walls);
     clamp_actor_to_level_bounds(x, y, actor_half, level_bounds);
-}
-
-/// Apply input, resolve wall collisions, and clamp the player to the level bounds
-/// in one atomic step so no caller needs to know the resolution order.
-pub fn step_player(
-    player: &mut Player,
-    dt: f32,
-    input: &InputState,
-    walls: &[Wall],
-    player_half: f32,
-    level_bounds: Option<LevelBounds>,
-    spawns: &mut SpawnQueue,
-) {
-    player.update(dt, input, walls, player_half, spawns);
-    wall::resolve_all(
-        &mut player.movement.x,
-        &mut player.movement.y,
-        player_half,
-        walls,
-    );
-    clamp_actor_to_level_bounds(
-        &mut player.movement.x,
-        &mut player.movement.y,
-        player_half,
-        level_bounds,
-    );
-}
-
-/// Run AI, move all enemies, resolve their wall collisions, and clamp them to
-/// the level bounds.  The player position is passed so the AI can track it.
-pub fn step_enemies(
-    enemies: &mut [Enemy],
-    dt: f32,
-    player_pos: (f32, f32),
-    walls: &[Wall],
-    enemy_half: f32,
-    level_bounds: Option<LevelBounds>,
-    spawns: &mut SpawnQueue,
-) {
-    for enemy in enemies.iter_mut() {
-        enemy.update(dt, player_pos, walls, spawns);
-        wall::resolve_all(
-            &mut enemy.movement.x,
-            &mut enemy.movement.y,
-            enemy_half,
-            walls,
-        );
-        clamp_actor_to_level_bounds(
-            &mut enemy.movement.x,
-            &mut enemy.movement.y,
-            enemy_half,
-            level_bounds,
-        );
-    }
 }

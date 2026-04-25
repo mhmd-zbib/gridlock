@@ -1,7 +1,7 @@
 use crate::camera::TacticalCamera;
 use crate::render::entities::{NET_BULLET_TTL, NetBulletTrace};
 use crate::render::sight_geometry::{aim_cone_arc_pts, cone_arc_pts_raw};
-use crate::render::views::{DebugRoomsView, GeometryView, PlayerCircleView};
+use crate::render::views::{DebugRoomsView, GeometryView, PlayerCircleView, SoundFieldView};
 use engine::render::geometry::{
     GeoVertex, push_circle_fan, push_cone_fan, push_diamond, push_line_segment, push_rect,
 };
@@ -36,6 +36,11 @@ pub fn play_geometry(
     // Debug: room / gap topology overlay.
     if let Some(rooms) = &view.debug_rooms {
         push_rooms_debug(&mut scene, rooms, camera, viewport_px);
+    }
+
+    // Sound field: boundary ring + pulse rings (always in scene layer).
+    if let Some(sf) = &view.sound_field {
+        push_sound_field(&mut scene, camera.world_to_screen(sf.pos, viewport_px), sf);
     }
 
     // Aim cone (orange, wall-clipped) — hidden while spectating.
@@ -186,6 +191,37 @@ fn rect_outline_edges(rect: (f32, f32, f32, f32)) -> [EdgeSegment; 4] {
         ((x + w, y + h), (x, y + h)),
         ((x, y + h), (x, y)),
     ]
+}
+
+fn push_circle_outline(
+    out: &mut Vec<GeoVertex>,
+    center: (f32, f32),
+    radius: f32,
+    width: f32,
+    color: [f32; 4],
+    n: usize,
+) {
+    use std::f32::consts::TAU;
+    for i in 0..n {
+        let a0 = (i as f32 / n as f32) * TAU;
+        let a1 = ((i + 1) as f32 / n as f32) * TAU;
+        let p0 = (center.0 + radius * a0.cos(), center.1 + radius * a0.sin());
+        let p1 = (center.0 + radius * a1.cos(), center.1 + radius * a1.sin());
+        push_line_segment(out, p0, p1, width, color);
+    }
+}
+
+fn push_sound_field(out: &mut Vec<GeoVertex>, center: (f32, f32), sf: &SoundFieldView) {
+    // Boundary ring: dim at rest, brighter when moving.
+    let edge_alpha = 0.12 + 0.40 * sf.speed_frac;
+    push_circle_outline(out, center, sf.smoothed_radius_px, 1.5, [0.35, 0.85, 1.0, edge_alpha], 48);
+
+    // Expanding pulse rings — amplitude drives opacity.
+    for ring in &sf.rings {
+        if ring.radius_px > 0.5 {
+            push_circle_outline(out, center, ring.radius_px, 2.0, [0.55, 0.92, 1.0, ring.alpha * 0.65], 36);
+        }
+    }
 }
 
 fn push_player_circle(

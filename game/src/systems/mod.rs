@@ -1,4 +1,10 @@
+pub mod ai;
+pub mod combat;
+pub mod input;
+pub mod lifetime;
 pub mod movement;
+pub mod physics;
 pub mod projectile;
+pub mod sound;
 pub mod spawn;
 pub mod visibility;

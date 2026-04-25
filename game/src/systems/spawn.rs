@@ -1,53 +1,48 @@
-use crate::entity::bullet::{Bullet, BulletOwner};
-use crate::entity::enemy::Enemy;
-use crate::spawn::{SpawnQueue, SpawnRequest};
-use crate::systems::projectile::ImpactEvent;
+use ecs::World;
+
+use crate::bundles;
+use crate::entity::enemy::EnemyKind;
+use crate::events::{DestroyEvent, SpawnBulletEvent, SpawnEnemyEvent};
 use crate::world::ray::cast_ray;
 use crate::world::wall::Wall;
+use crate::game::BULLET_MAX_RANGE;
+use crate::events::BulletTraceEvent;
+use crate::entity::bullet::BulletOwner;
 
-/// Materialise all queued spawn requests into live entities.
+/// Materialises all queued `SpawnBulletEvent` and `SpawnEnemyEvent`s into
+/// live entities.
 ///
-/// For player-owned bullets the complete trajectory is ray-cast to the first
-/// wall before the bullet is inserted.  The resulting `ImpactEvent` is appended
-/// to `bullet_traces` so the server can broadcast a `BulletEvent` packet in the
-/// same tick the shot was fired — no need to wait for the projectile to
-/// physically travel to its destination.
-///
-/// Enemy bullets are created without a trace because their hits are tracked
-/// through the projectile system on both client and server.
-pub fn flush_spawn_queue(
-    queue: &mut SpawnQueue,
-    bullets: &mut Vec<Bullet>,
-    enemies: &mut Vec<Enemy>,
-    walls: &[Wall],
-    bullet_traces: &mut Vec<ImpactEvent>,
-    bullet_max_range: f32,
-) {
-    for req in queue.drain() {
-        match req {
-            SpawnRequest::Bullet {
-                x,
-                y,
-                dir_x,
-                dir_y,
-                speed,
-                damage,
-                owner,
-            } => {
-                if matches!(owner, BulletOwner::Player) {
-                    let dist = cast_ray((x, y), (dir_x, dir_y), bullet_max_range, walls);
-                    bullet_traces.push(ImpactEvent {
-                        x: x + dir_x * dist,
-                        y: y + dir_y * dist,
-                        origin_x: x,
-                        origin_y: y,
-                    });
-                }
-                bullets.push(Bullet::new(x, y, dir_x, dir_y, speed, damage, owner));
-            }
-            SpawnRequest::Enemy { x, y } => {
-                enemies.push(Enemy::new(x, y));
-            }
+/// For player-owned bullets, the full trajectory is ray-cast to the first
+/// wall and a `BulletTraceEvent` is emitted so the server can broadcast the
+/// shot in the same tick it was fired, without waiting for the projectile to
+/// travel physically to its destination.
+pub fn run(world: &mut World, walls: &[Wall]) {
+    let bullet_events = world.events.drain::<SpawnBulletEvent>();
+    for ev in bullet_events {
+        if ev.owner == BulletOwner::Player {
+            let dist = cast_ray((ev.x, ev.y), (ev.dir_x, ev.dir_y), BULLET_MAX_RANGE, walls);
+            world.events.emit(BulletTraceEvent {
+                x: ev.x + ev.dir_x * dist,
+                y: ev.y + ev.dir_y * dist,
+                origin_x: ev.x,
+                origin_y: ev.y,
+            });
+        }
+        bundles::spawn_bullet(world, ev.x, ev.y, ev.dir_x, ev.dir_y, ev.speed, ev.damage, ev.owner);
+    }
+
+    let enemy_events = world.events.drain::<SpawnEnemyEvent>();
+    for ev in enemy_events {
+        bundles::spawn_enemy(world, ev.x, ev.y, EnemyKind::Shooter);
+    }
+}
+
+/// Removes all entities for which a `DestroyEvent` was emitted this tick.
+pub fn despawn(world: &mut World) {
+    let events = world.events.drain::<DestroyEvent>();
+    for ev in events {
+        if world.is_alive(ev.entity) {
+            world.despawn(ev.entity);
         }
     }
 }

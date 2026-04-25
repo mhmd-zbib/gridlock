@@ -7,7 +7,8 @@ use crate::render::hud::{
 use crate::render::views::{
     AimConeView, DebugRoomView, DebugRoomsView, EnemyBodyView, EnemyConeView, EnemyDebugView,
     EntitiesView, FloorView, FogView, GeometryView, HudEnemyRow, HudPlayerView, HudView,
-    ImpactView, PlayerCircleView, PropView, SightConeView, TeammateConeFog, WorldView,
+    ImpactView, PlayerCircleView, PropView, SightConeView, SoundFieldView, SoundRingView,
+    TeammateConeFog, WorldView,
 };
 use crate::render::world::world_quads;
 use game::ai::awareness::AiState;
@@ -146,7 +147,8 @@ impl App {
     }
 
     fn playing_fog_view(&self) -> FogView<'_> {
-        let player = &self.game.player;
+        let player_pos = self.game.player_pos();
+        let sight = self.game.player_sight();
         let is_spectating = self.server_me.map(|m| m.health == 0).unwrap_or(false);
 
         let teammate_cones = self
@@ -161,56 +163,52 @@ impl App {
             })
             .collect();
 
-        // Spectators have no sight cone of their own — fog is purely the union
-        // of living teammates' cones (sent by the server for spectators too).
         if is_spectating {
             return FogView {
-                player_pos: (player.movement.x, player.movement.y),
+                player_pos,
                 sight_direction: 0.0,
                 sight_half_angle: 0.0,
                 sight_range: 0.0,
                 sight_circle_radius: 0.0,
                 teammate_cones,
-                walls: &self.game.walls,
+                walls: self.game.walls(),
             };
         }
 
         FogView {
-            player_pos: (player.movement.x, player.movement.y),
-            // Keep look direction fully client-side responsive; server still
-            // authoritatively resolves visibility/combat in snapshots.
-            sight_direction: player.sight.direction,
-            sight_half_angle: player.sight.half_angle,
-            sight_range: player.sight.range,
-            sight_circle_radius: player.sight.circle_radius,
+            player_pos,
+            sight_direction: sight.direction,
+            sight_half_angle: sight.half_angle,
+            sight_range: sight.range,
+            sight_circle_radius: sight.circle_radius,
             teammate_cones,
-            walls: &self.game.walls,
+            walls: self.game.walls(),
         }
     }
 
     fn playing_geometry_view(&self) -> GeometryView<'_> {
-        let player = &self.game.player;
-        let player_pos = (player.movement.x, player.movement.y);
-        let active_stats = player.active_weapon_stats();
+        let player_pos = self.game.player_pos();
+        let sight = self.game.player_sight();
+        let aim_cone = self.game.player_aim_cone();
+        let active_stats = self.game.player_weapon_stats();
         let (aim_dir, aim_half) = if let Some(me) = self.server_me {
-            (player.aim_cone.direction, me.aim_cone_half_angle)
+            (aim_cone.direction, me.aim_cone_half_angle)
         } else {
-            (player.aim_cone.direction, player.aim_cone.half_angle())
+            (aim_cone.direction, aim_cone.half_angle())
         };
 
         let impacts = self
             .game
-            .impacts
-            .iter()
-            .map(|impact| ImpactView {
-                pos: (impact.x, impact.y),
-                alpha: (impact.ttl / IMPACT_TTL).clamp(0.0, 1.0),
+            .impact_views()
+            .into_iter()
+            .map(|iv| ImpactView {
+                pos: (iv.x, iv.y),
+                alpha: iv.alpha,
             })
             .collect();
 
-        let enemy_cones = self
-            .game
-            .enemies
+        let enemies = self.game.enemy_views();
+        let enemy_cones = enemies
             .iter()
             .filter_map(|enemy| {
                 if enemy.kind == EnemyKind::TargetDummy {
@@ -223,16 +221,16 @@ impl App {
                 }
 
                 let alpha_scale = if visible { 1.0 } else { 0.45 };
-                let cone_color = if enemy.brain.awareness.in_combat() {
+                let cone_color = if enemy.ai_in_combat {
                     [1.0, 0.08, 0.08, 0.35 * alpha_scale]
-                } else if enemy.brain.awareness.is_alert() {
+                } else if enemy.ai_is_alert {
                     [1.0, 0.50, 0.05, 0.28 * alpha_scale]
                 } else {
                     [1.0, 0.85, 0.20, 0.14 * alpha_scale]
                 };
 
                 Some(EnemyConeView {
-                    pos: (enemy.movement.x, enemy.movement.y),
+                    pos: (enemy.x, enemy.y),
                     circle_radius_px: tiles_to_px(enemy.sight.circle_radius),
                     circle_color: [1.0, 0.3, 0.3, if visible { 0.05 } else { 0.03 }],
                     cone_color,
@@ -247,7 +245,7 @@ impl App {
             Some(DebugRoomsView {
                 rooms: self
                     .game
-                    .rooms
+                    .rooms()
                     .rooms
                     .iter()
                     .map(|room| DebugRoomView {
@@ -258,7 +256,7 @@ impl App {
                         color: room.color,
                     })
                     .collect(),
-                gaps: self.game.rooms.gaps.clone(),
+                gaps: self.game.rooms().gaps.clone(),
             })
         } else {
             None
@@ -278,7 +276,6 @@ impl App {
 
         let is_spectating = self.server_me.map(|m| m.health == 0).unwrap_or(false);
 
-        // Local player circle — omitted when spectating (no character on the map).
         let mut player_circles: Vec<PlayerCircleView> = if is_spectating {
             vec![]
         } else {
@@ -299,14 +296,42 @@ impl App {
             });
         }
 
+        let sound_field = if is_spectating {
+            None
+        } else {
+            self.game.player_sound_field().map(|sf| {
+                use game::components::{Speed, VelocityFrac};
+                let speed = self.game.world().get::<Speed>(self.game.player_entity())
+                    .copied().unwrap_or_default().0;
+                let vel_frac = self.game.world().get::<VelocityFrac>(self.game.player_entity())
+                    .copied().unwrap_or_default().0;
+                let speed_px = tiles_to_px(speed * vel_frac);
+                let speed_frac = (speed_px / 200.0).clamp(0.0, 1.0);
+                let rings = sf
+                    .pulses
+                    .iter()
+                    .map(|p| SoundRingView {
+                        radius_px: tiles_to_px(p.radius()),
+                        alpha: p.amplitude(),
+                    })
+                    .collect();
+                SoundFieldView {
+                    pos: player_pos,
+                    smoothed_radius_px: tiles_to_px(sf.smoothed_radius),
+                    speed_frac,
+                    rings,
+                }
+            })
+        };
+
         GeometryView {
-            walls: &self.game.walls,
+            walls: self.game.walls(),
             player_sight: SightConeView {
                 pos: player_pos,
-                direction: player.sight.direction,
-                half_angle: player.sight.half_angle,
-                range: player.sight.range,
-                circle_radius: player.sight.circle_radius,
+                direction: sight.direction,
+                half_angle: sight.half_angle,
+                range: sight.range,
+                circle_radius: sight.circle_radius,
             },
             aim_cone: AimConeView {
                 direction: aim_dir,
@@ -319,15 +344,17 @@ impl App {
             player_circles,
             debug_rooms,
             is_spectating,
+            sound_field,
         }
     }
 
     fn update_enemy_vis_alphas(&mut self) {
         const BETA_APPEAR: f32 = 0.25;
         const BETA_DISAPPEAR: f32 = 0.30;
-        let n = self.game.enemies.len();
+        let enemies = self.game.enemy_views();
+        let n = enemies.len();
         self.enemy_vis_alphas.resize(n, 0.0);
-        for (i, enemy) in self.game.enemies.iter().enumerate() {
+        for (i, enemy) in enemies.iter().enumerate() {
             let (target, beta) = if enemy.visible_to_player {
                 (1.0_f32, BETA_APPEAR)
             } else {
@@ -338,46 +365,43 @@ impl App {
     }
 
     fn playing_entities_view(&self, viewport_px: (f32, f32)) -> EntitiesView<'_> {
-        // Cone params for the per-pixel visibility shader — player's sight in screen space.
         let transform = self.camera.screen_transform(viewport_px);
         let ppu = transform.pixels_per_unit;
-        let player = &self.game.player;
-        let direction = player.sight.direction;
-        let half_angle = player.sight.half_angle;
-        let range_px = player.sight.range * ppu;
-        let circle_radius_px = player.sight.circle_radius * ppu;
+        let sight = self.game.player_sight();
+        let player_pos = self.game.player_pos();
+        let direction = sight.direction;
+        let half_angle = sight.half_angle;
+        let range_px = sight.range * ppu;
+        let circle_radius_px = sight.circle_radius * ppu;
 
-        // Match the fog shader's feather width (CONE_EDGE_FEATHER = 0.25 rad).
         const CONE_EDGE_FEATHER: f32 = 0.25;
         let feather = CONE_EDGE_FEATHER.min(half_angle * 0.4);
         let cos_inner = (half_angle - feather).cos();
         let cos_outer = half_angle.cos();
         let range_inner_px = range_px * 0.15;
 
-        let (viewer_sx, viewer_sy) =
-            transform.world_to_screen((player.movement.x, player.movement.y));
+        let (viewer_sx, viewer_sy) = transform.world_to_screen(player_pos);
         let vis_view_dir = (direction.cos(), direction.sin());
 
-        let enemies = self
-            .game
-            .enemies
+        let enemy_views = self.game.enemy_views();
+        let enemies = enemy_views
             .iter()
             .enumerate()
             .map(|(i, enemy)| {
-                let pos = (enemy.movement.x, enemy.movement.y);
+                let pos = (enemy.x, enemy.y);
                 let debug = if self.debug_mode && enemy.kind == EnemyKind::Shooter {
                     Some(EnemyDebugView {
-                        spawn_anchor: enemy.brain.spawn_anchor(),
-                        last_known_pos: enemy.brain.awareness.last_known_pos(),
-                        last_move_target: enemy.brain.last_move_target,
-                        gap_waypoints: enemy.brain.debug_gaps(pos, &self.game.walls),
+                        spawn_anchor: enemy.ai_spawn_anchor,
+                        last_known_pos: enemy.ai_last_known_pos,
+                        last_move_target: enemy.ai_last_move_target,
+                        gap_waypoints: enemy.ai_gap_waypoints.clone(),
                     })
                 } else {
                     None
                 };
 
                 let color = if enemy.visible_to_player {
-                    let vis_alpha = self.enemy_vis_alphas[i];
+                    let vis_alpha = self.enemy_vis_alphas.get(i).copied().unwrap_or(1.0);
                     enemy_body_color_with_alpha(enemy.kind, vis_alpha)
                 } else {
                     enemy_body_color_dim(enemy.kind)
@@ -392,12 +416,7 @@ impl App {
             })
             .collect();
 
-        let bullet_positions = self
-            .game
-            .bullets
-            .iter()
-            .map(|bullet| (bullet.x, bullet.y))
-            .collect();
+        let bullet_positions = self.game.bullet_positions();
 
         EntitiesView {
             enemies,
@@ -416,7 +435,7 @@ impl App {
     fn playing_world_view(&self) -> WorldView<'_> {
         let floors = self
             .game
-            .floors
+            .floors()
             .iter()
             .map(|f| FloorView {
                 pos: (f.x, f.y),
@@ -428,7 +447,7 @@ impl App {
 
         let props = self
             .game
-            .props
+            .props()
             .iter()
             .map(|prop_instance| PropView {
                 pos: (prop_instance.x, prop_instance.y),
@@ -439,42 +458,41 @@ impl App {
             .collect();
 
         WorldView {
-            level_bounds: self.game.level_bounds,
-            walls: &self.game.walls,
+            level_bounds: self.game.level_bounds(),
+            walls: self.game.walls(),
             floors,
             props,
         }
     }
 
     pub(super) fn playing_hud_view(&self) -> HudView<'_> {
-        let player = &self.game.player;
+        let player_pos = self.game.player_pos();
         let attachments_line = AttachmentCategory::all()
             .iter()
             .map(|category| {
                 format!(
                     "{}={}",
                     category.label(),
-                    player.attachment_name_for(*category).unwrap_or("-")
+                    self.game.player_attachment_name_for(*category).unwrap_or("-")
                 )
             })
             .collect::<Vec<_>>()
             .join("  ");
 
         let (debug_rows, speed, room_idx, enemy_count) = if self.debug_mode {
-            let rows = self
-                .game
-                .enemies
+            let enemies = self.game.enemy_views();
+            let rows = enemies
                 .iter()
                 .enumerate()
                 .map(|(idx, enemy)| {
-                    let state_label = match enemy.brain.awareness.state {
+                    let state_label = match enemy.ai_awareness {
                         AiState::Combat => "COMBAT",
                         AiState::Alert => "ALERT ",
                         AiState::Idle => "idle  ",
                     };
-                    let color = if enemy.brain.awareness.in_combat() {
+                    let color = if enemy.ai_in_combat {
                         [1.0, 0.35, 0.35, 1.0]
-                    } else if enemy.brain.awareness.is_alert() {
+                    } else if enemy.ai_is_alert {
                         [1.0, 0.65, 0.2, 1.0]
                     } else {
                         [0.55, 0.8, 0.55, 1.0]
@@ -485,25 +503,29 @@ impl App {
                         is_dummy: enemy.kind == EnemyKind::TargetDummy,
                         hp: enemy.hp,
                         state_label,
-                        suspicion: enemy.brain.awareness.suspicion,
-                        in_combat: enemy.brain.awareness.state == AiState::Combat,
+                        suspicion: enemy.ai_suspicion,
+                        in_combat: enemy.ai_in_combat,
                         color,
-                        pos: (enemy.movement.x, enemy.movement.y),
-                        anchor: enemy.brain.spawn_anchor(),
-                        phase: enemy.brain.phase_name(),
-                        last_known_pos: enemy.brain.awareness.last_known_pos(),
-                        last_move_target: enemy.brain.last_move_target,
+                        pos: (enemy.x, enemy.y),
+                        anchor: enemy.ai_spawn_anchor,
+                        phase: enemy.ai_phase_name,
+                        last_known_pos: enemy.ai_last_known_pos,
+                        last_move_target: enemy.ai_last_move_target,
                     }
                 })
                 .collect();
 
+            use game::components::{Speed, VelocityFrac};
+            let speed_val = self.game.world().get::<Speed>(self.game.player_entity())
+                .copied().unwrap_or_default().0;
+            let vel_frac = self.game.world().get::<VelocityFrac>(self.game.player_entity())
+                .copied().unwrap_or_default().0;
+
             (
                 rows,
-                player.movement.speed * player.movement.velocity_frac,
-                self.game
-                    .rooms
-                    .find_room_at(player.movement.x, player.movement.y),
-                self.game.enemies.len(),
+                speed_val * vel_frac,
+                self.game.rooms().find_room_at(player_pos.0, player_pos.1),
+                self.game.enemy_count(),
             )
         } else {
             (Vec::new(), 0.0, None, 0)
@@ -512,24 +534,24 @@ impl App {
         let ammo = self
             .server_me
             .map(|me| me.ammo)
-            .unwrap_or(player.ammo_in_mag() as u8);
+            .unwrap_or(self.game.player_ammo_in_mag() as u8);
         let reloading = self
             .server_me
             .map(|me| me.reload_progress > 0)
-            .unwrap_or(player.is_reloading());
+            .unwrap_or(self.game.player_is_reloading());
 
         let health = self.server_me.map(|me| me.health).unwrap_or(100);
 
         HudView {
             player: HudPlayerView {
-                weapon_name: player.weapon_name(),
-                weapon_class: player.weapon_class_label(),
+                weapon_name: self.game.player_weapon_name(),
+                weapon_class: self.game.player_weapon_class_label(),
                 ammo,
-                mag_size: player.mag_size(),
+                mag_size: self.game.player_mag_size(),
                 reloading,
                 attachments_line,
                 speed,
-                pos: (player.movement.x, player.movement.y),
+                pos: player_pos,
                 room_idx,
                 enemy_count,
             },
@@ -568,8 +590,7 @@ impl App {
             ..Default::default()
         };
 
-        // Persistent level lights — evaluated each frame for dynamic behaviour.
-        for source in &self.game.lights {
+        for source in self.game.lights() {
             let ev = source.evaluate();
             let (sx, sy) = transform.world_to_screen((ev.x, ev.y));
             let gpu = match ev.cone {
@@ -589,28 +610,23 @@ impl App {
             lighting.push(gpu);
         }
 
-        // Player personal area light — warm white, wide radius.
-        let player = &self.game.player;
-        let (px, py) = transform.world_to_screen((player.movement.x, player.movement.y));
+        // Player personal area light.
+        let (px, py) = transform.world_to_screen(self.game.player_pos());
         lighting.push(GpuLight::point([px, py], 8.0 * ppu, 0.90, [0.95, 0.90, 0.75]));
 
-        // One light per remote player.
         for remote in &self.net_players {
             let (rx, ry) = transform.world_to_screen((remote.x, remote.y));
             lighting.push(GpuLight::point([rx, ry], 5.0 * ppu, 0.70, [0.80, 0.90, 1.00]));
         }
 
-        // Bullet tracers: small hot point lights that travel with each bullet.
-        for bullet in &self.game.bullets {
-            let (bx, by) = transform.world_to_screen((bullet.x, bullet.y));
+        for (bx_w, by_w) in self.game.bullet_positions() {
+            let (bx, by) = transform.world_to_screen((bx_w, by_w));
             lighting.push(GpuLight::point([bx, by], 1.5 * ppu, 1.50, [1.00, 0.80, 0.30]));
         }
 
-        // Impact flashes: bright orange burst that fades with the mark's TTL.
-        for impact in &self.game.impacts {
-            let (ix, iy) = transform.world_to_screen((impact.x, impact.y));
-            let fade = (impact.ttl / IMPACT_TTL).clamp(0.0, 1.0);
-            lighting.push(GpuLight::point([ix, iy], 4.0 * ppu, 2.50 * fade, [1.00, 0.50, 0.10]));
+        for iv in self.game.impact_views() {
+            let (ix, iy) = transform.world_to_screen((iv.x, iv.y));
+            lighting.push(GpuLight::point([ix, iy], 4.0 * ppu, 2.50 * iv.alpha, [1.00, 0.50, 0.10]));
         }
 
         lighting
@@ -698,7 +714,6 @@ fn enemy_body_color_dim(kind: EnemyKind) -> [f32; 4] {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use game::entity::enemy::Enemy;
     use net::{SelfState, encode_rotation};
     use std::sync::Once;
 
@@ -716,7 +731,7 @@ mod tests {
     fn fog_view_prefers_client_predicted_rotation() {
         ensure_workspace_cwd();
         let mut app = App::default();
-        app.game.player.sight.direction = 1.0;
+        app.game.set_player_sight_direction(1.0);
         app.server_me = Some(SelfState {
             rotation: encode_rotation(-0.85),
             health: 100,
@@ -724,17 +739,30 @@ mod tests {
         });
 
         let view = app.playing_fog_view();
-        assert!((view.sight_direction - app.game.player.sight.direction).abs() < 1e-6);
+        let sight_direction = app.game.player_sight().direction;
+        assert!((view.sight_direction - sight_direction).abs() < 1e-6);
     }
 
     #[test]
     fn hidden_enemy_cones_render_only_in_debug_mode() {
         ensure_workspace_cwd();
         let mut app = App::default();
-        app.game.enemies.clear();
-        let mut enemy = Enemy::new(2.0, 2.0);
-        enemy.visible_to_player = false;
-        app.game.enemies.push(enemy);
+        // Clear all existing bot entities and spawn one invisible enemy.
+        {
+            use game::components::{BotTag, VisibilityState};
+            let bots: Vec<_> = app.game.world().entities_with::<BotTag>();
+            for e in bots {
+                app.game.world_mut().despawn(e);
+            }
+            let entity = game::bundles::spawn_enemy(
+                app.game.world_mut(),
+                2.0, 2.0,
+                game::entity::enemy::EnemyKind::Shooter,
+            );
+            if let Some(vs) = app.game.world_mut().get_mut::<VisibilityState>(entity) {
+                vs.score = 0.0;
+            }
+        }
 
         app.debug_mode = false;
         assert!(app.playing_geometry_view().enemy_cones.is_empty());

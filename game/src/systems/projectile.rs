@@ -1,82 +1,119 @@
-use crate::entity::bullet::{Bullet, BulletOwner};
-use crate::entity::enemy::Enemy;
+use ecs::World;
+
+use crate::components::{
+    BotTag, BulletData, BulletTag, CollisionRadius, Damage, PlayerTag, Position,
+};
+use crate::entity::bullet::BulletOwner;
+use crate::events::{BulletTraceEvent, DamageEvent, DestroyEvent};
 use crate::world::wall::{Wall, pierce_breakable_chain};
 
-#[derive(Clone, Copy)]
-pub struct ImpactEvent {
-    /// Impact position (where the bullet stopped).
-    pub x: f32,
-    pub y: f32,
-    /// Muzzle position (where the bullet was spawned).
-    pub origin_x: f32,
-    pub origin_y: f32,
-}
+/// Runs one tick of bullet physics: checks for wall and entity hits, and
+/// emits the appropriate events.  Does not remove any entities directly —
+/// `DespawnSystem` handles that by consuming `DestroyEvent`.
+///
+/// Type-agnostic: operates on any entity with `BulletTag + Position + Damage + BulletData`.
+pub fn run(world: &mut World, walls: &mut Vec<Wall>) {
+    let bullets: Vec<_> = world.entities_with::<BulletTag>();
 
-pub fn step_projectiles(
-    dt: f32,
-    bullets: &mut Vec<Bullet>,
-    walls: &mut Vec<Wall>,
-    enemies: &mut Vec<Enemy>,
-    player_pos: (f32, f32),
-    enemy_half: f32,
-    player_half: f32,
-) -> Vec<ImpactEvent> {
-    let mut impacts = Vec::new();
+    // Collect target positions for hit detection.
+    let bots: Vec<_> = world
+        .entities_with::<BotTag>()
+        .into_iter()
+        .filter_map(|e| {
+            let pos = world.get::<Position>(e).copied()?;
+            let r = world.get::<CollisionRadius>(e).copied()?.0;
+            Some((e, pos, r))
+        })
+        .collect();
 
-    for bullet in bullets.iter_mut() {
-        bullet.update(dt);
-        if let Some(hit_idx) = walls.iter().position(|w| w.contains(bullet.x, bullet.y)) {
+    let players: Vec<_> = world
+        .entities_with::<PlayerTag>()
+        .into_iter()
+        .filter_map(|e| {
+            let pos = world.get::<Position>(e).copied()?;
+            let r = world.get::<CollisionRadius>(e).copied()?.0;
+            Some((e, pos, r))
+        })
+        .collect();
+
+    for bullet in bullets {
+        let pos = match world.get::<Position>(bullet).copied() {
+            Some(p) => p,
+            None => continue,
+        };
+        let data = match world.get::<BulletData>(bullet).copied() {
+            Some(d) => d,
+            None => continue,
+        };
+        let dmg = world.get::<Damage>(bullet).copied().unwrap_or(Damage(1)).0;
+
+        // Wall hit.
+        if let Some(hit_idx) = walls.iter().position(|w| w.contains(pos.x, pos.y)) {
             let (impact_x, impact_y) = if walls[hit_idx].breakable {
-                pierce_breakable_chain(walls, (bullet.x, bullet.y), bullet.dir(), bullet.damage)
+                pierce_breakable_chain(walls, (pos.x, pos.y), bullet_dir(world, bullet), dmg)
             } else {
-                (bullet.x, bullet.y)
+                (pos.x, pos.y)
             };
-            bullet.alive = false;
-            impacts.push(ImpactEvent {
-                x: impact_x,
-                y: impact_y,
-                origin_x: bullet.origin_x,
-                origin_y: bullet.origin_y,
-            });
+
+            emit_trace_if_player_bullet(world, &data, impact_x, impact_y);
+            world.events.emit(DestroyEvent { entity: bullet });
             continue;
         }
 
-        match bullet.owner {
+        // Entity hits — player bullets hit bots, enemy bullets hit players.
+        match data.owner {
             BulletOwner::Player => {
-                let hit_sq = (enemy_half * 2.0) * (enemy_half * 2.0);
-                for enemy in enemies.iter_mut() {
-                    let dx = bullet.x - enemy.movement.x;
-                    let dy = bullet.y - enemy.movement.y;
-                    if dx * dx + dy * dy < hit_sq {
-                        bullet.alive = false;
-                        enemy.hp = enemy.hp.saturating_sub(bullet.damage);
-                        impacts.push(ImpactEvent {
-                            x: bullet.x,
-                            y: bullet.y,
-                            origin_x: bullet.origin_x,
-                            origin_y: bullet.origin_y,
-                        });
-                        break;
-                    }
+                if let Some(&(target, _, _)) =
+                    bots.iter().find(|(_, tp, r)| hit_check(pos, *tp, *r))
+                {
+                    world.events.emit(DamageEvent { target, amount: dmg, source: bullet });
+                    world.events.emit(BulletTraceEvent {
+                        x: pos.x,
+                        y: pos.y,
+                        origin_x: data.origin.0,
+                        origin_y: data.origin.1,
+                    });
+                    world.events.emit(DestroyEvent { entity: bullet });
                 }
             }
             BulletOwner::Enemy => {
-                let dx = bullet.x - player_pos.0;
-                let dy = bullet.y - player_pos.1;
-                let hit_sq = (player_half * 2.0) * (player_half * 2.0);
-                if dx * dx + dy * dy < hit_sq {
-                    bullet.alive = false;
-                    impacts.push(ImpactEvent {
-                        x: bullet.x,
-                        y: bullet.y,
-                        origin_x: bullet.origin_x,
-                        origin_y: bullet.origin_y,
-                    });
+                if let Some(&(target, _, _)) =
+                    players.iter().find(|(_, tp, r)| hit_check(pos, *tp, *r))
+                {
+                    world.events.emit(DamageEvent { target, amount: dmg, source: bullet });
+                    world.events.emit(DestroyEvent { entity: bullet });
                 }
             }
         }
     }
+}
 
-    bullets.retain(|b| b.alive);
-    impacts
+fn hit_check(bullet_pos: Position, target_pos: Position, target_radius: f32) -> bool {
+    let dx = bullet_pos.x - target_pos.x;
+    let dy = bullet_pos.y - target_pos.y;
+    let threshold = target_radius * 2.0;
+    dx * dx + dy * dy < threshold * threshold
+}
+
+fn bullet_dir(world: &World, bullet: ecs::Entity) -> (f32, f32) {
+    use crate::components::Velocity;
+    let vel = world.get::<Velocity>(bullet).copied().unwrap_or_default();
+    let len = (vel.x * vel.x + vel.y * vel.y).sqrt();
+    if len > 1e-9 { (vel.x / len, vel.y / len) } else { (0.0, 0.0) }
+}
+
+fn emit_trace_if_player_bullet(
+    world: &mut World,
+    data: &BulletData,
+    impact_x: f32,
+    impact_y: f32,
+) {
+    if data.owner == BulletOwner::Player {
+        world.events.emit(BulletTraceEvent {
+            x: impact_x,
+            y: impact_y,
+            origin_x: data.origin.0,
+            origin_y: data.origin.1,
+        });
+    }
 }

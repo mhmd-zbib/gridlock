@@ -7,6 +7,7 @@ pub mod prop;
 pub mod ray;
 pub mod rooms;
 pub mod sight;
+pub mod sound;
 pub mod spatial;
 pub mod units;
 pub mod wall;

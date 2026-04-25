@@ -4,8 +4,9 @@ mod sniper;
 
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum WeaponClass {
+    #[default]
     Rifle,
     Smg,
     Sniper,

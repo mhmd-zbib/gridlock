@@ -1,3 +1,5 @@
+use ecs::Component;
+
 use super::ray::{has_los, wrap_angle};
 use super::units::px_to_tiles;
 use super::wall::Wall;
@@ -6,6 +8,7 @@ use super::wall::Wall;
 // Sight
 // ---------------------------------------------------------------------------
 
+#[derive(Clone, Copy)]
 pub struct Sight {
     /// Current facing direction in radians (0 = right, PI/2 = down).
     pub direction: f32,
@@ -82,3 +85,5 @@ impl Sight {
         has_los(from, target, walls)
     }
 }
+
+impl Component for Sight {}

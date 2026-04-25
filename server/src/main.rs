@@ -81,7 +81,7 @@ async fn main() {
         game.load_level(&level, level_w, level_h);
         {
             let mut st = state.lock().unwrap();
-            st.spawn = (game.player.movement.x, game.player.movement.y);
+            st.spawn = game.player_pos();
             st.team1_spawn = level.team1_spawn.map(|p| (p.x, p.y));
             st.team2_spawn = level.team2_spawn.map(|p| (p.x, p.y));
         }
@@ -154,8 +154,8 @@ async fn tick_loop(socket: Arc<NetSocket>, state: Shared, mut game: Game) {
                         session,
                         &input,
                         TICK_DURATION.as_secs_f32(),
-                        &game.walls,
-                        game.level_bounds,
+                        game.walls(),
+                        game.level_bounds(),
                     );
                 }
             }
@@ -167,7 +167,7 @@ async fn tick_loop(socket: Arc<NetSocket>, state: Shared, mut game: Game) {
         let bullets = if game_started {
             let dt = TICK_DURATION.as_secs_f32();
             let mut st = state.lock().unwrap();
-            let b = step_combat(&mut st, &mut game.walls, dt);
+            let b = step_combat(&mut st, game.walls_mut(), dt);
             step_rounds(&mut st, dt);
             b
         } else {
@@ -187,7 +187,7 @@ async fn tick_loop(socket: Arc<NetSocket>, state: Shared, mut game: Game) {
                         let snapshot = build_snapshot_for_player(
                             tick,
                             &bullets,
-                            &game.walls,
+                            game.walls(),
                             &st,
                             addr,
                             session,

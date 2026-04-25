@@ -150,23 +150,19 @@ impl App {
             return;
         }
 
-        let stats = self.game.player.active_weapon_stats();
+        let stats = self.game.player_weapon_stats();
         self.predicted_shot_cooldown = 1.0 / stats.fire_rate_rps.max(0.01);
 
-        let from = (self.game.player.movement.x, self.game.player.movement.y);
-        // Use the same seeded spread the server will compute, so the predicted
-        // tracer matches the authoritative BulletEvent without a visible jump.
-        let dir = self
-            .game
-            .player
-            .aim_cone
-            .sample_direction_seeded(input_packet.shot_seed);
-        // Accumulate recoil so subsequent shots widen the cone, matching server.
-        self.game
-            .player
-            .aim_cone
-            .on_shot(stats.recoil_per_shot_deg, stats.recoil_max_deg);
-        let dist = cast_ray(from, dir, BULLET_MAX_RANGE, &self.game.walls);
+        let from = self.game.player_pos();
+        let aim_cone = self.game.player_aim_cone();
+        let dir = aim_cone.sample_direction_seeded(input_packet.shot_seed);
+        // Accumulate recoil in the ECS component so subsequent shots widen the
+        // cone, matching server behaviour.
+        let player_entity = self.game.player_entity();
+        if let Some(ctrl) = self.game.world_mut().get_mut::<game::components::PlayerController>(player_entity) {
+            ctrl.aim_cone.on_shot(stats.recoil_per_shot_deg, stats.recoil_max_deg);
+        }
+        let dist = cast_ray(from, dir, BULLET_MAX_RANGE, self.game.walls());
         self.net_bullet_traces.push(NetBulletTrace {
             from_x: from.0,
             from_y: from.1,
@@ -209,7 +205,8 @@ impl App {
     }
 
     fn update_play_camera(&mut self, viewport_px: (f32, f32), sw: f32, sh: f32) {
-        let desired_state = if enemies_in_combat(&self.game.enemies) {
+        let enemies = self.game.enemy_views();
+        let desired_state = if enemies_in_combat(&enemies) {
             CameraBehaviorState::Combat
         } else {
             CameraBehaviorState::Exploration
@@ -217,9 +214,9 @@ impl App {
 
         self.camera.update(CameraStepInput {
             viewport_px,
-            player_pos: (self.game.player.movement.x, self.game.player.movement.y),
+            player_pos: self.game.player_pos(),
             bounds: infer_world_bounds(&self.game, px_to_tiles(sw), px_to_tiles(sh)),
-            rooms: &self.game.rooms,
+            rooms: self.game.rooms(),
             desired_state,
         });
     }

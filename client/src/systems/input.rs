@@ -28,8 +28,8 @@ pub fn build_client_packet(
     });
     flags.set_peeking(input.peek);
 
-    let angle =
-        (mouse_world.1 - game.player.movement.y).atan2(mouse_world.0 - game.player.movement.x);
+    let (px, py) = game.player_pos();
+    let angle = (mouse_world.1 - py).atan2(mouse_world.0 - px);
 
     // Hash the sequence number into a well-distributed seed.  Both client (for
     // predicted tracers) and server (for authoritative ray direction) call

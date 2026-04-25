@@ -84,7 +84,7 @@ pub struct App {
     prop_textures: HashMap<String, AssetHandle>,
     /// floor id → GPU texture handle, populated once after the GPU is ready.
     floor_textures: HashMap<String, AssetHandle>,
-    /// Temporally-smoothed visibility alpha per enemy (indexed by game.enemies position).
+    /// Temporally-smoothed visibility alpha per enemy (indexed by enemy_views() order).
     /// Lerps toward 1.0 when visible_to_player, toward 0.0 when not.
     enemy_vis_alphas: Vec<f32>,
     _hud_deps: ::ui::hud::HudDependencies,
@@ -93,7 +93,7 @@ pub struct App {
 impl Default for App {
     fn default() -> Self {
         let game = Game::new();
-        let player_pos = (game.player.movement.x, game.player.movement.y);
+        let player_pos = game.player_pos();
         Self {
             wgpu_state: None,
             input: InputHandler::new(),
